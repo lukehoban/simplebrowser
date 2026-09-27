@@ -108,6 +108,21 @@ func TestPaintBackgroundsBordersAndOrder(t *testing.T) {
 	pixel(t, img, 70, 40, color.RGBA{255, 255, 255, 255})
 }
 
+func TestAnonymousLineDoesNotRepaintParentBackgroundOrBorder(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="width:100px;padding:20px;border:2px solid red;background:green">text</div></body>`,
+		image.Rect(0, 0, 160, 80))
+	red := color.RGBA{255, 0, 0, 255}
+	green := color.RGBA{0, 128, 0, 255}
+
+	// The element paints its border once around the 144px outer box.
+	pixel(t, img, 0, 0, red)
+	pixel(t, img, 143, 20, red)
+	// Its generated line box starts at the content edge. It must not reuse
+	// the element's style to add another border around that line.
+	pixel(t, img, 20, 20, green)
+	pixel(t, img, 21, 21, green)
+}
+
 func TestPaintPerSideBordersAndTransparentBackground(t *testing.T) {
 	img := painted(t, `<div style="margin:0;width:24px;height:12px;background-color:green"><div style="margin:0;width:12px;height:4px;background-color:transparent;border-style:solid;border-width:1px 2px 3px 4px;border-color:red blue yellow black"></div></div>`, image.Rect(0, 0, 40, 30))
 	pixel(t, img, 5, 0, color.RGBA{255, 0, 0, 255})

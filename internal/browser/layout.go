@@ -27,6 +27,10 @@ type Box struct {
 	Text              []TextRun
 	Images            []ImageBox
 	InlineBackgrounds []InlineBackground
+	// Anonymous boxes participate in layout but do not generate a CSS
+	// background or border of their own. Node remains available for
+	// diagnostics and inherited style lookups.
+	Anonymous bool
 	// AtomicInline boxes paint their background in the inline-content phase,
 	// above ancestor inline backgrounds rather than with block backgrounds.
 	AtomicInline bool
@@ -644,9 +648,8 @@ func inlineBlockPartFit(n *StyledNode, available, fit int, faces *faceSet, paren
 	cb.atomicLocal = true
 	box, _ := layoutBlock(used, -margin[3], margin[0], available, faces, cb)
 	box.AtomicInline = true
-	// Anonymous line boxes reuse their parent's DOM node for diagnostics.
-	// Inside an atomic box that would paint the same background and border a
-	// second time over its own content; only the outer border box paints them.
+	// Anonymous line boxes inside atomic boxes are hidden from node-based
+	// box collection so the atomic element is represented only once.
 	for _, child := range box.Children {
 		if child.Node == n.Node {
 			child.Node = nil
@@ -1502,7 +1505,9 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 	if len(lines) == 0 {
 		return nil, 0
 	}
-	box := &Box{Node: parent}
+	// Keep the parent node for diagnostics and inherited style lookups, but
+	// distinguish this generated line container from the parent's CSS box.
+	box := &Box{Node: parent, Anonymous: true}
 	cursor := y
 	for _, l := range lines {
 		xpos := x
