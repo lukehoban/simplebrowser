@@ -30,8 +30,8 @@ tracked in [#197](https://github.com/lukehoban/simplebrowser/issues/197).
 
 `TestEmptyRowReferenceSelectors` checks the unmodified pinned WPT
 `tables/border-collapse-empty-row-ref.html` against equivalent explicit row
-classes. Complete test/reference equality also needs the collapsed-row painting
-fix [#178](https://github.com/lukehoban/simplebrowser/issues/178).
+classes. `TestEmptyRowPinnedReftest` verifies complete test/reference equality
+with the collapsed-row painting fix [#178](https://github.com/lukehoban/simplebrowser/issues/178).
 
 ## Known gaps / follow-ups
 
