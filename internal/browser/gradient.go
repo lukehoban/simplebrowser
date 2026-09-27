@@ -137,9 +137,13 @@ func parseGradient(s string, w, h int) *linearGradient {
 		stops[last].at, stops[last].set = 1, true
 	}
 	// Explicit positions may fall outside [0,1], but must not move backwards.
+	previous := stops[0].at
 	for i := 1; i < len(stops); i++ {
-		if stops[i].set && stops[i].at < stops[i-1].at && stops[i-1].set {
-			stops[i].at = stops[i-1].at
+		if stops[i].set {
+			if stops[i].at < previous {
+				stops[i].at = previous
+			}
+			previous = stops[i].at
 		}
 	}
 	for i := 1; i < len(stops); {
@@ -161,12 +165,6 @@ func parseGradient(s string, w, h int) *linearGradient {
 			stops[k].set = true
 		}
 		i = j + 1
-	}
-	// Clamp explicit stops following an interpolated run.
-	for i := 1; i < len(stops); i++ {
-		if stops[i].at < stops[i-1].at {
-			stops[i].at = stops[i-1].at
-		}
 	}
 	return &linearGradient{image.Rect(0, 0, w, h), dx, dy, stops, s}
 }

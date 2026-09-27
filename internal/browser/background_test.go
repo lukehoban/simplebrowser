@@ -85,6 +85,37 @@ func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
 	}
 }
 
+func TestGradientStopNormalizationAndUnsupportedSyntax(t *testing.T) {
+	g := parseGradient("linear-gradient(to right, red 80%, green, blue 20%, white)", 100, 20)
+	if g == nil {
+		t.Fatal("gradient rejected")
+	}
+	// Explicit backwards positions clamp before distributing unspecified stops.
+	for i, want := range []float64{.8, .8, .8, 1} {
+		if got := g.stops[i].at; got != want {
+			t.Errorf("stop %d = %g, want %g", i, got, want)
+		}
+	}
+	px := parseGradient("linear-gradient(to bottom, red 5px, blue 15px)", 20, 20)
+	if px == nil || px.stops[0].at != .25 || px.stops[1].at != .75 {
+		t.Errorf("pixel stop positions: %+v", px)
+	}
+	for _, invalid := range []string{
+		"radial-gradient(red,blue)",
+		"linear-gradient(red)",
+		"linear-gradient(red, 20%, blue)", // color hint: #127
+		"linear-gradient(red, blue 2em)",
+		"linear-gradient(to sideways, red, blue)",
+	} {
+		if got := parseGradient(invalid, 20, 20); got != nil {
+			t.Errorf("unexpected rendering for %q", invalid)
+		}
+	}
+	if g := parseGradient("linear-gradient(red, blue)", 4097, 20); g != nil {
+		t.Fatal("unbounded gradient allocation")
+	}
+}
+
 func TestBackgroundLayersFetchAndComposite(t *testing.T) {
 	opaque := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	top := image.NewRGBA(image.Rect(0, 0, 2, 2))
