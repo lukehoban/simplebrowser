@@ -383,13 +383,22 @@ func TestSVGStrokeDashArray(t *testing.T) {
 		{"zero gap is skipped", `stroke-dasharray="4 0 4 4"`, 6, red},
 		{"none means solid", `stroke-dasharray="none"`, 6, red},
 		{"negative value is ignored", `stroke-dasharray="-4 4"`, 6, red},
+		{"percentage dash lengths", `stroke-dasharray="10% 10%"`, 1, red},
+		{"percentage gap", `stroke-dasharray="10% 10%"`, 4, clear},
+		{"percentage repeats", `stroke-dasharray="10% 10%"`, 7, red},
+		{"absolute CSS dash lengths", `stroke-dasharray="0.1in 0.1in"`, 2, red},
+		{"absolute CSS gap", `stroke-dasharray="0.1in 0.1in"`, 11, clear},
+		{"percentage offset", `stroke-dasharray="20% 20%" stroke-dashoffset="10%"`, 1, clear},
+		{"percentage offset advances to dash", `stroke-dasharray="20% 20%" stroke-dashoffset="10%"`, 4, red},
 		{"inherited pattern", ``, 6, clear},
 		{"invalid child preserves inherited pattern", `stroke-dasharray="-4 4"`, 6, clear},
+		{"invalid unit preserves inherited pattern", `stroke-dasharray="4em 4px"`, 6, clear},
+		{"none overrides inherited pattern", `stroke-dasharray="none"`, 6, red},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			prefix, suffix := "", ""
-			if strings.Contains(tc.name, "inherited") {
-				prefix, suffix = `<g stroke-dasharray="4 4">`, `</g>`
+			if strings.Contains(tc.name, "inherited") || strings.Contains(tc.name, "overrides inherited") {
+				prefix, suffix = `<g stroke-dasharray="4px 4px">`, `</g>`
 			}
 			img := render(prefix + `<path fill="none" stroke="red" ` + tc.attrs + ` d="M0 6H40"/>` + suffix)
 			got := img.RGBAAt(tc.x, 6)
@@ -416,25 +425,54 @@ func TestSVGStrokeDashArray(t *testing.T) {
 	}
 }
 
+func TestSVGStrokeDashPercentUsesViewBoxDiagonal(t *testing.T) {
+	img, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="10" viewBox="0 0 100 50"><path fill="none" stroke="red" stroke-width="2" stroke-dasharray="10% 10%" d="M0 25H100"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(11, 5); got.A == 0 {
+		t.Errorf("percentage dash = %v, want painted", got)
+	}
+	if got := img.RGBAAt(12, 5); got.A != 0 {
+		t.Errorf("percentage gap = %v, want transparent", got)
+	}
+	if got := img.RGBAAt(14, 5); got.A == 0 {
+		t.Errorf("percentage dash after gap = %v, want painted", got)
+	}
+}
+
 func TestSVGStrokeDashParsingBounds(t *testing.T) {
-	for _, value := range []string{
-		"1,2,3", "0 4", "1e2 3.5",
+	for _, tc := range []struct {
+		value string
+		basis float64
+		want  []float64
+	}{
+		{"1,2,3", 10, []float64{1, 2, 3, 1, 2, 3}},
+		{"0 4", 10, []float64{0, 4}},
+		{"1e2 3.5", 10, []float64{100, 3.5}},
+		{"1in 2.54cm 25.4mm 101.6Q 72pt 6pc", 10, []float64{96, 96, 96, 96, 96, 96}},
+		{"10% 5px", 20, []float64{2, 5}},
 	} {
-		if _, ok := parseSVGStrokeDashArray(value); !ok {
-			t.Errorf("parseSVGStrokeDashArray(%q) rejected a valid pattern", value)
+		got, ok := parseSVGStrokeDashArray(tc.value, tc.basis)
+		if !ok || !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("parseSVGStrokeDashArray(%q, %g) = %v, %v; want %v", tc.value, tc.basis, got, ok, tc.want)
 		}
 	}
 	for _, value := range []string{
-		"-1 2", "NaN 1", "Inf 1", "1e8 1", strings.TrimSpace(strings.Repeat("1 ", maxSVGStrokeDashEntries+1)),
+		"-1 2", "NaN 1", "Inf 1", "1e8 1", "1em 2", ",1 2", "1,,2", "1 2,",
+		strings.TrimSpace(strings.Repeat("1 ", maxSVGStrokeDashEntries+1)),
 	} {
-		if _, ok := parseSVGStrokeDashArray(value); ok {
+		if _, ok := parseSVGStrokeDashArray(value, 10); ok {
 			t.Errorf("parseSVGStrokeDashArray(%q) accepted an invalid pattern", value)
 		}
 	}
-	if got, ok := parseSVGStrokeDashOffset("-2.5px"); !ok || got != -2.5 {
+	if got, ok := parseSVGStrokeDashOffset("-2.5px", 10); !ok || got != -2.5 {
 		t.Errorf("parse negative dash offset = %v, %v; want -2.5, true", got, ok)
 	}
-	if _, ok := parseSVGStrokeDashOffset("1e8"); ok {
+	if got, ok := parseSVGStrokeDashOffset("-10%", 20); !ok || got != -2 {
+		t.Errorf("parse percentage dash offset = %v, %v; want -2, true", got, ok)
+	}
+	if _, ok := parseSVGStrokeDashOffset("1e8", 10); ok {
 		t.Error("accepted an unbounded dash offset")
 	}
 }
@@ -457,6 +495,38 @@ func TestSVGStrokeDashVisual(t *testing.T) {
 			t.Fatal(err)
 		}
 		for name, img := range map[string]*svgImage{"svg-dashes-before.png": before, "svg-dashes-after.png": after} {
+			f, err := os.Create(filepath.Join(path, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(f, img.RGBA)
+			closeErr := f.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("write %s: %v, %v", name, err, closeErr)
+			}
+		}
+	}
+}
+
+func TestSVGStrokeDashLengthsVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "dash-lengths-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("SVG_DASH_LENGTHS_VISUAL_DIR"); path != "" {
+		withoutDash := regexp.MustCompile(`\s+stroke-dash(?:array|offset)="[^"]*"`).ReplaceAll(data, nil)
+		before, err := decodeSVG(withoutDash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, img := range map[string]*svgImage{
+			"svg-dash-lengths-before.png": before,
+			"svg-dash-lengths-after.png":  after,
+		} {
 			f, err := os.Create(filepath.Join(path, name))
 			if err != nil {
 				t.Fatal(err)
