@@ -949,15 +949,29 @@ func matchesPart(n *Node, p SelectorPart) bool {
 	return true
 }
 
-// matchesPseudoClass supports last-child and static link pseudo-classes. Every link is
-// treated as unvisited, and there is no user interaction, so :visited and
-// dynamic pseudo-classes (:hover, :active, :focus, ...) never match. Unknown
-// pseudo-classes and pseudo-elements also never match, so an unsupported
-// selector can only style fewer elements, never more.
+// matchesPseudoClass supports first-child, last-child, and static link
+// pseudo-classes. Every link is treated as unvisited, and there is no user
+// interaction, so :visited and dynamic pseudo-classes (:hover, :active,
+// :focus, ...) never match. Unknown pseudo-classes and pseudo-elements also
+// never match, so an unsupported selector can only style fewer elements,
+// never more.
 func matchesPseudoClass(n *Node, pseudo string) bool {
 	switch pseudo {
 	case "root":
 		return n.Parent == nil || n.Parent.Type != ElementNode
+	case "first-child":
+		if n.Type != ElementNode {
+			return false
+		}
+		if n.Parent == nil {
+			return true // Selectors 4 does not require a parent.
+		}
+		for _, sibling := range n.Parent.Children {
+			if sibling.Type == ElementNode {
+				return sibling == n
+			}
+		}
+		return false
 	case "last-child":
 		if n.Type != ElementNode {
 			return false
