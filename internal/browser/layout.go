@@ -473,9 +473,12 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 			if len(box.Text) != 0 {
 				last := &box.Text[len(box.Text)-1]
 				if last.Node == p.node && last.Rect.Min.Y == cursor {
+					// Measure the merged run as one string: summing per-part
+					// widths rounds up once per word and space, which made
+					// runs (and their underlines) overshoot the drawn glyphs.
 					last.Text += p.text
-					last.Rect.Max.X += w
-					xpos += w
+					last.Rect.Max.X = last.Rect.Min.X + faces.metrics(p.style).width(last.Text)
+					xpos = last.Rect.Max.X
 					continue
 				}
 			}

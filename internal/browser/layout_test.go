@@ -111,6 +111,28 @@ func TestLayoutInlineWrappingAcrossNodeBoundaries(t *testing.T) {
 	}
 }
 
+func TestLayoutTrimsTrailingCollapsibleWhitespacePerLine(t *testing.T) {
+	doc := styledForLayout(t, `<p style="margin:0"><a>first word </a><br><a>last  </a></p>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs := got.Root.Children[0].Children[0].Text
+	var text strings.Builder
+	for _, run := range runs {
+		text.WriteString(run.Text)
+		if strings.HasSuffix(run.Text, " ") {
+			t.Errorf("line-ending run retains collapsible whitespace: %q", run.Text)
+		}
+	}
+	if text.String() != "first wordlast" {
+		t.Fatalf("line text = %q, want trailing whitespace removed", text.String())
+	}
+	if len(runs) < 2 || !strings.Contains(runs[0].Text, " ") {
+		t.Fatalf("space between words was not retained: %+v", runs)
+	}
+}
+
 func TestLayoutClampsNarrowContentWidth(t *testing.T) {
 	doc := styledForLayout(t, `<div style="padding: 20px; border-width: 5px"><p style="margin:0">long word</p></div>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 30, 200))
