@@ -768,7 +768,7 @@ func verticalMargin(n *StyledNode, side string, basis int) int {
 // formatting context, whose margins never collapse with its children.
 func establishesContext(n *StyledNode) bool {
 	if n.Node == nil || n.Node.Parent == nil || n.Node.Type != ElementNode ||
-		strings.EqualFold(n.Node.Name, "html") {
+		strings.EqualFold(n.Node.Name, "html") || n.flexItem {
 		return true
 	}
 	if o := strings.ToLower(strings.TrimSpace(n.Style["overflow"])); o != "" && o != "visible" {
