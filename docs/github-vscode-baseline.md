@@ -7,19 +7,45 @@ is an authored, script-free stand-in assembled from a read-only public page
 inspection; it provides representative repository header, tabs, file list,
 and About landmarks while making the current renderer's limitations visible.
 
-![Current renderer baseline for the authored stand-in](screenshots/github-vscode-baseline.png)
+![Chrome reference (left) vs current simplebrowser baseline (right)](screenshots/github-vscode/comparison.png)
+
+- **Reference (left):**
+  [`chrome-reference.png`](screenshots/github-vscode/chrome-reference.png) is
+  headless Google Chrome 154.0.8037.58 on macOS rendering the same offline
+  fixture over local HTTP at 800×600, device scale 1.
+- **Baseline (right):**
+  [`baseline.png`](screenshots/github-vscode/baseline.png) is today's
+  simplebrowser output. It is a **diagnostic record, not a golden**: no CI job
+  compares it. Refresh it with `make github-vscode-baseline` when the renderer
+  changes.
 
 ## Reproduce
 
 From the repository root, with no network required:
 
 ```sh
-go run ./cmd/simplebrowser -o /tmp/github-vscode-baseline.png testdata/github-vscode/index.html
+make github-vscode-baseline
 ```
 
 The input is [`testdata/github-vscode/index.html`](../testdata/github-vscode/index.html).
-The renderer's viewport is 800×600. Regenerate the committed diagnostic with
-the same command and `-o docs/screenshots/github-vscode-baseline.png`.
+The renderer's viewport is 800×600.
+
+The checked-in Chrome reference was made from a clean local profile while
+serving the committed fixture (no external network is needed):
+
+```sh
+python3 -m http.server 8765 --directory testdata
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --hide-scrollbars --no-first-run \
+  --no-default-browser-check --user-data-dir="$(mktemp -d)" \
+  --window-size=800,600 --force-device-scale-factor=1 \
+  --screenshot=docs/screenshots/github-vscode/chrome-reference.png \
+  http://127.0.0.1:8765/github-vscode/index.html
+```
+
+The command is intentionally documented rather than made a portable Make
+target: a browser executable and its path are host-specific. The comparison
+is a labeled 1600×640 composition of the two 800×600 PNGs.
 
 ## Source, scope, and asset notes
 
@@ -46,10 +72,10 @@ the same command and `-o docs/screenshots/github-vscode-baseline.png`.
   they are not included. The fixture uses original markup and neutral,
   hand-authored CSS, with short repository labels and counts observed in the
   public response.
-- No real-browser screenshot or image comparison is checked in. A browser
-  executable was not available in this checkout environment, and copying the
-  live page's visual assets/styles was not necessary for this baseline. The
-  PNG here is only the current simplebrowser output for the authored fixture.
+- The real-browser reference is only evidence for this original offline
+  stand-in. It does not make the stand-in a screenshot or faithful capture of
+  GitHub, and copying the live page's visual assets/styles remains unnecessary
+  and out of scope.
 
 ## Inspected layout and evidence-backed gaps
 
