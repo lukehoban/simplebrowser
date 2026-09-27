@@ -10,6 +10,7 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
@@ -56,6 +57,9 @@ type metrics struct {
 	smallCapsFace   font.Face
 	size            float64
 	lineHeightValue string
+	// fallback supplies per-glyph fallback faces (same size, weight and
+	// style) for runes the selected face cannot draw. Nil disables fallback.
+	fallback *glyphFallback
 }
 
 func (m metrics) width(s string) int {
@@ -66,14 +70,14 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 	if m.face == nil {
 		return fixed.I(utf8.RuneCountInString(s) * int(m.size*0.55))
 	}
-	if m.smallCapsFace != nil {
-		var total fixed.Int26_6
-		m.eachTextSegment(s, func(face font.Face, text string) {
-			total += font.MeasureString(face, text)
-		})
-		return total
+	if m.smallCapsFace == nil && m.fallback == nil {
+		return font.MeasureString(m.face, s)
 	}
-	return font.MeasureString(m.face, s)
+	var total fixed.Int26_6
+	m.eachTextSegment(s, func(face font.Face, text string) {
+		total += font.MeasureString(face, text)
+	})
+	return total
 }
 
 // Synthetic small caps use uppercase glyphs at 80% of the selected face's
@@ -85,7 +89,17 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 // (ß → SS, ﬁ → FI, ŉ → ʼN). Mapping a whole contiguous lowercase segment
 // rather than rune-by-rune keeps any context-sensitive rules deterministic.
 // Language-tailored mappings (lang="tr", "lt", "el") are not applied.
+//
+// Each case segment is further split into per-glyph fallback runs (see
+// glyphFallback), after any small-caps mapping so expansions such as ŉ → ʼN
+// also fall back.
 func (m metrics) eachTextSegment(s string, visit func(font.Face, string)) {
+	if m.fallback != nil {
+		inner := visit
+		visit = func(face font.Face, text string) {
+			m.fallback.eachRun(face, face == m.smallCapsFace, text, inner)
+		}
+	}
 	if m.smallCapsFace == nil {
 		visit(m.face, s)
 		return
@@ -174,6 +188,9 @@ type faceSet struct {
 	// images holds the render-scoped decoded resources keyed by DOM node, so
 	// layout never fetches during measurement.
 	images map[*Node]image.Image
+	// coverage caches per-font glyph presence for per-glyph fallback.
+	coverage map[coverageKey]bool
+	glyphBuf sfnt.Buffer
 }
 
 type faceKey struct {
@@ -208,9 +225,11 @@ func (f *faceSet) metrics(style ComputedStyle) metrics {
 	face := f.face(key, variant)
 	m := metrics{face: face, size: size, lineHeightValue: style["line-height"]}
 	if strings.EqualFold(strings.TrimSpace(style["font-variant"]), "small-caps") {
-		key.size = size * .8
-		m.smallCapsFace = f.face(key, variant)
+		small := key
+		small.size = size * .8
+		m.smallCapsFace = f.face(small, variant)
 	}
+	m.fallback = f.glyphFallback(key, variant)
 	return m
 }
 
