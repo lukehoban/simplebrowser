@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="140" viewBox="0 0 320 140">
+  <rect width="320" height="140" fill="#f5f1e8"/>
+  <defs>
+    <pattern id="checks" width=".25" height=".25" patternContentUnits="objectBoundingBox">
+      <rect width=".125" height=".125" fill="#ef4444"/>
+      <rect x=".125" y=".125" width=".125" height=".125" fill="#2563eb"/>
+    </pattern>
+    <pattern id="dots" width=".3" height=".3" patternContentUnits="objectBoundingBox"
+             patternTransform="rotate(20)">
+      <circle cx=".1" cy=".1" r=".08" fill="#16a34a"/>
+    </pattern>
+  </defs>
+  <rect x="16" y="16" width="136" height="108" rx="10" fill="url(#checks) #64748b"/>
+  <circle cx="236" cy="70" r="54" fill="url(#dots) #64748b"
+          stroke="url(#checks) #64748b" stroke-width="8"/>
+</svg>
