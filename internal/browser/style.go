@@ -139,6 +139,9 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	applySheet := func(sheet Stylesheet, origin int) {
 		for _, rule := range sheet.Rules {
+			if rule.Media != "" && !mediaQueryMatches(rule.Media, viewport) {
+				continue
+			}
 			for _, selector := range rule.Selectors {
 				if matchesSelector(n, selector) {
 					spec := specificity(selector)
@@ -182,6 +185,150 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	resolveFontRelativeValues(values, rootFontSize)
 	return values
+}
+
+// mediaQueryMatches deliberately implements the fixed rendering environment:
+// layout is a screen viewport, color is light, and motion is unrestricted.
+func mediaQueryMatches(query string, viewport image.Point) bool {
+	for _, alternative := range splitMediaList(query) {
+		if mediaQueryAlternativeMatches(strings.TrimSpace(alternative), viewport) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitMediaList(s string) []string {
+	var result []string
+	start, depth := 0, 0
+	for i, r := range s {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				result = append(result, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(result, s[start:])
+}
+
+func mediaQueryAlternativeMatches(query string, viewport image.Point) bool {
+	query = strings.Join(strings.Fields(strings.ToLower(query)), " ")
+	negated := strings.HasPrefix(query, "not ")
+	if negated {
+		query = strings.TrimSpace(query[4:])
+	}
+	if strings.HasPrefix(query, "only ") {
+		query = strings.TrimSpace(query[5:])
+	}
+	parts := splitMediaAnd(query)
+	if len(parts) == 0 {
+		return false
+	}
+	mediaType := strings.TrimSpace(parts[0])
+	if mediaType == "screen" || mediaType == "all" {
+		parts = parts[1:]
+	} else if mediaType == "print" {
+		return negated // The renderer is never a print medium.
+	} else if !strings.HasPrefix(mediaType, "(") {
+		return false
+	}
+	matches := true
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.Trim(part, "()"))
+		colon := strings.IndexByte(part, ':')
+		if colon < 0 {
+			matches = false
+			break
+		}
+		name, value := strings.TrimSpace(part[:colon]), strings.TrimSpace(part[colon+1:])
+		switch name {
+		case "min-width", "max-width":
+			width, ok := mediaLength(value)
+			if !ok || (name == "min-width" && float64(viewport.X) < width) ||
+				(name == "max-width" && float64(viewport.X) > width) {
+				matches = false
+			}
+		case "prefers-color-scheme":
+			matches = matches && value == "light"
+		case "prefers-reduced-motion":
+			matches = matches && value == "no-preference"
+		default:
+			matches = false
+		}
+	}
+	if negated {
+		return !matches
+	}
+	return matches
+}
+
+func splitMediaAnd(s string) []string {
+	var result []string
+	start, depth := 0, 0
+	for i := 0; i < len(s); {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		}
+		if depth == 0 && i+5 <= len(s) && strings.EqualFold(s[i:i+5], " and ") {
+			result = append(result, s[start:i])
+			i += 5
+			start = i
+			continue
+		}
+		i++
+	}
+	return append(result, s[start:])
+}
+
+func mediaLength(value string) (float64, bool) {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if strings.HasPrefix(value, "calc(") && strings.HasSuffix(value, ")") {
+		value = strings.TrimSpace(value[5 : len(value)-1])
+	}
+	total := 0.0
+	sign := 1.0
+	for {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return total, true
+		}
+		if value[0] == '+' || value[0] == '-' {
+			if value[0] == '-' {
+				sign = -1
+			} else {
+				sign = 1
+			}
+			value = value[1:]
+			continue
+		}
+		end := 0
+		for end < len(value) && (value[end] == '.' || value[end] >= '0' && value[end] <= '9') {
+			end++
+		}
+		if end == 0 || !strings.HasPrefix(strings.TrimSpace(value[end:]), "px") {
+			return 0, false
+		}
+		n, err := strconv.ParseFloat(value[:end], 64)
+		if err != nil {
+			return 0, false
+		}
+		total += sign * n
+		value = strings.TrimSpace(value[end+2:])
+		sign = 1
+	}
 }
 
 func normalizedLanguage(value string) string {

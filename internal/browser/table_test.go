@@ -432,8 +432,10 @@ func TestTableHackerNewsFixtureGeometry(t *testing.T) {
 	if len(tables) < 3 {
 		t.Fatalf("fixture tables = %d", len(tables))
 	}
-	if tables[0].Rect.Dx() != 680 {
-		t.Fatalf("hnmain width = %d, want 85%% of the 800px viewport", tables[0].Rect.Dx())
+	// The mobile-only max-width:750px rule must not apply at the 800px
+	// viewport; the body's default 8px margins leave 784px for the table.
+	if tables[0].Rect.Dx() != 666 {
+		t.Fatalf("hnmain width = %d, want 85%% of the 784px body content", tables[0].Rect.Dx())
 	}
 	rows := collectBoxes(got.Root, "tr")
 	cells := collectBoxes(got.Root, "td")
