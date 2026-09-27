@@ -412,7 +412,7 @@ func (p *painter) paintFlowBackgrounds(boxes []*Box) {
 		if positioned, _, _ := p.stacking(box); positioned {
 			continue
 		}
-		if p.isFloat(box) {
+		if p.isFloat(box) || box.AtomicInline {
 			continue
 		}
 		p.paintBackground(box)
@@ -441,6 +441,9 @@ func (p *painter) paintFlowContent(boxes []*Box) {
 		}
 		if p.isFloat(box) {
 			continue
+		}
+		if box.AtomicInline {
+			p.paintBackground(box)
 		}
 		p.paintContent(box)
 		p.paintFlowContent(box.Children)

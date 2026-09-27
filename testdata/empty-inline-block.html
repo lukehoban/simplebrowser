@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Empty inline-block boxes</title>
+<style>
+  body { margin: 12px; font: 16px sans-serif; background: #fff; color: #222 }
+  h1 { font-size: 16px; margin: 0 0 8px }
+  .row { background: yellow; margin-bottom: 12px }
+  .flat { line-height: 0 }
+  .box { display: inline-block; width: 10px; height: 10px; background: grey }
+  .wide { display: inline-block; width: 24px; height: 24px; background: #3f7fdf;
+          margin: 4px; padding: 2px; border: 3px solid #123 }
+  table { display: table; border-collapse: collapse; margin-right: 12px }
+  td { border: 10px solid black; line-height: 0; padding: 0 }
+  td span { display: inline-block; width: 10px; height: 10px; background: grey }
+</style>
+</head>
+<body>
+<h1>Empty inline-block with explicit width/height</h1>
+<div class="row"><span class="box"></span></div>
+<div class="row flat"><span class="box"></span></div>
+<div class="row">text before <span class="box"></span> text after</div>
+<div class="row"><span class="wide"></span><span class="wide"></span></div>
+<table>
+  <tr><td><span></span></td><td><span></span></td></tr>
+  <tr></tr>
+  <tr><td><span></span></td><td><span></span></td></tr>
+</table>
+</body>
+</html>
