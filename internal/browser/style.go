@@ -121,6 +121,13 @@ func specificity(s Selector) [3]int {
 			result[0]++
 		}
 		result[1] += len(p.Classes)
+		for _, pseudo := range p.PseudoClasses {
+			if strings.HasPrefix(pseudo, ":") {
+				result[2]++ // pseudo-elements count like type selectors
+			} else {
+				result[1]++
+			}
+		}
 		if p.Tag != "" && p.Tag != "*" {
 			result[2]++
 		}
@@ -173,7 +180,29 @@ func matchesPart(n *Node, p SelectorPart) bool {
 			return false
 		}
 	}
+	for _, pseudo := range p.PseudoClasses {
+		if !matchesPseudoClass(n, pseudo) {
+			return false
+		}
+	}
 	return true
+}
+
+// matchesPseudoClass supports the static link pseudo-classes. Every link is
+// treated as unvisited, and there is no user interaction, so :visited and
+// dynamic pseudo-classes (:hover, :active, :focus, ...) never match. Unknown
+// pseudo-classes and pseudo-elements also never match, so an unsupported
+// selector can only style fewer elements, never more.
+func matchesPseudoClass(n *Node, pseudo string) bool {
+	switch pseudo {
+	case "link", "any-link":
+		if n.Name != "a" && n.Name != "area" {
+			return false
+		}
+		_, ok := n.Attribute("href")
+		return ok
+	}
+	return false
 }
 
 func expandDeclaration(d Declaration) []Declaration {
