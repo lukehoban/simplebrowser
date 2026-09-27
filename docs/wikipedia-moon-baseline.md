@@ -36,7 +36,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | broken nesting; later rules leak unconditionally → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
 | `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | not evaluated → [#251](https://github.com/lukehoban/simplebrowser/issues/251) |
 | Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | [#247](https://github.com/lukehoban/simplebrowser/issues/247) (shared with #242) |
-| Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | not placed → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
+| Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and wrapping implemented in [#252](https://github.com/lukehoban/simplebrowser/issues/252); infobox rule still requires `@media` [#250](https://github.com/lukehoban/simplebrowser/issues/250); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | [#246](https://github.com/lukehoban/simplebrowser/issues/246) (shared with #242) |
 | `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
 | `overflow:hidden` / `clip` | hidden skip link, dropdown label text | not clipped → [#253](https://github.com/lukehoban/simplebrowser/issues/253) |
@@ -54,8 +54,9 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 3. [#246](https://github.com/lukehoban/simplebrowser/issues/246) custom
    properties and [#254](https://github.com/lukehoban/simplebrowser/issues/254)
    `calc()`: colors, sizes and the image width.
-4. [#252](https://github.com/lukehoban/simplebrowser/issues/252) floats: the
-   infobox beside the lead text.
+4. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
+   clearance and margin collapse, after [#252](https://github.com/lukehoban/simplebrowser/issues/252)
+   float placement.
 5. [#247](https://github.com/lukehoban/simplebrowser/issues/247) flexbox: the
    header, title bar and tabs.
 6. [#253](https://github.com/lukehoban/simplebrowser/issues/253) overflow
@@ -65,6 +66,9 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 Each new issue has a small repro in
 [`testdata/wikipedia-moon/repros/`](../testdata/wikipedia-moon/repros) and an
 expected-versus-current visual in `docs/screenshots/wikipedia-moon/`.
+The [float before/after comparison](screenshots/wikipedia-moon/float-before-after.png)
+shows the right box and line wrapping in isolation; the full Moon baseline
+still lacks its media-guarded infobox until #250.
 
 ## Out of scope
 

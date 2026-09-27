@@ -1,6 +1,6 @@
 # Compatibility coverage matrix
 
-**Blocking regression set: 38/38 pinned WPT reference assertions passing.** New coverage is diagnostic: WPT 5/7, repo-owned references 1/4.
+**Blocking regression set: 38/38 pinned WPT reference assertions passing.** New coverage is diagnostic: WPT 3/7, repo-owned references 2/4.
 
 Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels. The selected tests are a bounded coverage matrix, not a general conformance score. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
 
@@ -17,10 +17,10 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | WPT | Box direction | 4 | 0 | 0 | 4 |
 | WPT | Margins | 5 | 0 | 0 | 5 |
 | WPT | Positioning | 6 | 2 | 0 | 8 |
-| WPT | Floats and clear | 2 | 0 | 0 | 2 |
+| WPT | Floats and clear | 0 | 2 | 0 | 2 |
 | WPT | Line boxes | 1 | 0 | 0 | 1 |
 | Local | Backgrounds | 1 | 0 | 0 | 1 |
-| Local | Floats and clear | 0 | 1 | 0 | 1 |
+| Local | Floats and clear | 1 | 0 | 0 | 1 |
 | Local | Tables | 0 | 2 | 0 | 2 |
 
 ## Assertions
@@ -66,14 +66,14 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | WPT | Colors | `colors/color-applies-to-002.xht` | `colors/color-applies-to-001-ref.xht` (match) | **pass** | 0 | Color application outside the element exercised here. |
 | WPT | Colors | `colors/color-applies-to-003.xht` | `colors/color-applies-to-001-ref.xht` (match) | **pass** | 0 | Color application outside the element exercised here. |
 | WPT | Margins | `margin-padding-clear/margin-collapse-003.xht` | `margin-padding-clear/margin-collapse-003-ref.xht` (match) | **pass** | 0 | Floats, clearance, negative margins, and margin trimming. |
-| WPT | Floats and clear | `floats-clear/clear-001.xht` | `floats-clear/clear-001-ref.xht` (match) | **pass** | 0 | Right floats, multiple floats, and margin-collapse interactions. |
-| WPT | Floats and clear | `floats-clear/clear-002.xht` | `floats-clear/clear-002-ref.xht` (match) | **pass** | 0 | Right floats, nested formatting contexts, and negative clearance. |
+| WPT | Floats and clear | `floats-clear/clear-001.xht` | `floats-clear/clear-001-ref.xht` (match) | **fail** | 9216 | Right floats, multiple floats, and margin-collapse interactions. |
+| WPT | Floats and clear | `floats-clear/clear-002.xht` | `floats-clear/clear-002-ref.xht` (match) | **fail** | 36864 | Right floats, nested formatting contexts, and negative clearance. |
 | WPT | Positioning | `positioning/bottom-offset-percentage-001.xht` ([#216](https://github.com/lukehoban/simplebrowser/issues/216)) | `positioning/bottom-offset-percentage-001-ref.xht` (match) | **fail** | 5000 | Auto offsets, replaced elements, and indefinite containing-block heights. |
 | WPT | Positioning | `positioning/position-relative-004.xht` ([#76](https://github.com/lukehoban/simplebrowser/issues/76)) | `positioning/position-relative-004-ref.xht` (match) | **fail** | 36864 | Writing modes, bidi reordering, and positioned descendants. |
 | WPT | Backgrounds | `backgrounds/background-body-001.xht` | `backgrounds/background-body-001-ref.xht` (match) | **pass** | 0 | Background images, repeat, position, size, and multiple layers. |
 | WPT | Line boxes | `linebox/line-box-height-002.xht` | `linebox/line-box-height-002-ref.xht` (match) | **pass** | 0 | Mixed fonts, vertical-align variants, bidi, and vertical writing modes. |
 | Local | Backgrounds | `canvas-background-image.html` ([#63](https://github.com/lukehoban/simplebrowser/issues/63)) | `canvas-background-image-ref.html` (match) | **pass** | 0 | Positioning, sizing, non-solid tiles, multiple layers, and root-image propagation. |
-| Local | Floats and clear | `float-clearance-margin-collapse.html` ([#68](https://github.com/lukehoban/simplebrowser/issues/68)) | `float-clearance-margin-collapse-ref.html` (match) | **fail** | 37888 | Right floats, multiple floats, inline wrapping, and negative margins. |
+| Local | Floats and clear | `float-clearance-margin-collapse.html` ([#68](https://github.com/lukehoban/simplebrowser/issues/68)) | `float-clearance-margin-collapse-ref.html` (match) | **pass** | 0 | Right floats, multiple floats, inline wrapping, and negative margins. |
 | Local | Tables | `collapsed-border-conflict.html` ([#66](https://github.com/lukehoban/simplebrowser/issues/66)) | `collapsed-border-conflict-ref.html` (match) | **fail** | 240 | Row/table borders, style precedence, spans, and multi-row conflicts. |
 | Local | Tables | `inline-table-line-edge.html` ([#209](https://github.com/lukehoban/simplebrowser/issues/209)) | `inline-table-line-edge-ref.html` (match) | **fail** | 244 | Multiple cells, spans, captions, bidi, and vertical alignment variants. |
 
