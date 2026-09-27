@@ -52,7 +52,8 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 				images[n.Node] = load(document.BaseURL, src.Value)
 			}
 		}
-		if n.Node.Type == ElementNode {
+		if n.Node.Type == ElementNode && n.Style["background-image"] != "" &&
+			!strings.EqualFold(strings.TrimSpace(n.Style["background-image"]), "none") {
 			for _, layer := range backgroundLayers(n.Style["background-image"]) {
 				if source := backgroundURL(layer); source != "" {
 					backgrounds[n.Node] = append(backgrounds[n.Node], load(document.BaseURL, source))
