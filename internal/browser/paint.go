@@ -625,38 +625,64 @@ func (p *painter) paintBackground(box *Box) {
 		}
 		if box.BorderOnly {
 			if box.BorderWidths != nil {
-				drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+				r := usedRadii(style, box.Rect)
+				if hasRadius(r) {
+					paintRoundedBox(p.canvas, box.Rect, style, *box.BorderWidths, r, func(*image.RGBA) {})
+				} else {
+					drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+				}
 			}
 			return
 		}
 		propagated := box.Node == p.canvasRoot || (p.bodyBackgroundPropagated && box.Node == p.canvasBody)
-		if !propagated {
-			if c, ok := backgroundColor(style); ok {
-				fill(p.canvas, box.Rect, c)
-			}
+		widths := [4]int{borderWidth(style, "top"), borderWidth(style, "right"),
+			borderWidth(style, "bottom"), borderWidth(style, "left")}
+		if box.BorderWidths != nil {
+			widths = *box.BorderWidths
 		}
-		layers := p.document.BackgroundImages[box.Node]
-		for i := len(layers) - 1; i >= 0; i-- {
-			src := layers[i]
-			if src == nil {
-				values := backgroundLayers(style["background-image"])
-				if i < len(values) {
-					area := box.Rect
-					area.Min.X += borderWidth(style, "left")
-					area.Min.Y += borderWidth(style, "top")
-					area.Max.X -= borderWidth(style, "right")
-					area.Max.Y -= borderWidth(style, "bottom")
-					if gradient := parseGradient(values[i], area.Dx(), area.Dy()); gradient != nil {
-						src = gradient
-					}
+		r := usedRadii(style, box.Rect)
+		canvas := p.canvas
+		rounded := hasRadius(r)
+		if rounded {
+			p.canvas = image.NewRGBA(box.Rect.Intersect(canvas.Bounds()))
+		}
+		backgroundLayer := p.canvas
+		func() {
+			if rounded {
+				defer func() { p.canvas = canvas }()
+			}
+			if !propagated {
+				if c, ok := backgroundColor(style); ok {
+					fill(p.canvas, box.Rect, c)
 				}
 			}
-			drawBackgroundImage(p.canvas, box, src, backgroundLayerStyle(style, i))
-		}
-		if box.BorderWidths != nil {
-			drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+			layers := p.document.BackgroundImages[box.Node]
+			for i := len(layers) - 1; i >= 0; i-- {
+				src := layers[i]
+				if src == nil {
+					values := backgroundLayers(style["background-image"])
+					if i < len(values) {
+						area := box.Rect
+						area.Min.X += borderWidth(style, "left")
+						area.Min.Y += borderWidth(style, "top")
+						area.Max.X -= borderWidth(style, "right")
+						area.Max.Y -= borderWidth(style, "bottom")
+						if gradient := parseGradient(values[i], area.Dx(), area.Dy()); gradient != nil {
+							src = gradient
+						}
+					}
+				}
+				drawBackgroundImage(p.canvas, box, src, backgroundLayerStyle(style, i))
+			}
+		}()
+		if rounded {
+			// Background layers were drawn to the temporary box canvas; the
+			// rounded compositor receives that canvas as its source.
+			paintRoundedBox(canvas, box.Rect, style, widths, r, func(dst *image.RGBA) {
+				draw.Draw(dst, dst.Bounds(), backgroundLayer, dst.Bounds().Min, draw.Src)
+			})
 		} else {
-			drawBorders(p.canvas, box.Rect, style)
+			drawBordersWithWidths(p.canvas, box.Rect, style, widths)
 		}
 	}
 }
