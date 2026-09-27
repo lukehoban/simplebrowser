@@ -24,6 +24,8 @@ func backgroundLayers(s string) []string {
 			} else if s[i] == quote {
 				quote = 0
 			}
+		case s[i] == '\\' && i+1 < len(s):
+			i++
 		case s[i] == '"' || s[i] == '\'':
 			quote = s[i]
 		case s[i] == '(':
@@ -99,7 +101,7 @@ func unescapeBackgroundURL(s string) string {
 		}
 		i++
 		start := i
-		for i < len(s) && i-start < 6 && (s[i] >= '0' && s[i] <= '9' || s[i] >= 'a' && s[i] <= 'f' || s[i] >= 'A' && s[i] <= 'F') {
+		for i < len(s) && i-start < 6 && ((s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'f') || (s[i] >= 'A' && s[i] <= 'F')) {
 			i++
 		}
 		if i > start {
@@ -108,9 +110,7 @@ func unescapeBackgroundURL(s string) string {
 				n = utf8.RuneError
 			}
 			b.WriteRune(rune(n))
-			if i < len(s) && cssSpace(s[i]) {
-				// A space after a hex escape terminates the escape.
-			} else {
+			if i == len(s) || !cssSpace(s[i]) {
 				i--
 			}
 			continue

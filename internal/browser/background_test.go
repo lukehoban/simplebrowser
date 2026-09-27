@@ -35,6 +35,8 @@ func TestExternalStylesheetQuotedBackgroundURLs(t *testing.T) {
 		{`url('tile\'"2).png') no-repeat`, `url("https://example.org/css/tile'%222).png") no-repeat`},
 		{`url("tile\"(1).png") center`, `url("https://example.org/css/tile%22(1).png") center`},
 		{`url(tile\)1.png) no-repeat`, `url("https://example.org/css/tile)1.png") no-repeat`},
+		{`url(tile\),1.png) no-repeat, linear-gradient(red,blue)`, `url("https://example.org/css/tile),1.png") no-repeat, linear-gradient(red,blue)`},
+		{`url("tile\22 (1).png") center`, `url("https://example.org/css/tile%22(1).png") center`},
 		{`linear-gradient(red,blue), url('tile(1).png') no-repeat`, `linear-gradient(red,blue), url("https://example.org/css/tile(1).png") no-repeat`},
 	} {
 		if got := resolveBackgroundURL(tc.css, "https://example.org/css/site.css"); got != tc.want {
