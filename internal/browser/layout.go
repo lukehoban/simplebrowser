@@ -230,6 +230,10 @@ func px(value string, basis, fallback float64) float64 {
 			// Computed styles resolve these from font metrics; this is only
 			// the 0.5em fallback for unresolved values.
 			return v.Number * 8
+		case "vw", "vh", "vmin", "vmax":
+			// These need the viewport at computed-style time. Do not
+			// mistake unresolved lengths (e.g. in compound values) for px.
+			return fallback
 		case "pt":
 			return v.Number * 96 / 72
 		case "pc":
@@ -281,10 +285,15 @@ func boxEdges(n *StyledNode, name string, basis float64) [4]int {
 	return e
 }
 
-// LayoutWithViewport lays out a styled document without painting it.
+// LayoutWithViewport lays out a styled document without painting it. If the
+// viewport size changes, computed styles are rebuilt from the loaded cascade,
+// without refetching resources or modifying the input document.
 func LayoutWithViewport(document StyledDocument, viewport image.Rectangle) (Layout, error) {
 	if viewport.Dx() <= 0 || viewport.Dy() <= 0 {
 		viewport = image.Rect(0, 0, placeholderWidth, placeholderHeight)
+	}
+	if document.styleViewport != (image.Point{}) && document.styleViewport != viewport.Size() {
+		document = computeStyles(document, viewport.Size())
 	}
 	faces := newFaceSet()
 	defer faces.close()

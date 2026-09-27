@@ -6,6 +6,7 @@ import (
 	"errors"
 	"image"
 	"image/color"
+	"image/draw"
 	"io"
 	"math"
 	"strconv"
@@ -64,6 +65,7 @@ type svgShape struct {
 	segments   []svgSegment
 	transform  svgAffine
 	fill       color.NRGBA
+	fillRule   string // "nonzero" (default) or "evenodd"
 	stroke     color.NRGBA
 	width      float64
 	cap, join  string
@@ -102,6 +104,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	type frame struct {
 		fill          color.NRGBA
 		hasFill       bool
+		fillRule      string
 		opacity       float64
 		stroke        color.NRGBA
 		hasStroke     bool
@@ -112,7 +115,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 		transform     svgAffine
 		skip          bool
 	}
-	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", miterLimit: 4, transform: svgIdentity}}
+	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero", opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", miterLimit: 4, transform: svgIdentity}}
 	elements, segments := 0, 0
 	sawRoot := false
 	for {
@@ -165,6 +168,11 @@ func decodeSVG(data []byte) (*svgImage, error) {
 						// behavior and is not implemented by this renderer.
 						current.opacity = n
 					}
+				}
+				if value := strings.TrimSpace(attrs["fill-rule"]); value == "evenodd" || value == "nonzero" {
+					// fill-rule is inherited; unknown values keep the
+					// inherited rule.
+					current.fillRule = value
 				}
 				if value, ok := attrs["stroke"]; ok {
 					current.stroke, current.hasStroke = svgPaint(value, parent.stroke, parent.hasStroke)
@@ -234,7 +242,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					if !current.hasStroke {
 						stroke = color.NRGBA{}
 					}
-					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit})
+					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit})
 				}
 
 			}
@@ -424,7 +432,11 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			x, y := m.apply(p[0], p[1])
 			return float32(x), float32(y)
 		}
-		if shape.fill.A != 0 {
+		if shape.fill.A != 0 && shape.fillRule == "evenodd" {
+			if mask := svgEvenOddMask(flattenSVGShape(shape, m), w, h); mask != nil {
+				draw.DrawMask(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{}, mask, image.Point{}, draw.Over)
+			}
+		} else if shape.fill.A != 0 {
 			r.Reset(w, h)
 			drawn := false
 			for _, seg := range shape.segments {

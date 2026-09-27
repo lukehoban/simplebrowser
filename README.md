@@ -14,7 +14,8 @@ centered in the viewport. Adjoining vertical block margins collapse (between
 siblings and through parents' first/last children). Typography resolves inherited and
 relative font sizes, renders Hacker News's `Verdana, Geneva` stack with bundled
 [DejaVu Sans](internal/fonts/dejavu/README.md) (Verdana-like metrics), maps other
-sans/serif/monospace family lists to embedded Go fonts, and applies CSS line heights. Inline text uses font ascents and descents
+sans/serif/monospace family lists to embedded Go fonts, and applies CSS line heights.
+CSS lengths support `vw`/`vh`/`vmin`/`vmax` against the render viewport. Inline text uses font ascents and descents
 to share a baseline with replaced images (including `vertical-align: top`, `middle`,
 and `bottom`). Painting rasterizes colors, CSS background images
 (GIF/PNG/JPEG/SVG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
