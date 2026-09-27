@@ -23,7 +23,7 @@ Work incrementally and visibly so others can follow along and guide the work.
 
 * Include visuals (screenshots, renders, graphs) in issues, PRs, and docs wherever possible.
 * When a PR merges, comment on its epic: what landed, a current visual, known gaps, what's next, and any decisions you made without asking. Keep it short.
-* The README is the quick look at current state. Its first screen shows a current visual, what works, what's next, and links to any live previews.
+* The README is the quick look at current state. Its first screen shows a current visual, what works, what's next, and links to any live previews.  Keep it clean and current reflection of the all-up project.  Don't include temporary information or "status" that is better placed in issues or linked issues/docs/reports.
 
 # Asking for input
 
