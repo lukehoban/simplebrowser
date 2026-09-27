@@ -4,9 +4,10 @@
 to turn a URL or HTML file into a PNG, with enough web-platform support to
 render [Hacker News](https://news.ycombinator.com/) recognizably.
 
-The project has a working fetch, parse, cascade, and initial block/inline layout
-pipeline. The CLI fetches HTTP(S) pages, builds a DOM, loads CSS, and computes
-deterministic box geometry and wrapped text runs across inline elements. Painting
+The project has a working fetch, parse, cascade, and layout pipeline covering
+block, inline, and table formatting. The CLI fetches HTTP(S) pages, builds a
+DOM, loads CSS, and computes deterministic box geometry and wrapped text runs,
+including the nested tables Hacker News uses for its page structure. Painting
 still emits a deterministic placeholder image.
 
 ## Architecture
@@ -33,6 +34,16 @@ provides defaults separately. CSS parsing supports common selectors, values,
 and `!important`; computed styles retain CSS text for layout to convert. Layout
 exposes boxes and text runs through `Layout.Root`, with configurable viewport
 geometry and basic embedded Go font metrics.
+
+Table layout uses the separated-borders model: columns are sized from intrinsic
+min/max content widths plus explicit CSS and HTML widths (pixels pin a column,
+percentages resolve against the table width), `colspan` widens cells across
+columns, and `rowspan` cells cover their rows with any extra height added to the
+last spanned row. `cellspacing` and `cellpadding` arrive through the cascade as
+`border-spacing` and the table's `padding-*`, the latter acting as the default
+padding of cells that declare none. Malformed tables are repaired with anonymous
+rows and cells rather than dropped; `internal/browser/table.go` documents each
+simplification.
 
 ## Usage
 
@@ -84,8 +95,8 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [HTML tokenizer, parser, and DOM (#5)](https://github.com/lukehoban/simplebrowser/issues/5) — implemented; review pending
 - [CSS parser and user-agent stylesheet (#6)](https://github.com/lukehoban/simplebrowser/issues/6) — implemented; review pending
 - [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7) — implemented
-- [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented; review pending
-- [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9)
+- [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
+- [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented; review pending
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10)
 - [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11)
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture and render artifact in CI; visual fidelity pending painting

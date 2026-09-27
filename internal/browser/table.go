@@ -1,0 +1,807 @@
+package browser
+
+import (
+	"image"
+	"math"
+	"strings"
+	"unicode"
+)
+
+// Table layout implements the separated-borders model that Hacker News relies
+// on: a grid of rows and cells sized from intrinsic content widths, explicit
+// CSS/HTML widths (including percentages), `colspan`, `rowspan`, and the
+// `cellpadding`/`cellspacing` presentational attributes.
+//
+// Deliberate simplifications, all of which degrade gracefully:
+//
+//   - `cellspacing` is mapped by the cascade onto the table's `border-spacing`
+//     and is applied around and between cells.
+//   - `cellpadding` is mapped onto the table's `padding-*`. Because the HTML
+//     attribute describes cell padding rather than table padding, table
+//     padding is used as the default padding of cells that do not declare
+//     their own. The table box itself has no padding.
+//   - Malformed markup is repaired with anonymous boxes: cells outside a row
+//     get an anonymous row, and non-cell content inside a row (or directly
+//     inside a table) gets an anonymous cell.
+//   - Cell content is top aligned; `valign` and vertical centering are not
+//     implemented yet.
+//   - `rowspan` is honored for geometry: a spanning cell covers its rows and
+//     any extra height it needs is added to the last row it spans.
+
+const (
+	maxTableSpan = 1000
+	maxTableCols = 4096
+)
+
+type tableCellBox struct {
+	node    *StyledNode
+	row     int
+	col     int
+	colspan int
+	rowspan int
+
+	minWidth int
+	maxWidth int
+	fixed    int     // explicit width in px, -1 when absent
+	percent  float64 // explicit percentage width, -1 when absent
+
+	box    *Box
+	height int // outer height required by the cell content
+}
+
+type tableRowBox struct {
+	node   *StyledNode // nil for anonymous rows
+	cells  []*tableCellBox
+	group  *tableGroupBox
+	height int
+	y      int
+	box    *Box
+}
+
+type tableGroupBox struct {
+	node *StyledNode
+	box  *Box
+}
+
+type tableGrid struct {
+	rows    []*tableRowBox
+	groups  []*tableGroupBox
+	columns int
+	spacing int
+	padding [4]int // default cell padding contributed by cellpadding
+}
+
+func displayIs(n *StyledNode, values ...string) bool {
+	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
+		return false
+	}
+	display := strings.TrimSpace(strings.ToLower(n.Style["display"]))
+	for _, v := range values {
+		if display == v {
+			return true
+		}
+	}
+	return false
+}
+
+func isTableNode(n *StyledNode) bool {
+	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
+		return false
+	}
+	if strings.EqualFold(n.Style["display"], "none") {
+		return false
+	}
+	return displayIs(n, "table", "inline-table") || strings.EqualFold(n.Node.Name, "table")
+}
+
+func isRowGroupNode(n *StyledNode) bool {
+	if displayIs(n, "table-row-group", "table-header-group", "table-footer-group") {
+		return true
+	}
+	switch strings.ToLower(nodeName(n)) {
+	case "tbody", "thead", "tfoot":
+		return !displayIs(n, "none")
+	}
+	return false
+}
+
+func isRowNode(n *StyledNode) bool {
+	if displayIs(n, "table-row") {
+		return true
+	}
+	return strings.EqualFold(nodeName(n), "tr") && !displayIs(n, "none")
+}
+
+func isCellNode(n *StyledNode) bool {
+	if displayIs(n, "table-cell") {
+		return true
+	}
+	switch strings.ToLower(nodeName(n)) {
+	case "td", "th":
+		return !displayIs(n, "none")
+	}
+	return false
+}
+
+// containsTable reports whether a subtree holds a visible table element.
+func containsTable(n *StyledNode) bool {
+	if n == nil || n.Node == nil || hiddenNode(n) {
+		return false
+	}
+	if isTableNode(n) {
+		return true
+	}
+	for _, child := range n.Children {
+		if containsTable(child) {
+			return true
+		}
+	}
+	return false
+}
+
+func nodeName(n *StyledNode) string {
+	if n == nil || n.Node == nil {
+		return ""
+	}
+	return n.Node.Name
+}
+
+func hiddenNode(n *StyledNode) bool {
+	return n != nil && n.Node != nil && n.Node.Type == ElementNode &&
+		strings.EqualFold(n.Style["display"], "none")
+}
+
+// blankText reports whether a text node carries no visible characters.
+func blankText(n *StyledNode) bool {
+	if n == nil || n.Node == nil || n.Node.Type != TextNode {
+		return false
+	}
+	return strings.TrimFunc(n.Node.Data, unicode.IsSpace) == ""
+}
+
+func spanAttribute(n *StyledNode, name string) int {
+	if n == nil || n.Node == nil {
+		return 1
+	}
+	attr, ok := n.Node.Attribute(name)
+	if !ok {
+		return 1
+	}
+	value := strings.TrimSpace(attr.Value)
+	total := 0
+	digits := 0
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			break
+		}
+		digits++
+		total = total*10 + int(r-'0')
+		if total > maxTableSpan {
+			total = maxTableSpan
+			break
+		}
+	}
+	if digits == 0 || total < 1 {
+		return 1
+	}
+	return total
+}
+
+// buildTableGrid collects rows and cells, repairing malformed markup with
+// anonymous rows and cells so that every table produces usable geometry.
+func buildTableGrid(table *StyledNode) *tableGrid {
+	grid := &tableGrid{spacing: int(math.Max(0, math.Round(px(table.Style["border-spacing"], 0, 2))))}
+	grid.padding = boxEdges(table, "padding", 0)
+
+	var pending []*StyledNode // cells or content awaiting an anonymous row
+	flushPending := func() {
+		if len(pending) == 0 {
+			return
+		}
+		grid.addRow(nil, pending, nil)
+		pending = nil
+	}
+
+	var walkGroup func(group *StyledNode, box *tableGroupBox)
+	walkGroup = func(group *StyledNode, box *tableGroupBox) {
+		var loose []*StyledNode
+		flushLoose := func() {
+			if len(loose) == 0 {
+				return
+			}
+			grid.addRow(nil, loose, box)
+			loose = nil
+		}
+		for _, child := range group.Children {
+			switch {
+			case hiddenNode(child) || blankText(child):
+				continue
+			case isRowNode(child):
+				flushLoose()
+				grid.addRow(child, child.Children, box)
+			case isRowGroupNode(child):
+				flushLoose()
+				nested := &tableGroupBox{node: child}
+				grid.groups = append(grid.groups, nested)
+				walkGroup(child, nested)
+			default:
+				loose = append(loose, child)
+			}
+		}
+		flushLoose()
+	}
+
+	for _, child := range table.Children {
+		switch {
+		case hiddenNode(child) || blankText(child):
+			continue
+		case isRowNode(child):
+			flushPending()
+			grid.addRow(child, child.Children, nil)
+		case isRowGroupNode(child):
+			flushPending()
+			group := &tableGroupBox{node: child}
+			grid.groups = append(grid.groups, group)
+			walkGroup(child, group)
+		default:
+			pending = append(pending, child)
+		}
+	}
+	flushPending()
+	grid.assignColumns()
+	return grid
+}
+
+// addRow records one row, wrapping any non-cell children in anonymous cells.
+func (g *tableGrid) addRow(node *StyledNode, children []*StyledNode, group *tableGroupBox) {
+	row := &tableRowBox{node: node, group: group}
+	var loose []*StyledNode
+	flush := func() {
+		if len(loose) == 0 {
+			return
+		}
+		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{}, Children: loose}
+		row.cells = append(row.cells, &tableCellBox{node: anonymous, colspan: 1, rowspan: 1})
+		loose = nil
+	}
+	for _, child := range children {
+		switch {
+		case hiddenNode(child) || blankText(child):
+			continue
+		case isCellNode(child):
+			flush()
+			row.cells = append(row.cells, &tableCellBox{node: child,
+				colspan: spanAttribute(child, "colspan"), rowspan: spanAttribute(child, "rowspan")})
+		default:
+			loose = append(loose, child)
+		}
+	}
+	flush()
+	g.rows = append(g.rows, row)
+}
+
+func (n *StyledNode) nodeOrNil() *Node {
+	if n == nil {
+		return nil
+	}
+	return n.Node
+}
+
+// assignColumns resolves the grid positions of every cell, honoring colspan
+// and rowspan occupancy, and records the resulting column count.
+func (g *tableGrid) assignColumns() {
+	occupied := map[[2]int]bool{}
+	columns := 0
+	for r, row := range g.rows {
+		col := 0
+		for _, cell := range row.cells {
+			for occupied[[2]int{r, col}] {
+				col++
+				if col > maxTableCols {
+					break
+				}
+			}
+			cell.row = r
+			cell.col = col
+			if cell.colspan < 1 {
+				cell.colspan = 1
+			}
+			if cell.rowspan < 1 {
+				cell.rowspan = 1
+			}
+			if cell.col+cell.colspan > maxTableCols {
+				cell.colspan = max(1, maxTableCols-cell.col)
+			}
+			if remaining := len(g.rows) - r; cell.rowspan > remaining {
+				cell.rowspan = max(1, remaining)
+			}
+			for dr := 0; dr < cell.rowspan; dr++ {
+				for dc := 0; dc < cell.colspan; dc++ {
+					occupied[[2]int{r + dr, col + dc}] = true
+				}
+			}
+			col += cell.colspan
+			columns = max(columns, col)
+		}
+	}
+	g.columns = min(columns, maxTableCols)
+}
+
+// cellEdges returns the horizontal and vertical border+padding of a cell,
+// defaulting to the table's cellpadding when the cell declares no padding.
+func (g *tableGrid) cellEdges(cell *tableCellBox) (padding, border [4]int) {
+	border = boxEdges(cell.node, "border-width", 0)
+	padding = boxEdges(cell.node, "padding", 0)
+	for i, side := range []string{"top", "right", "bottom", "left"} {
+		if cell.node.Style["padding-"+side] == "" {
+			padding[i] = g.padding[i]
+		}
+	}
+	return padding, border
+}
+
+func (g *tableGrid) measureCells(faces *faceSet) {
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			padding, border := g.cellEdges(cell)
+			extra := padding[1] + padding[3] + border[1] + border[3]
+			minWidth, maxWidth := contentIntrinsicWidths(cell.node, faces)
+			cell.minWidth = minWidth + extra
+			cell.maxWidth = max(minWidth, maxWidth) + extra
+			cell.fixed = -1
+			cell.percent = -1
+			switch value := strings.TrimSpace(cell.node.Style["width"]); {
+			case value == "" || strings.EqualFold(value, "auto"):
+			case classifyValue(value).Kind == "percentage":
+				cell.percent = math.Min(100, math.Max(0, classifyValue(value).Number))
+			default:
+				// An explicit cell width pins the cell rather than acting as a
+				// lower bound, matching the HTML width attribute closely
+				// enough for the narrow fixed columns Hacker News uses.
+				cell.fixed = max(0, int(math.Round(px(value, 0, 0))))
+				cell.minWidth = cell.fixed + extra
+				cell.maxWidth = cell.minWidth
+			}
+		}
+	}
+}
+
+type columnSizes struct {
+	min     []int
+	max     []int
+	percent []float64
+	fixed   []bool
+}
+
+func (g *tableGrid) columnSizes() columnSizes {
+	sizes := columnSizes{min: make([]int, g.columns), max: make([]int, g.columns),
+		percent: make([]float64, g.columns), fixed: make([]bool, g.columns)}
+	for i := range sizes.percent {
+		sizes.percent[i] = -1
+	}
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			if cell.colspan != 1 || cell.col >= g.columns {
+				continue
+			}
+			sizes.min[cell.col] = max(sizes.min[cell.col], cell.minWidth)
+			sizes.max[cell.col] = max(sizes.max[cell.col], cell.maxWidth)
+			if cell.percent >= 0 {
+				sizes.percent[cell.col] = math.Max(sizes.percent[cell.col], cell.percent)
+			}
+			if cell.fixed >= 0 {
+				// An explicit cell width pins its column, which is how the
+				// HTML width attribute behaves on single-column cells.
+				sizes.fixed[cell.col] = true
+			}
+		}
+	}
+	// Spanning cells only raise the totals of the columns they cover.
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			if cell.colspan <= 1 || cell.col >= g.columns {
+				continue
+			}
+			end := min(g.columns, cell.col+cell.colspan)
+			span := end - cell.col
+			if span <= 0 {
+				continue
+			}
+			inner := g.spacing * (span - 1)
+			distribute(sizes.min[cell.col:end], cell.minWidth-inner)
+			distribute(sizes.max[cell.col:end], cell.maxWidth-inner)
+		}
+	}
+	for i := range sizes.max {
+		sizes.max[i] = max(sizes.max[i], sizes.min[i])
+	}
+	return sizes
+}
+
+// distribute raises values so that they sum to at least total, adding the
+// deficit evenly and deterministically.
+func distribute(values []int, total int) {
+	if len(values) == 0 {
+		return
+	}
+	sum := 0
+	for _, v := range values {
+		sum += v
+	}
+	deficit := total - sum
+	if deficit <= 0 {
+		return
+	}
+	share := deficit / len(values)
+	remainder := deficit % len(values)
+	for i := range values {
+		values[i] += share
+		if i < remainder {
+			values[i]++
+		}
+	}
+}
+
+// resolveColumns turns intrinsic sizes into final column widths that fit
+// available, which excludes border spacing.
+func resolveColumns(sizes columnSizes, available int) []int {
+	count := len(sizes.min)
+	widths := make([]int, count)
+	if count == 0 {
+		return widths
+	}
+	available = max(0, available)
+	assigned := 0
+	flexible := make([]int, 0, count)
+	for i := 0; i < count; i++ {
+		if sizes.percent[i] >= 0 {
+			widths[i] = max(sizes.min[i], int(math.Round(float64(available)*sizes.percent[i]/100)))
+			assigned += widths[i]
+			continue
+		}
+		widths[i] = sizes.min[i]
+		assigned += widths[i]
+		if !sizes.fixed[i] {
+			flexible = append(flexible, i)
+		}
+	}
+	if assigned > available {
+		shrink(widths, available)
+		return widths
+	}
+	extra := available - assigned
+	if extra == 0 {
+		return widths
+	}
+	if len(flexible) == 0 {
+		// Every column is pinned; trailing space goes to the last column so
+		// that an explicitly sized table is still filled.
+		widths[count-1] += extra
+		return widths
+	}
+	room := 0
+	for _, i := range flexible {
+		room += sizes.max[i] - sizes.min[i]
+	}
+	if room > 0 {
+		grow := min(extra, room)
+		given := 0
+		for index, i := range flexible {
+			var share int
+			if index == len(flexible)-1 {
+				share = grow - given
+			} else {
+				share = grow * (sizes.max[i] - sizes.min[i]) / room
+			}
+			widths[i] += share
+			given += share
+		}
+		extra -= grow
+	}
+	if extra > 0 {
+		// Auto tables never exceed their max-content width, so leftover space
+		// is only handed out when the table has an explicit width.
+		share := extra / len(flexible)
+		remainder := extra % len(flexible)
+		for index, i := range flexible {
+			widths[i] += share
+			if index < remainder {
+				widths[i]++
+			}
+		}
+	}
+	return widths
+}
+
+// shrink scales widths down proportionally so their sum fits available.
+func shrink(widths []int, available int) {
+	total := 0
+	for _, w := range widths {
+		total += w
+	}
+	if total <= available || total <= 0 {
+		return
+	}
+	used := 0
+	for i := range widths {
+		if i == len(widths)-1 {
+			widths[i] = max(0, available-used)
+			continue
+		}
+		widths[i] = widths[i] * available / total
+		used += widths[i]
+	}
+}
+
+// layoutTable lays out a table element at x, y inside width pixels and returns
+// its box plus the vertical space it consumes, including margins.
+func layoutTable(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+	width = max(0, width)
+	margin := boxEdges(n, "margin", float64(width))
+	border := boxEdges(n, "border-width", float64(width))
+	available := max(0, width-margin[1]-margin[3]-border[1]-border[3])
+
+	grid := buildTableGrid(n)
+	grid.measureCells(faces)
+	sizes := grid.columnSizes()
+
+	contentWidth := available
+	if value := strings.TrimSpace(n.Style["width"]); value != "" && !strings.EqualFold(value, "auto") {
+		contentWidth = min(available, max(0, int(math.Round(px(value, float64(available), float64(available))))))
+	} else {
+		intrinsic := grid.spacing * (grid.columns + 1)
+		for _, w := range sizes.max {
+			intrinsic += w
+		}
+		contentWidth = min(available, intrinsic)
+	}
+	// Border spacing never pushes the table past the space it was given, so
+	// very narrow viewports shrink the gaps before they clip content.
+	if grid.columns > 0 && grid.spacing*(grid.columns+1) > contentWidth {
+		grid.spacing = max(0, contentWidth/(grid.columns+1))
+	}
+	spacingTotal := grid.spacing * (grid.columns + 1)
+	columnWidths := resolveColumns(sizes, contentWidth-spacingTotal)
+
+	originX := x + margin[3] + border[3]
+	originY := y + margin[0] + border[0]
+
+	columnX := make([]int, grid.columns+1)
+	cursorX := originX + grid.spacing
+	for i := 0; i < grid.columns; i++ {
+		columnX[i] = cursorX
+		cursorX += columnWidths[i] + grid.spacing
+	}
+	columnX[grid.columns] = cursorX
+	tableWidth := max(0, cursorX-originX)
+
+	// First pass: lay out cell content to learn row heights.
+	for _, row := range grid.rows {
+		for _, cell := range row.cells {
+			cellWidth := 0
+			end := min(grid.columns, cell.col+cell.colspan)
+			for i := cell.col; i < end; i++ {
+				cellWidth += columnWidths[i]
+			}
+			if span := end - cell.col; span > 1 {
+				cellWidth += grid.spacing * (span - 1)
+			}
+			padding, cellBorder := grid.cellEdges(cell)
+			innerWidth := max(0, cellWidth-padding[1]-padding[3]-cellBorder[1]-cellBorder[3])
+			contentX := columnX[min(cell.col, grid.columns)] + padding[3] + cellBorder[3]
+			children, height := layoutChildren(cell.node, contentX, 0, innerWidth, faces)
+			if value := strings.TrimSpace(cell.node.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
+				height = max(height, int(math.Max(0, px(value, 0, float64(height)))))
+			}
+			cell.box = &Box{Node: cell.node.nodeOrNil(), Children: children}
+			cell.box.Rect = image.Rect(columnX[min(cell.col, grid.columns)], 0,
+				columnX[min(cell.col, grid.columns)]+cellWidth, 0)
+			cell.box.Content = image.Rect(contentX, 0, contentX+innerWidth, height)
+			cell.height = height + padding[0] + padding[2] + cellBorder[0] + cellBorder[2]
+		}
+	}
+
+	for _, row := range grid.rows {
+		if row.node != nil {
+			if value := strings.TrimSpace(row.node.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
+				row.height = max(0, int(math.Max(0, px(value, 0, 0))))
+			}
+		}
+		for _, cell := range row.cells {
+			if cell.rowspan == 1 {
+				row.height = max(row.height, cell.height)
+			}
+		}
+	}
+	// Spanning cells add any extra height they need to their last row.
+	for _, row := range grid.rows {
+		for _, cell := range row.cells {
+			if cell.rowspan <= 1 {
+				continue
+			}
+			last := min(len(grid.rows)-1, cell.row+cell.rowspan-1)
+			have := grid.spacing * (last - cell.row)
+			for i := cell.row; i <= last; i++ {
+				have += grid.rows[i].height
+			}
+			if cell.height > have {
+				grid.rows[last].height += cell.height - have
+			}
+		}
+	}
+
+	cursorY := originY + grid.spacing
+	for _, row := range grid.rows {
+		row.y = cursorY
+		cursorY += row.height + grid.spacing
+	}
+	tableHeight := max(0, cursorY-originY)
+
+	// Second pass: move cell content into place now that rows are positioned.
+	var rowBoxes []*Box
+	groupBoxes := map[*tableGroupBox]*Box{}
+	for _, row := range grid.rows {
+		rowBox := &Box{Node: row.node.nodeOrNil()}
+		rowHeight := row.height
+		for _, cell := range row.cells {
+			last := min(len(grid.rows)-1, cell.row+cell.rowspan-1)
+			spanHeight := grid.spacing * (last - cell.row)
+			for i := cell.row; i <= last; i++ {
+				spanHeight += grid.rows[i].height
+			}
+			padding, cellBorder := grid.cellEdges(cell)
+			top := row.y
+			offsetY := top + padding[0] + cellBorder[0]
+			translateBox(cell.box, 0, offsetY)
+			cell.box.Rect = image.Rect(cell.box.Rect.Min.X, top, cell.box.Rect.Max.X, top+max(0, spanHeight))
+			cell.box.Content = image.Rect(cell.box.Content.Min.X, offsetY,
+				cell.box.Content.Max.X, offsetY+max(0, cell.box.Content.Dy()))
+			rowBox.Children = append(rowBox.Children, cell.box)
+		}
+		rowBox.Rect = image.Rect(originX+grid.spacing, row.y,
+			max(originX+grid.spacing, columnX[grid.columns]-grid.spacing), row.y+max(0, rowHeight))
+		rowBox.Content = rowBox.Rect
+		row.box = rowBox
+		if row.group == nil {
+			rowBoxes = append(rowBoxes, rowBox)
+			continue
+		}
+		groupBox, ok := groupBoxes[row.group]
+		if !ok {
+			groupBox = &Box{Node: row.group.node.nodeOrNil(), Rect: rowBox.Rect}
+			groupBoxes[row.group] = groupBox
+			rowBoxes = append(rowBoxes, groupBox)
+		}
+		groupBox.Children = append(groupBox.Children, rowBox)
+		groupBox.Rect = groupBox.Rect.Union(rowBox.Rect)
+		groupBox.Content = groupBox.Rect
+	}
+
+	content := image.Rect(originX, originY, originX+tableWidth, originY+tableHeight)
+	rect := image.Rect(x+margin[3], y+margin[0], content.Max.X+border[1], content.Max.Y+border[2])
+	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: rowBoxes}
+	return box, rect.Dy() + margin[0] + margin[2]
+}
+
+func translateBox(b *Box, dx, dy int) {
+	if b == nil || (dx == 0 && dy == 0) {
+		return
+	}
+	offset := image.Pt(dx, dy)
+	b.Rect = b.Rect.Add(offset)
+	b.Content = b.Content.Add(offset)
+	for i := range b.Text {
+		b.Text[i].Rect = b.Text[i].Rect.Add(offset)
+	}
+	for _, child := range b.Children {
+		translateBox(child, dx, dy)
+	}
+}
+
+// intrinsicWidths reports the minimum (longest unbreakable content) and
+// maximum (no wrapping) content widths of a styled subtree.
+func intrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
+	if n == nil || n.Node == nil {
+		return 0, 0
+	}
+	if hiddenNode(n) {
+		return 0, 0
+	}
+	if n.Node.Type == TextNode {
+		return textIntrinsic(n, faces)
+	}
+	if n.Node.Type != ElementNode && n.Node.Type != DocumentNode {
+		return 0, 0
+	}
+	if isTableNode(n) && n.Node.Type == ElementNode {
+		return tableIntrinsic(n, faces)
+	}
+
+	minWidth, maxWidth := contentIntrinsicWidths(n, faces)
+	if n.Node.Type == ElementNode {
+		padding := boxEdges(n, "padding", 0)
+		border := boxEdges(n, "border-width", 0)
+		margin := boxEdges(n, "margin", 0)
+		extra := padding[1] + padding[3] + border[1] + border[3] + margin[1] + margin[3]
+		if value := strings.TrimSpace(n.Style["width"]); value != "" && !strings.EqualFold(value, "auto") &&
+			classifyValue(value).Kind != "percentage" {
+			fixed := max(0, int(math.Round(px(value, 0, 0))))
+			minWidth, maxWidth = fixed, fixed
+		}
+		minWidth += extra
+		maxWidth += extra
+	}
+	return minWidth, max(minWidth, maxWidth)
+}
+
+// contentIntrinsicWidths measures the children of a node, keeping consecutive
+// inline children on one hypothetical line and stacking block children.
+func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
+	if n == nil {
+		return 0, 0
+	}
+	minWidth, maxWidth := 0, 0
+	inlineMin, inlineMax := 0, 0
+	flush := func() {
+		minWidth = max(minWidth, inlineMin)
+		maxWidth = max(maxWidth, inlineMax)
+		inlineMin, inlineMax = 0, 0
+	}
+	for _, child := range n.Children {
+		if hiddenNode(child) {
+			continue
+		}
+		childMin, childMax := intrinsicWidths(child, faces)
+		if child.Node != nil && child.Node.Type != TextNode && (displayBlock(child) || isTableNode(child)) {
+			flush()
+			minWidth = max(minWidth, childMin)
+			maxWidth = max(maxWidth, childMax)
+			continue
+		}
+		inlineMin = max(inlineMin, childMin)
+		inlineMax += childMax
+	}
+	flush()
+	return minWidth, max(minWidth, maxWidth)
+}
+
+func textIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
+	m := faces.metrics(n.Style)
+	fields := strings.FieldsFunc(n.Node.Data, func(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' })
+	if len(fields) == 0 {
+		return 0, 0
+	}
+	minWidth, maxWidth := 0, 0
+	for i, field := range fields {
+		w := m.width(field)
+		minWidth = max(minWidth, w)
+		maxWidth += w
+		if i > 0 {
+			maxWidth += m.width(" ")
+		}
+	}
+	return minWidth, maxWidth
+}
+
+// tableIntrinsic reports the intrinsic widths of a nested table, including its
+// border spacing, so that outer tables can size columns around it.
+func tableIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
+	grid := buildTableGrid(n)
+	grid.measureCells(faces)
+	sizes := grid.columnSizes()
+	spacing := grid.spacing * (grid.columns + 1)
+	minWidth, maxWidth := spacing, spacing
+	for i := range sizes.min {
+		minWidth += sizes.min[i]
+		maxWidth += sizes.max[i]
+	}
+	border := boxEdges(n, "border-width", 0)
+	margin := boxEdges(n, "margin", 0)
+	extra := border[1] + border[3] + margin[1] + margin[3]
+	if value := strings.TrimSpace(n.Style["width"]); value != "" && !strings.EqualFold(value, "auto") &&
+		classifyValue(value).Kind != "percentage" {
+		fixed := max(0, int(math.Round(px(value, 0, 0))))
+		return fixed + extra, max(fixed, minWidth) + extra
+	}
+	return minWidth + extra, max(minWidth, maxWidth) + extra
+}

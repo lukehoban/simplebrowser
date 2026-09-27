@@ -155,6 +155,23 @@ func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet) ([]*Box
 		if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
 			continue
 		}
+		if child.Node.Type == ElementNode && isTableNode(child) {
+			flush()
+			b, h := layoutTable(child, x, cursor, width, faces)
+			boxes = append(boxes, b)
+			cursor += h
+			continue
+		}
+		if child.Node.Type != TextNode && containsTable(child) {
+			// An inline element wrapping a table is treated as block level so
+			// the table keeps its own formatting context instead of being
+			// flattened into the inline flow.
+			flush()
+			b, h := layoutBlock(child, x, cursor, width, faces)
+			boxes = append(boxes, b)
+			cursor += h
+			continue
+		}
 		if child.Node.Type == TextNode || !displayBlock(child) {
 			inline = append(inline, child)
 			continue
