@@ -155,6 +155,66 @@ func TestSVGGradientHrefInheritance(t *testing.T) {
 	}
 }
 
+func TestSVGUserSpacePatternPixels(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="8" height="8"><style>#p { width: 4px; height: 4px }</style><defs>
+		<pattern id="p" patternUnits="userSpaceOnUse">
+			<rect width="2" height="2" fill="red"/>
+		</pattern>
+	</defs><rect width="8" height="8" fill="url(#p) blue"/></svg>`)
+	red := color.RGBA{255, 0, 0, 255}
+	for _, point := range [][2]int{{0, 0}, {1, 1}, {4, 0}, {5, 5}} {
+		if got := img.RGBAAt(point[0], point[1]); !near(got, red, 1) {
+			t.Errorf("pattern square pixel %v = %v, want red", point, got)
+		}
+	}
+	for _, point := range [][2]int{{2, 0}, {0, 2}, {3, 3}, {7, 7}} {
+		if got := img.RGBAAt(point[0], point[1]); got.A != 0 {
+			t.Errorf("pattern gap pixel %v = %v, want transparent", point, got)
+		}
+	}
+}
+
+func TestSVGPatternGeometryCascadeAndHref(t *testing.T) {
+	src := svgOpen + `width="24" height="8"><style>.dot { fill: #00ff00 }</style><defs>
+		<pattern id="base" width="4" height="4" patternUnits="userSpaceOnUse">
+			<rect class="dot" width="2" height="2"/>
+		</pattern>
+		<pattern id="shifted" href="#base" patternTransform="translate(2 0)"/>
+	</defs>
+	<rect width="12" height="8" fill="url(#shifted)"/>
+	<rect x="12" width="12" height="8" fill="none" stroke="url(#base)" stroke-width="2"/>
+	</svg>`
+	img := decodeSVGString(t, src)
+	green := color.RGBA{0, 255, 0, 255}
+	if got := img.RGBAAt(2, 0); !near(got, green, 1) {
+		t.Errorf("href/cascade/transformed tile pixel = %v, want green", got)
+	}
+	if got := img.RGBAAt(13, 0); !near(got, green, 1) {
+		t.Errorf("pattern stroke pixel = %v, want green", got)
+	}
+}
+
+func TestSVGPatternFallbacksAndBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name, defs, fill string
+		want             color.RGBA
+	}{
+		{"missing", ``, `url(#missing) red`, color.RGBA{255, 0, 0, 255}},
+		{"malformed zero tile", `<pattern id="p" width="0" height="4" patternUnits="userSpaceOnUse"/>`, `url(#p) blue`, color.RGBA{0, 0, 255, 255}},
+		{"unsupported object bounding box", `<pattern id="p" width=".5" height=".5"><rect width="1" height="1"/></pattern>`, `url(#p) blue`, color.RGBA{0, 0, 255, 255}},
+		{"oversized tile", `<pattern id="p" width="5000" height="5000" patternUnits="userSpaceOnUse"><rect width="1" height="1"/></pattern>`, `url(#p) blue`, color.RGBA{0, 0, 255, 255}},
+		{"self reference uses fallback", `<pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="url(#p) green"/></pattern>`, `url(#p)`, color.RGBA{0, 128, 0, 255}},
+		{"external href does not supply content", `<pattern id="p" href="other.svg#p" width="4" height="4" patternUnits="userSpaceOnUse"/>`, `url(#p)`, color.RGBA{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := decodeSVGString(t, svgOpen+`width="8" height="8"><defs>`+tc.defs+`</defs><rect width="8" height="8" fill="`+tc.fill+`"/></svg>`)
+			if got := img.RGBAAt(0, 0); !near(got, tc.want, 1) {
+				t.Errorf("pixel = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // Group opacity composites the group once; fill-opacity applies to each
 // shape, so overlapping shapes show through each other.
 func TestSVGGroupOpacityVersusPerShapeAlpha(t *testing.T) {
@@ -243,12 +303,14 @@ func TestSVGOpacityResourceBounds(t *testing.T) {
 func TestParseSVGPaint(t *testing.T) {
 	g := &svgGradient{stops: []svgStop{{0, color.NRGBA{255, 0, 0, 255}}, {1, color.NRGBA{0, 0, 255, 255}}}}
 	one := &svgGradient{stops: []svgStop{{0, color.NRGBA{0, 255, 0, 255}}}}
-	resolve := func(id string) *svgGradient {
+	gs := &svgPaintServer{gradient: g}
+	oneServer := &svgPaintServer{gradient: one}
+	resolve := func(id string) *svgPaintServer {
 		switch id {
 		case "g":
-			return g
+			return gs
 		case "one":
-			return one
+			return oneServer
 		}
 		return nil
 	}
@@ -257,8 +319,8 @@ func TestParseSVGPaint(t *testing.T) {
 		in   string
 		want svgPaintValue
 	}{
-		{"url(#g)", svgPaintValue{color: color.NRGBA{A: 255}, gradient: g, ok: true}},
-		{` URL( "#g" ) red`, svgPaintValue{color: color.NRGBA{A: 255}, gradient: g, ok: true}},
+		{"url(#g)", svgPaintValue{color: color.NRGBA{A: 255}, server: gs, ok: true}},
+		{` URL( "#g" ) red`, svgPaintValue{color: color.NRGBA{A: 255}, server: gs, ok: true}},
 		{"url(#one)", svgPaintValue{color: color.NRGBA{0, 255, 0, 255}, ok: true}},
 		{"url(#nope) #00f", svgPaintValue{color: color.NRGBA{0, 0, 255, 255}, ok: true}},
 		{"url(#nope) none", svgPaintValue{}},

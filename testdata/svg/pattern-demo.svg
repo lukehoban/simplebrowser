@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="140" viewBox="0 0 320 140">
+  <rect width="320" height="140" fill="#f5f1e8"/>
+  <defs>
+    <pattern id="checks" width="24" height="24" patternUnits="userSpaceOnUse">
+      <rect width="12" height="12" fill="#ef4444"/>
+      <rect x="12" y="12" width="12" height="12" fill="#2563eb"/>
+    </pattern>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse" patternTransform="rotate(20)">
+      <circle cx="5" cy="5" r="4" fill="#16a34a"/>
+    </pattern>
+  </defs>
+  <rect x="16" y="16" width="136" height="108" rx="10" fill="url(#checks) #64748b"/>
+  <circle cx="236" cy="70" r="54" fill="url(#dots) #64748b" stroke="url(#checks)" stroke-width="8"/>
+</svg>
