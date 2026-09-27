@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"os"
@@ -513,6 +514,7 @@ func TestTableCollapsedRowGroupBordersPaintOnlyWinningEdge(t *testing.T) {
 			wantWinner: color.RGBA{255, 0, 0, 255},
 		},
 	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			img := painted(t, `<body style="margin:0"><table style="border-collapse:collapse;width:80px">`+
@@ -521,6 +523,67 @@ func TestTableCollapsedRowGroupBordersPaintOnlyWinningEdge(t *testing.T) {
 				`</table>`, image.Rect(0, 0, 80, 30))
 			for y := 10; y < 14; y++ {
 				pixel(t, img, 10, y, tc.wantWinner)
+			}
+		})
+	}
+}
+
+func TestTableCollapsedOuterCellTrailingBordersContributeToGeometry(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
+		`<caption style="border:4px solid green">caption</caption>`+
+		`<tr><td style="border:4px solid orange;width:100px;height:30px;padding:0">cell 1</td></tr>`+
+		`</table></body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := collectBoxes(got.Root, "table")
+	cells := collectBoxes(got.Root, "td")
+	if len(table) != 1 || len(cells) != 1 {
+		t.Fatalf("tables=%d cells=%d", len(table), len(cells))
+	}
+	if want := image.Rect(0, 20, 110, 60); cells[0].Rect != want {
+		t.Fatalf("collapsed cell rect = %v, want %v", cells[0].Rect, want)
+	}
+	if table[0].Rect.Dx() != 110 || table[0].Rect.Dy() != 60 {
+		t.Fatalf("collapsed table rect = %v, want 110x60", table[0].Rect)
+	}
+}
+
+func TestTableCollapsedBorderOffsetReftestPixels(t *testing.T) {
+	tests := []struct {
+		name      string
+		test      string
+		reference string
+	}{
+		{
+			name: "enclosing border",
+			test: `<body><div style="position:absolute;border:4px solid green">` +
+				`<table style="border-collapse:collapse"><tr><td style="padding:0;border:4px solid orange;width:100px;height:30px;text-align:center">cell 1</td></tr></table></div></body>`,
+			reference: `<body><!-- comments do not affect the static position --><div style="position:absolute;border:4px solid green">` +
+				`<table style="border-spacing:0"><tr><td style="padding:0;border:4px solid orange;width:100px;height:30px;text-align:center">cell 1</td></tr></table></div></body>`,
+		},
+		{
+			name: "caption border",
+			test: `<body><table style="border-collapse:collapse"><caption style="border:4px solid green">caption</caption>` +
+				`<tr><td style="padding:0;border:4px solid orange;width:100px;height:30px;text-align:center">cell 1</td></tr></table></body>`,
+			reference: `<body><table style="border-spacing:0"><caption style="border:4px solid green">caption</caption>` +
+				`<tr><td style="padding:0;border:4px solid orange;width:102px;height:32px;text-align:center">cell 1</td></tr></table></body>`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			viewport := image.Rect(0, 0, 180, 100)
+			got := painted(t, tc.test, viewport)
+			want := painted(t, tc.reference, viewport)
+			if !bytes.Equal(got.Pix, want.Pix) {
+				differing := 0
+				for i := 0; i < len(got.Pix); i += 4 {
+					if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+						differing++
+					}
+				}
+				t.Fatalf("render differs from reference at %d pixels", differing)
 			}
 		})
 	}

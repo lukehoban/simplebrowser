@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // CSS structures preserve source order for the future cascade pass (#7).
@@ -395,6 +396,13 @@ func parseValues(s string) []CSSValue {
 				if s[i] == quote {
 					quote = 0
 				}
+			} else if s[i] == '\\' {
+				// An optional whitespace terminator belongs to a hex escape,
+				// not to the boundary between values.
+				if _, end, ok := colorEscape(s, i); ok {
+					i = end
+					continue
+				}
 			} else if s[i] == '"' || s[i] == '\'' {
 				quote = s[i]
 			} else if s[i] == '(' {
@@ -462,8 +470,61 @@ var namedColors = map[string]color.RGBA{
 	"transparent": {0, 0, 0, 0},
 }
 
+// colorEscape consumes one CSS escape, including a hex escape's optional
+// whitespace terminator. Invalid newlines/EOF are not escaped characters.
+func colorEscape(s string, start int) (rune, int, bool) {
+	i := start + 1
+	if i >= len(s) || strings.ContainsRune("\n\r\f", rune(s[i])) {
+		return 0, i, false
+	}
+	hexStart := i
+	for i < len(s) && i-hexStart < 6 && strings.ContainsRune("0123456789abcdefABCDEF", rune(s[i])) {
+		i++
+	}
+	if i > hexStart {
+		n, _ := strconv.ParseUint(s[hexStart:i], 16, 32)
+		r := rune(n)
+		if r == 0 || !utf8.ValidRune(r) {
+			r = utf8.RuneError
+		}
+		if i < len(s) && cssSpace(s[i]) {
+			if s[i] == '\r' && i+1 < len(s) && s[i+1] == '\n' {
+				i++
+			}
+			i++
+		}
+		return r, i, true
+	}
+	r, size := utf8.DecodeRuneInString(s[i:])
+	return r, i + size, true
+}
+
+// colorKeyword decodes an identifier, never a quoted string or a hash token.
+// Decode before case folding: \47 is G, even if the source was lowercased.
+func colorKeyword(s string) (string, bool) {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == '\\' {
+			r, end, ok := colorEscape(s, i)
+			if !ok {
+				return "", false
+			}
+			b.WriteRune(r)
+			i = end
+		} else {
+			if !cssIdent(s[i]) {
+				return "", false
+			}
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	return strings.ToLower(b.String()), true
+}
+
 func parseColor(s string) (color.RGBA, bool) {
-	if c, ok := namedColors[s]; ok {
+	keyword, _ := colorKeyword(s)
+	if c, ok := namedColors[keyword]; ok {
 		return c, true
 	}
 	if strings.HasPrefix(s, "#") {
