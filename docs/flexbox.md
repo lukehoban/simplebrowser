@@ -38,7 +38,12 @@ its second item must stay inside the 180px container.
   from the cross end and swaps cross-start/end alignment.
 - `align-content` on multi-line containers: normal/stretch (the default
   distributes free cross space to the lines), start/flex-start, end/flex-end,
-  center, space-between, space-around, space-evenly.
+  center, space-between, space-around, space-evenly. With overflowing wrapped
+  lines, center and end offset the lines into negative cross space (including
+  any cross-axis gap); explicit safe/unsafe keywords remain unsupported
+  ([#297](https://github.com/lukehoban/simplebrowser/issues/297)).
+  [Overflow alignment render](screenshots/flex-align-content-overflow.png)
+  (top: center, middle: end, bottom: center with positive free space).
 - Intrinsic (shrink-to-fit) widths: a row's max-content width is its items
   plus gaps on one line; its min-content width is the widest item when
   wrapping, else the sum of items.

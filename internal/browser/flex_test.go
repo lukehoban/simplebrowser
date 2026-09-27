@@ -505,8 +505,9 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		pixels: map[image.Point]color.RGBA{{100, 5}: blue, {90, 5}: {255, 255, 255, 255}},
 	}, {
 		name:   "align-content center on a definite row height",
-		source: `<div style="display:flex;flex-wrap:wrap;align-content:center;width:100px;height:100px;row-gap:10px"><div id="a" style="width:60px;height:20px"></div><div id="b" style="width:60px;height:20px"></div></div>`,
+		source: `<div style="display:flex;flex-wrap:wrap;align-content:center;width:100px;height:100px;row-gap:10px"><div id="a" style="width:60px;height:20px;background:red"></div><div id="b" style="width:60px;height:20px;background:blue"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 25, 60, 45), "b": image.Rect(0, 55, 60, 75)},
+		pixels: map[image.Point]color.RGBA{{5, 25}: red, {5, 55}: blue, {5, 50}: {255, 255, 255, 255}},
 	}, {
 		name:   "align-content center with overflowing wrapped lines",
 		source: `<div id="c" style="display:flex;flex-wrap:wrap;align-content:center;align-items:flex-start;width:50px;height:50px"><div id="a" style="flex:none;width:50px;height:40px;background:red"></div><div id="b" style="flex:none;width:50px;height:40px;background:blue"></div></div>`,
@@ -517,6 +518,11 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		source: `<div id="c" style="display:flex;flex-wrap:wrap;align-content:end;align-items:flex-start;width:50px;height:50px;row-gap:10px"><div id="a" style="flex:none;width:50px;height:40px;background:red"></div><div id="b" style="flex:none;width:50px;height:40px;background:blue"></div></div>`,
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 50, 50), "a": image.Rect(0, -40, 50, 0), "b": image.Rect(0, 10, 50, 50)},
 		pixels: map[image.Point]color.RGBA{{5, 5}: {255, 255, 255, 255}, {5, 10}: blue, {5, 49}: blue},
+	}, {
+		name:   "column wrap align-content center overflows cross axis",
+		source: `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap;align-content:center;align-items:flex-start;width:50px;height:50px"><div id="a" style="flex:none;width:40px;height:50px;background:red"></div><div id="b" style="flex:none;width:40px;height:50px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 50, 50), "a": image.Rect(-15, 0, 25, 50), "b": image.Rect(25, 0, 65, 50)},
+		pixels: map[image.Point]color.RGBA{{0, 5}: red, {24, 5}: red, {25, 5}: blue, {49, 5}: blue},
 	}, {
 		name:   "wrapped line stretches auto-height items",
 		source: `<div style="display:flex;flex-wrap:wrap;width:100px"><div id="a" style="width:60px;height:15px"></div><div id="e" style="width:30px"></div><div id="b" style="width:60px;height:20px"></div><div id="d" style="width:30px"></div></div>`,
