@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Cascade Layers: Primer-style fixture</title>
+<style>
+@layer primer-reset, primer-base, primer-components, primer-utilities;
+
+@layer primer-reset {
+  * { box-sizing: border-box; }
+}
+
+@layer primer-base {
+  body {
+    margin: 0;
+    padding: 24px;
+    color: #1f2328;
+    background-color: #f6f8fa;
+    font-family: Arial, sans-serif;
+  }
+  h1 { margin: 0 0 8px; font-size: 24px; }
+  p { margin: 0 0 16px; }
+}
+
+@layer primer-components {
+  .Header {
+    margin: -24px -24px 24px;
+    padding: 18px 24px;
+    color: white;
+    background-color: #25292f;
+  }
+  .Card {
+    margin-bottom: 16px;
+    padding: 16px;
+    border: 1px solid #d1d9e0;
+    background-color: white;
+  }
+  .Button {
+    padding: 8px 12px;
+    color: white;
+    background-color: #1f883d;
+  }
+}
+
+@layer primer-utilities {
+  .muted { color: #59636e; }
+  .wide { width: 320px; }
+}
+
+/* Deliberately unlayered: an application override beats the component layer. */
+.Button { background-color: #8250df; }
+</style>
+</head>
+<body>
+  <header class="Header">Primer-style layered interface</header>
+  <h1>CSS Cascade Layers</h1>
+  <p class="muted">Base, component, utility, and unlayered application rules.</p>
+  <section class="Card wide">
+    <p>The later utility layer makes this card 320 pixels wide.</p>
+    <button class="Button">Unlayered override</button>
+  </section>
+</body>
+</html>

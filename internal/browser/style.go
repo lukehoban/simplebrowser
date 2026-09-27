@@ -47,6 +47,11 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 // fetching resources or mutating the original tree. A new viewport can change
 // inherited font sizes and hence em/rem/ex/ch throughout the document.
 func computeStyles(document StyledDocument, viewport image.Point) StyledDocument {
+	// Conditional layer declarations establish order only while their
+	// conditions match. Recompute against this viewport on a copy because a
+	// later layout pass can restyle the same loaded document at another size.
+	document.Stylesheets = cloneStylesheetsForLayerOrder(document.Stylesheets)
+	assignLayerOrder(document.Stylesheets, viewport)
 	styles := make(map[*Node]ComputedStyle)
 	pseudoNodes := document.pseudoNodes
 	if pseudoNodes == nil {
@@ -105,8 +110,10 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 type winningDeclaration struct {
 	d                         Declaration
 	important, inline         bool
+	presentational            bool
 	validateAfterSubstitution bool
 	origin, order             int
+	layer                     int
 	spec                      [3]int
 }
 
@@ -142,10 +149,12 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	winners := map[string]winningDeclaration{}
 	order := 0
 	var candidates []winningDeclaration
-	add := func(d Declaration, spec [3]int, origin int, isInline bool) {
+	unlayeredOrder := layerCount(sheets, viewport)
+	add := func(d Declaration, spec [3]int, origin int, isInline bool, layer int, presentational bool) {
 		order++
 		candidates = append(candidates, winningDeclaration{
-			d: d, important: d.Important, inline: isInline, origin: origin, order: order, spec: spec,
+			d: d, important: d.Important, inline: isInline, origin: origin, order: order,
+			layer: layer, presentational: presentational, spec: spec,
 		})
 	}
 	consider := func(candidate winningDeclaration) {
@@ -262,7 +271,11 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 				}
 				if matchesSelector(n, selector) {
 					for _, d := range rule.Declarations {
-						add(d, spec, origin, false)
+						layer := rule.LayerOrder
+						if rule.Layer == "" && origin == 0 {
+							layer = 0
+						}
+						add(d, spec, origin, false, layer, false)
 					}
 				}
 			}
@@ -272,14 +285,16 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	if pseudo == "" {
 		// Presentational hints and the style attribute belong to the element,
 		// not to its generated boxes.
-		addPresentational(n, add)
+		addPresentational(n, func(d Declaration, spec [3]int, origin int, inline bool) {
+			add(d, spec, origin, inline, -1, true)
+		})
 	}
 	for _, sheet := range sheets {
 		applySheet(sheet, 1)
 	}
 	if pseudo == "" {
 		for _, d := range inline {
-			add(d, [3]int{1, 0, 0}, 1, true)
+			add(d, [3]int{1, 0, 0}, 1, true, unlayeredOrder, false)
 		}
 	}
 	// Custom properties cascade first, but retain their raw token streams:
@@ -884,10 +899,31 @@ func beats(a, b winningDeclaration) bool {
 		return a.important
 	}
 	if a.origin != b.origin {
+		if a.important {
+			// Important declarations reverse origin precedence: UA important
+			// rules override author important rules.
+			return a.origin < b.origin
+		}
 		return a.origin > b.origin
 	}
+	// Presentational hints have zero specificity and precede every author
+	// stylesheet declaration. They are never important declarations.
+	if a.presentational != b.presentational {
+		return !a.presentational
+	}
+	// Element-attached declarations outrank stylesheet declarations at the
+	// same origin and importance, before layer order and selector specificity.
 	if a.inline != b.inline {
 		return a.inline
+	}
+	// Layers are considered before specificity. Normal declarations prefer
+	// later layers; important declarations reverse layer order, including
+	// making unlayered important rules weaker than layered important rules.
+	if a.layer != b.layer {
+		if a.important {
+			return a.layer < b.layer
+		}
+		return a.layer > b.layer
 	}
 	for i := range a.spec {
 		if a.spec[i] != b.spec[i] {

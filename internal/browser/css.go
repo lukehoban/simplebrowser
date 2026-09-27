@@ -2,6 +2,7 @@ package browser
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"net/url"
 	"path/filepath"
@@ -16,6 +17,17 @@ import (
 type Stylesheet struct {
 	Rules []CSSRule
 	URL   string
+	// Layers contains cascade layer paths in the order first introduced.
+	Layers []string
+	// LayerDeclarations preserves every layer introduction together with its
+	// enclosing media condition. The active first introduction depends on the
+	// viewport, so Layers alone is not sufficient to assign cascade order.
+	LayerDeclarations []LayerDeclaration
+}
+
+type LayerDeclaration struct {
+	Name  string
+	Media string
 }
 
 type CSSRule struct {
@@ -24,6 +36,10 @@ type CSSRule struct {
 	// Media is the conditional prelude for rules nested in @media. An empty
 	// value means the rule is unconditional.
 	Media string
+	// Layer is the internal dotted path, empty for unlayered rules.
+	Layer string
+	// LayerOrder is assigned after all author stylesheets have been parsed.
+	LayerOrder int
 }
 
 // A selector is stored left-to-right. The first part has no combinator;
@@ -184,14 +200,15 @@ func stripComments(s string) string {
 // skipped, so a broken rule does not suppress later valid rules.
 func ParseCSS(input string) Stylesheet {
 	var sheet Stylesheet
-	parseCSSRules(input, "", &sheet)
+	parseCSSRules(input, "", "", &sheet)
+	assignLayerOrder([]Stylesheet{sheet}, image.Pt(placeholderWidth, placeholderHeight))
 	return sheet
 }
 
 // parseCSSRules parses a stylesheet fragment. Keeping the block parser here
 // (rather than using readUntil("}")) is important: braces in nested
 // conditional rules must not terminate their parent rule.
-func parseCSSRules(input, media string, sheet *Stylesheet) {
+func parseCSSRules(input, media, layer string, sheet *Stylesheet) {
 	p := cssScanner{s: input}
 	for p.i < len(p.s) {
 		p.skip()
@@ -200,6 +217,14 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 		}
 		prelude, delim := p.readUntil("{;}")
 		if delim != '{' {
+			if delim == ';' {
+				prelude = strings.TrimSpace(stripComments(prelude))
+				if names, ok := layerStatementNames(prelude); ok {
+					for _, name := range names {
+						sheet.declareLayer(joinLayerName(layer, name), media)
+					}
+				}
+			}
 			continue
 		}
 		body, ok := readCSSBlock(&p)
@@ -210,7 +235,7 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 		if strings.HasPrefix(strings.ToLower(prelude), "@media") {
 			condition := strings.TrimSpace(prelude[len("@media"):])
 			condition = combineMediaConditions(media, condition)
-			parseCSSRules(body, condition, sheet)
+			parseCSSRules(body, condition, layer, sheet)
 			continue
 		}
 		// @supports is static for this engine, so it is decided here: a
@@ -219,8 +244,14 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 		if lower := strings.ToLower(prelude); strings.HasPrefix(lower, "@supports") &&
 			(len(prelude) == len("@supports") || cssSpace(prelude[len("@supports")]) || prelude[len("@supports")] == '(') {
 			if supportsConditionMatches(prelude[len("@supports"):]) {
-				parseCSSRules(body, media, sheet)
+				parseCSSRules(body, media, layer, sheet)
 			}
+			continue
+		}
+		if name, ok := layerBlockName(prelude); ok {
+			fullName := joinLayerName(layer, name)
+			sheet.declareLayer(fullName, media)
+			parseCSSRules(body, media, fullName, sheet)
 			continue
 		}
 		// Other at-rules are intentionally left for their own, narrower
@@ -230,7 +261,9 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 		}
 		selectors, valid := parseSelectorGroup(prelude)
 		if valid {
-			sheet.Rules = append(sheet.Rules, CSSRule{Selectors: selectors, Declarations: ParseDeclarations(body), Media: media})
+			sheet.Rules = append(sheet.Rules, CSSRule{
+				Selectors: selectors, Declarations: ParseDeclarations(body), Media: media, Layer: layer,
+			})
 		}
 	}
 }
@@ -894,6 +927,7 @@ func ExtractStyles(doc Document, fetcher *Fetcher) ([]Stylesheet, map[*Node][]De
 			return nil, nil, err
 		}
 	}
+	assignLayerOrder(sheets, image.Pt(placeholderWidth, placeholderHeight))
 	return sheets, inline, nil
 }
 
