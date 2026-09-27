@@ -6,7 +6,9 @@ under the upstream [WPT 3-clause BSD license](https://github.com/web-platform-te
 Each path here corresponds to `css/CSS2/<path>` upstream. Only the 13
 manifest-listed tests, their references, and three PNG support assets are
 included, plus `colors/colors-007.xht` and its reference for a focused renderer
-regression (#181); benchmark expansion is tracked in #159.
+regression (#181), `tables/fixed-table-layout-002a.xht` and its reference/assets
+(#180), and `tables/border-collapse-empty-row.html` and its reference (#191).
+Benchmark expansion is tracked in #159.
 No local edits were made to these upstream fixtures.
 The harness renders the vendored files directly without adapting their
 contents. Local `.xht` files use the browser's focused XHTML mode, so XML
