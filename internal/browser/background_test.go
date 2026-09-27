@@ -19,6 +19,39 @@ func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
 	if len(layers) != 3 || backgroundURL(layers[0]) != "a,b).png" || backgroundURL(layers[1]) != "" || backgroundURL(layers[2]) != "c.png" {
 		t.Fatalf("layers: %q", layers)
 	}
+
+	t.Run("linear gradient pixels and layers", func(t *testing.T) {
+		tests := []struct {
+			name, style string
+			points      map[image.Point]color.RGBA
+		}{
+			{"default", `background:linear-gradient(red, blue)`,
+				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}, {0, 9}: {13, 0, 242, 255}}},
+			{"direction", `background-image:linear-gradient(to right, #f00 0%, #00f 100%)`,
+				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}, {9, 0}: {13, 0, 242, 255}}},
+			{"angle", `background:linear-gradient(90deg, red, blue)`,
+				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}, {9, 0}: {13, 0, 242, 255}}},
+			{"hard-stop", `background:linear-gradient(red 50%, blue 50%)`,
+				map[image.Point]color.RGBA{{0, 4}: {255, 0, 0, 255}, {0, 5}: {0, 0, 255, 255}}},
+			{"interpolated-stops", `background:linear-gradient(red, green 50%, blue)`,
+				map[image.Point]color.RGBA{{0, 5}: {0, 115, 26, 255}}},
+			{"transparent-top", `background:linear-gradient(to bottom, transparent, rgba(255,0,0,1)), #00ff00`,
+				map[image.Point]color.RGBA{{0, 0}: {13, 242, 0, 255}, {0, 9}: {242, 13, 0, 255}}},
+			{"url-missing-top", `background-image:url(missing.png),linear-gradient(red,blue)`,
+				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}}},
+			{"clipped-and-sized", `border:2px solid black;background:linear-gradient(to right, red, blue) no-repeat center/4px 4px;background-color:green`,
+				map[image.Point]color.RGBA{{0, 0}: {0, 0, 0, 255}, {2, 2}: {0, 128, 0, 255},
+					{5, 5}: {223, 0, 32, 255}, {8, 5}: {32, 0, 223, 255}}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				img := painted(t, `<div style="margin:0;width:10px;height:10px;`+tt.style+`"></div>`, image.Rect(0, 0, 20, 20))
+				for point, want := range tt.points {
+					pixel(t, img, point.X, point.Y, want)
+				}
+			})
+		}
+	})
 	resolved := resolveBackgroundURL(input, "https://example.org/css/site.css")
 	if !strings.Contains(resolved, `url("https://example.org/css/a,b).png")`) ||
 		!strings.Contains(resolved, `url("https://example.org/css/c.png")`) ||
@@ -30,7 +63,7 @@ func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
 		props[d.Property] = d.Value
 	}
 	for property, want := range map[string]string{
-		"background-image":    `url("a,b).png"), none, url("c.png")`,
+		"background-image":    `url("a,b).png"), linear-gradient(red, blue), url("c.png")`,
 		"background-repeat":   "no-repeat, repeat, repeat-x",
 		"background-position": "center, , right bottom",
 		"background-size":     "4px 4px, , 2px 2px",

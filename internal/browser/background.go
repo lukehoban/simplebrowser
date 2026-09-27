@@ -123,6 +123,8 @@ func expandBackground(d Declaration) []Declaration {
 			switch {
 			case v.Kind == "url":
 				// The URL was extracted above, including quoted commas and ')'.
+			case v.Kind == "function" && gradientFunction(v.Text) != "":
+				imageValue = v.Text
 			case v.Kind == "color":
 				if i == len(parts)-1 {
 					color = v.Text
@@ -244,6 +246,12 @@ func drawBackgroundImage(dst *image.RGBA, box *Box, src image.Image, style Compu
 	}
 	if w <= 0 || h <= 0 || w > 4096 || h > 4096 {
 		return
+	}
+	if gradient, ok := src.(*linearGradient); ok {
+		src = parseGradient(gradient.source, w, h)
+		if src == nil {
+			return
+		}
 	}
 	if svg, ok := src.(*svgImage); ok {
 		// Render vector backgrounds at the tile size; sampling is then 1:1.
