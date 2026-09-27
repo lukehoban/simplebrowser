@@ -2,8 +2,8 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "total": 13,
-  "pass": 7,
-  "fail": 6,
+  "pass": 8,
+  "fail": 5,
   "error": 0,
   "results": [
     {
@@ -17,8 +17,8 @@
       "test": "colors/color-176.xht",
       "reference": "reference/ref-this-text-should-be-green.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 1092
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "colors/color-177.xht",
