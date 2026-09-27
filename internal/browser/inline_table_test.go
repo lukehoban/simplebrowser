@@ -317,3 +317,39 @@ func TestInlineTableAndEmptyInlineBlockShareLineAndPaint(t *testing.T) {
 	pixel(t, img, block.Rect.Min.X, block.Rect.Min.Y, color.RGBA{0, 0, 255, 255})
 	pixel(t, img, block.Content.Min.X, block.Content.Min.Y, color.RGBA{128, 128, 128, 255})
 }
+
+// An inline table with no in-flow line box uses its bottom margin edge as
+// its baseline, so a baseline or length alignment sits on (or shifts from)
+// the surrounding text baseline.
+func TestInlineTableEmptyUsesBottomMarginEdgeBaseline(t *testing.T) {
+	for _, tc := range []struct {
+		align string
+		shift int
+	}{{"baseline", 0}, {"6px", 6}} {
+		t.Run(tc.align, func(t *testing.T) {
+			markup := `<body style="margin:0;font:16px sans-serif"><div>A` +
+				`<table style="display:inline-table;vertical-align:` + tc.align +
+				`;margin-bottom:4px;border:2px solid red;border-spacing:0;width:20px;height:20px"></table>z</div></body>`
+			root := layoutMarkup(t, markup, image.Rect(0, 0, 300, 120))
+			tables := collectBoxes(root, "table")
+			if len(tables) != 1 {
+				t.Fatalf("got %d tables, want 1", len(tables))
+			}
+			line := boxParent(root, tables[0])
+			if line == nil {
+				t.Fatal("missing containing line box")
+			}
+			run, ok := firstRun(line, "A")
+			if !ok {
+				t.Fatal("missing surrounding text")
+			}
+			faces := newFaceSet()
+			ascent, _ := faces.metrics(run.Style).lineMetrics()
+			faces.close()
+			baseline := run.Rect.Min.Y + ascent
+			if got, want := tables[0].Rect.Max.Y+4, baseline-tc.shift; got != want {
+				t.Fatalf("bottom margin edge = %d, want %d (table %v)", got, want, tables[0].Rect)
+			}
+		})
+	}
+}
