@@ -91,6 +91,8 @@ const (
 	svgShapePaint svgShapeKind = iota
 	svgLayerPush
 	svgLayerPop
+	svgClipPush
+	svgClipPop
 )
 
 // svgImage is an image.Image rasterized at its intrinsic size. Painters that
@@ -152,6 +154,9 @@ type svgFrame struct {
 	dashArray      []float64
 	dashOffset     float64
 	transform      svgAffine
+	userWidth      float64
+	userHeight     float64
+	dashBasis      float64
 }
 
 func svgDefaultFrame() svgFrame {
@@ -254,7 +259,9 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
 		return nil, err
 	}
-	if err := state.walk(root, svgDefaultFrame(), false, 0); err != nil {
+	frame := svgDefaultFrame()
+	frame.userWidth, frame.userHeight, frame.dashBasis = img.userWidth, img.userHeight, img.dashBasis
+	if err := state.walk(root, frame, false, 0); err != nil {
 		return nil, err
 	}
 	raster := img.rasterize(int(math.Round(img.width)), int(math.Round(img.height)))
@@ -292,11 +299,6 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	if name == "defs" && !referenced || name != "svg" && name != "defs" && name != "use" && !svgRenderedElements[name] {
 		return nil
 	}
-	// Only the document root SVG is rendered; referenced groups/shapes work,
-	// but a referenced nested SVG requires viewport semantics we do not support.
-	if name == "svg" && node != s.root {
-		return nil
-	}
 	current := parent
 	a := s.cascadedAttributes(node)
 	for _, property := range []struct {
@@ -328,7 +330,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		current.fontSize = n
 	}
 	basis := svgLengthBasis{
-		horizontal: s.img.userWidth, vertical: s.img.userHeight, diagonal: s.img.dashBasis,
+		horizontal: parent.userWidth, vertical: parent.userHeight, diagonal: parent.dashBasis,
 		fontSize: current.fontSize, rootFontSize: s.img.rootFontSize, ratios: current.fontRatios,
 	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
@@ -357,11 +359,11 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		current.miterLimit = n
 	}
 	if value, ok := a["stroke-dasharray"]; ok {
-		if pattern, valid := parseSVGStrokeDashArray(value, s.img.dashBasis); valid {
+		if pattern, valid := parseSVGStrokeDashArray(value, basis.diagonal); valid {
 			current.dashArray = pattern
 		}
 	}
-	if n, valid := parseSVGStrokeDashOffset(a["stroke-dashoffset"], s.img.dashBasis); valid {
+	if n, valid := parseSVGStrokeDashOffset(a["stroke-dashoffset"], basis.diagonal); valid {
 		current.dashOffset = n
 	}
 	if value, ok := a["transform"]; ok {
@@ -419,6 +421,59 @@ func (img *svgImage) closeLayer(start int) {
 
 func (s *svgExpansion) walkContent(node *svgNode, a map[string]string, current svgFrame, basis svgLengthBasis, useDepth int) error {
 	name := node.name
+	if name == "svg" && node != s.root {
+		x, okX := basis.coordinate(a["x"], svgHorizontal)
+		y, okY := basis.coordinate(a["y"], svgVertical)
+		if a["x"] == "" {
+			okX = true
+		}
+		if a["y"] == "" {
+			okY = true
+		}
+		width, okW := basis.length(a["width"], svgHorizontal)
+		height, okH := basis.length(a["height"], svgVertical)
+		if a["width"] == "" {
+			width, okW = basis.horizontal, true
+		}
+		if a["height"] == "" {
+			height, okH = basis.vertical, true
+		}
+		if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
+			return nil
+		}
+		viewBox, hasViewBox, align, slice, ok := parseSVGViewport(a)
+		if !ok {
+			return nil
+		}
+		viewport := svgAffine{a: 1, d: 1, e: x, f: y}.then(current.transform)
+		clip := []svgSegment{
+			{op: 'M', pts: [3][2]float64{{0, 0}}},
+			{op: 'L', pts: [3][2]float64{{width, 0}}},
+			{op: 'L', pts: [3][2]float64{{width, height}}},
+			{op: 'L', pts: [3][2]float64{{0, height}}},
+			{op: 'Z'},
+		}
+		s.segments += len(clip)
+		if s.segments >= maxSVGPathSegs {
+			return errUnsupportedSVG
+		}
+		s.img.shapes = append(s.img.shapes, svgShape{kind: svgClipPush, segments: clip, transform: viewport})
+		if hasViewBox {
+			current.transform = svgViewTransform(viewBox, align, slice, width, height).then(viewport)
+			current.userWidth, current.userHeight = viewBox[2], viewBox[3]
+		} else {
+			current.transform = viewport
+			current.userWidth, current.userHeight = width, height
+		}
+		current.dashBasis = math.Hypot(current.userWidth/math.Sqrt2, current.userHeight/math.Sqrt2)
+		for _, child := range node.children {
+			if err := s.walk(child, current, false, useDepth); err != nil {
+				return err
+			}
+		}
+		s.img.shapes = append(s.img.shapes, svgShape{kind: svgClipPop})
+		return nil
+	}
 	if name == "use" {
 		// Only same-document fragment IDs: never open a URL or interpret a
 		// fragment as a filesystem path.
@@ -762,27 +817,11 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 }
 
 func (img *svgImage) parseRoot(attrs map[string]string) error {
-	if value, ok := attrs["viewBox"]; ok {
-		nums, ok := svgNumberList(value)
-		if !ok || len(nums) != 4 {
-			return errUnsupportedSVG
-		}
-		if nums[2] <= 0 || nums[3] <= 0 {
-			return errUnsupportedSVG
-		}
-		copy(img.viewBox[:], nums)
-		img.hasViewBox = true
+	viewBox, hasViewBox, align, slice, ok := parseSVGViewport(attrs)
+	if !ok {
+		return errUnsupportedSVG
 	}
-	if value, ok := attrs["preserveAspectRatio"]; ok {
-		fields := strings.Fields(value)
-		if len(fields) > 0 && fields[0] == "defer" {
-			fields = fields[1:]
-		}
-		if len(fields) > 0 {
-			img.align = fields[0]
-		}
-		img.slice = len(fields) > 1 && fields[1] == "slice"
-	}
+	img.viewBox, img.hasViewBox, img.align, img.slice = viewBox, hasViewBox, align, slice
 	width, hasWidth := svgLength(attrs["width"])
 	height, hasHeight := svgLength(attrs["height"])
 	ratio := 0.0
@@ -819,6 +858,29 @@ func (img *svgImage) parseRoot(attrs map[string]string) error {
 	img.userWidth, img.userHeight = basisWidth, basisHeight
 	img.dashBasis = math.Hypot(basisWidth/math.Sqrt2, basisHeight/math.Sqrt2)
 	return nil
+}
+
+func parseSVGViewport(attrs map[string]string) (viewBox [4]float64, hasViewBox bool, align string, slice, ok bool) {
+	align, ok = "xMidYMid", true
+	if value, exists := attrs["viewBox"]; exists {
+		nums, valid := svgNumberList(value)
+		if !valid || len(nums) != 4 || nums[2] <= 0 || nums[3] <= 0 {
+			return viewBox, false, align, false, false
+		}
+		copy(viewBox[:], nums)
+		hasViewBox = true
+	}
+	if value, exists := attrs["preserveAspectRatio"]; exists {
+		fields := strings.Fields(value)
+		if len(fields) > 0 && fields[0] == "defer" {
+			fields = fields[1:]
+		}
+		if len(fields) > 0 {
+			align = fields[0]
+		}
+		slice = len(fields) > 1 && fields[1] == "slice"
+	}
+	return viewBox, hasViewBox, align, slice, true
 }
 
 // svgLength parses an absolute SVG length in CSS px (or unitless user units).
@@ -1041,30 +1103,72 @@ func (img *svgImage) viewTransform(w, h int) svgAffine {
 	if !img.hasViewBox {
 		return svgAffine{a: float64(w) / img.width, d: float64(h) / img.height}
 	}
-	vx, vy, vw, vh := img.viewBox[0], img.viewBox[1], img.viewBox[2], img.viewBox[3]
-	sx, sy := float64(w)/vw, float64(h)/vh
-	if img.align == "none" {
+	return svgViewTransform(img.viewBox, img.align, img.slice, float64(w), float64(h))
+}
+
+func svgViewTransform(viewBox [4]float64, align string, slice bool, w, h float64) svgAffine {
+	vx, vy, vw, vh := viewBox[0], viewBox[1], viewBox[2], viewBox[3]
+	sx, sy := w/vw, h/vh
+	if align == "none" {
 		return svgAffine{a: sx, d: sy, e: -vx * sx, f: -vy * sy}
 	}
 	scale := math.Min(sx, sy)
-	if img.slice {
+	if slice {
 		scale = math.Max(sx, sy)
 	}
 	tx, ty := -vx*scale, -vy*scale
-	extraX, extraY := float64(w)-vw*scale, float64(h)-vh*scale
+	extraX, extraY := w-vw*scale, h-vh*scale
 	switch {
-	case strings.HasPrefix(img.align, "xMid"):
+	case strings.HasPrefix(align, "xMid"):
 		tx += extraX / 2
-	case strings.HasPrefix(img.align, "xMax"):
+	case strings.HasPrefix(align, "xMax"):
 		tx += extraX
 	}
 	switch {
-	case strings.HasSuffix(img.align, "YMid"):
+	case strings.HasSuffix(align, "YMid"):
 		ty += extraY / 2
-	case strings.HasSuffix(img.align, "YMax"):
+	case strings.HasSuffix(align, "YMax"):
 		ty += extraY
 	}
 	return svgAffine{a: scale, d: scale, e: tx, f: ty}
+}
+
+func addSVGPath(r *vector.Rasterizer, segments []svgSegment, m svgAffine) {
+	drawn := false
+	for _, seg := range segments {
+		point := func(p [2]float64) (float32, float32) {
+			x, y := m.apply(p[0], p[1])
+			return float32(x), float32(y)
+		}
+		switch seg.op {
+		case 'M':
+			x, y := point(seg.pts[0])
+			if drawn {
+				r.ClosePath()
+			}
+			r.MoveTo(x, y)
+		case 'L':
+			x, y := point(seg.pts[0])
+			r.LineTo(x, y)
+			drawn = true
+		case 'Q':
+			x1, y1 := point(seg.pts[0])
+			x, y := point(seg.pts[1])
+			r.QuadTo(x1, y1, x, y)
+			drawn = true
+		case 'C':
+			x1, y1 := point(seg.pts[0])
+			x2, y2 := point(seg.pts[1])
+			x, y := point(seg.pts[2])
+			r.CubeTo(x1, y1, x2, y2, x, y)
+			drawn = true
+		case 'Z':
+			r.ClosePath()
+		}
+	}
+	if drawn {
+		r.ClosePath()
+	}
 }
 
 // rasterize renders the document into a new w×h image, or returns nil when
@@ -1084,13 +1188,20 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 		parent  *image.RGBA
 		opacity float64
 		folded  bool
+		clip    *svgShape
+		hidden  bool
+		noFold  bool
 	}
 	var layers []layer
 	var spare []*image.RGBA
-	depth, fold := 0, 1.0
+	depth, hidden, fold := 0, 0, 1.0
 	for _, shape := range img.shapes {
 		switch shape.kind {
 		case svgLayerPush:
+			if hidden > 0 {
+				layers = append(layers, layer{folded: true, noFold: true})
+				continue
+			}
 			if depth < maxSVGLayerDepth && paint.layerPixels+int64(w)*int64(h) <= maxSVGLayerPixels {
 				paint.layerPixels += int64(w) * int64(h)
 				var buf *image.RGBA
@@ -1115,13 +1226,58 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			top := layers[len(layers)-1]
 			layers = layers[:len(layers)-1]
 			if top.folded {
-				fold /= top.opacity
+				if !top.noFold {
+					fold /= top.opacity
+				}
 			} else {
 				svgCompositeLayer(top.parent, dst, top.opacity)
 				spare = append(spare, dst)
 				dst = top.parent
 				depth--
 			}
+			continue
+		case svgClipPush:
+			if hidden > 0 || depth >= maxSVGLayerDepth || paint.layerPixels+int64(w)*int64(h) > maxSVGLayerPixels {
+				layers = append(layers, layer{folded: true, hidden: true})
+				hidden++
+				continue
+			}
+			paint.layerPixels += int64(w) * int64(h)
+			var buf *image.RGBA
+			if n := len(spare); n > 0 {
+				buf, spare = spare[n-1], spare[:n-1]
+				clear(buf.Pix)
+			} else {
+				buf = image.NewRGBA(dst.Bounds())
+			}
+			clip := shape
+			layers = append(layers, layer{parent: dst, clip: &clip})
+			dst = buf
+			depth++
+			continue
+		case svgClipPop:
+			if len(layers) == 0 {
+				continue
+			}
+			top := layers[len(layers)-1]
+			layers = layers[:len(layers)-1]
+			if top.hidden {
+				hidden--
+				continue
+			}
+			if top.clip != nil {
+				mask := image.NewAlpha(dst.Bounds())
+				r.Reset(w, h)
+				addSVGPath(r, top.clip.segments, top.clip.transform.then(view))
+				r.Draw(mask, mask.Bounds(), image.Opaque, image.Point{})
+				draw.DrawMask(top.parent, top.parent.Bounds(), dst, image.Point{}, mask, image.Point{}, draw.Over)
+				spare = append(spare, dst)
+				dst = top.parent
+				depth--
+			}
+			continue
+		}
+		if hidden > 0 {
 			continue
 		}
 		m := shape.transform.then(view)
