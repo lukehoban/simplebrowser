@@ -11,7 +11,7 @@ records the initial Hacker News rendering milestone.
 *Current render of the checked-in, offline [Hacker News fixture](testdata/hn/news.html);
 not a pixel-perfect browser reference.*
 
-**Compatibility benchmark: [36/38 pinned WPT reference assertions passing](docs/compatibility.md)**
+**Compatibility benchmark: [37/38 pinned WPT reference assertions passing](docs/compatibility.md)**
 ([JSON results](docs/compatibility.json)). The 800×600 exact-pixel subset covers
 colors, backgrounds, normal flow, box layout, positioning, and tables. This is
 a small, pinned test set, not a general web-platform conformance score. Run

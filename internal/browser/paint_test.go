@@ -93,7 +93,7 @@ func TestPaintBackgroundsBordersAndOrder(t *testing.T) {
 }
 
 func TestPaintPerSideBordersAndTransparentBackground(t *testing.T) {
-	img := painted(t, `<div style="margin:0;width:24px;height:12px;background-color:green"><div style="margin:0;width:12px;height:4px;background-color:transparent;border-width:1px 2px 3px 4px;border-color:red blue yellow black"></div></div>`, image.Rect(0, 0, 40, 30))
+	img := painted(t, `<div style="margin:0;width:24px;height:12px;background-color:green"><div style="margin:0;width:12px;height:4px;background-color:transparent;border-style:solid;border-width:1px 2px 3px 4px;border-color:red blue yellow black"></div></div>`, image.Rect(0, 0, 40, 30))
 	pixel(t, img, 5, 0, color.RGBA{255, 0, 0, 255})
 	pixel(t, img, 0, 2, color.RGBA{0, 0, 0, 255})
 	pixel(t, img, 17, 2, color.RGBA{0, 0, 255, 255})
