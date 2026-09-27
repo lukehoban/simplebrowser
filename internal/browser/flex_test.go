@@ -535,6 +535,11 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:1;width:40px;height:10px"></div><div id="b" style="flex:0 1 80px;width:30px;height:10px"></div><div id="d" style="flex:1 0 5px;width:25px;height:10px"></div></div>`,
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 95, 10)},
 	}, {
+		name:   "min-width and max-width clamp a flex-basis contribution (#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:0 0 80px;min-width:100px;width:20px;height:10px"></div></div><div id="d" style="clear:left;float:left;display:flex"><div id="b" style="flex:0 0 80px;max-width:50px;height:10px"></div></div>`,
+		want: map[string]image.Rectangle{"c": image.Rect(0, 0, 100, 10), "a": image.Rect(0, 0, 100, 10),
+			"d": image.Rect(0, 10, 50, 20), "b": image.Rect(0, 10, 50, 20)},
+	}, {
 		name:   "nowrap keeps shrinking on one line",
 		source: `<div style="display:flex;width:100px"><div id="a" style="width:60px;height:10px"></div><div id="b" style="width:60px;height:10px"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 50, 10), "b": image.Rect(50, 0, 100, 10)},

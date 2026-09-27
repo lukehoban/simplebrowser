@@ -416,38 +416,55 @@ func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 
 // flexClampContribution applies css-flexbox §9.9.3 to a row item's outer
 // intrinsic contribution: a definite flex base size caps it when the item
-// cannot grow and floors it when the item cannot shrink. Percentage bases are
-// indefinite while the container's own width is being measured.
+// cannot grow and floors it when the item cannot shrink, then min-width and
+// max-width clamp it. Percentage sizes are indefinite while the container's
+// own width is being measured, so they are ignored here.
 func flexClampContribution(child *StyledNode, contribution int) int {
 	if child.Node.Parent == nil || child.Node.Type != ElementNode {
 		return contribution
 	}
-	grow, shrink, basis, hasBasis := flexFactors(child.Style, 0)
-	if !hasBasis {
-		return contribution
+	margin := boxEdges(child, "margin", 0)
+	inner := inlineInnerEdges(child, 0)
+	edges := margin[1] + margin[3] + inner[1] + inner[3]
+	if grow, shrink, basis, ok := flexFactors(child.Style, 0); ok && flexBasisIsLength(child.Style) {
+		outer := int(math.Round(basis)) + edges
+		if grow == 0 && contribution > outer {
+			contribution = outer
+		}
+		if shrink == 0 && contribution < outer {
+			contribution = outer
+		}
 	}
-	// flexFactors resolved the basis from flex-basis or the flex shorthand's
-	// last component; a unitless single-value shorthand implies basis 0.
-	value := strings.TrimSpace(child.Style["flex-basis"])
+	lengthOf := func(property string) (int, bool) {
+		value := strings.TrimSpace(child.Style[property])
+		if kind := classifyValue(value).Kind; kind != "length" && kind != "number" {
+			return 0, false
+		}
+		return max(0, int(math.Round(px(value, 0, 0)))) + edges, true
+	}
+	if maximum, ok := lengthOf("max-width"); ok && contribution > maximum {
+		contribution = maximum
+	}
+	if minimum, ok := lengthOf("min-width"); ok && contribution < minimum {
+		contribution = minimum
+	}
+	return contribution
+}
+
+// flexBasisIsLength reports whether the basis flexFactors resolved came from
+// a length (flex-basis, or the flex shorthand's last component; a unitless
+// single-value shorthand implies basis 0) rather than a percentage or other
+// value that is indefinite during intrinsic sizing.
+func flexBasisIsLength(style ComputedStyle) bool {
+	value := strings.TrimSpace(style["flex-basis"])
 	if value == "" || strings.EqualFold(value, "auto") {
 		value = "0"
-		if fields := strings.Fields(child.Style["flex"]); len(fields) > 1 {
+		if fields := strings.Fields(style["flex"]); len(fields) > 1 {
 			value = fields[len(fields)-1]
 		}
 	}
-	if kind := classifyValue(value).Kind; kind != "length" && kind != "number" {
-		return contribution
-	}
-	margin := boxEdges(child, "margin", 0)
-	inner := inlineInnerEdges(child, 0)
-	outer := int(math.Round(basis)) + margin[1] + margin[3] + inner[1] + inner[3]
-	if grow == 0 && contribution > outer {
-		contribution = outer
-	}
-	if shrink == 0 && contribution < outer {
-		contribution = outer
-	}
-	return contribution
+	kind := classifyValue(value).Kind
+	return kind == "length" || kind == "number"
 }
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
