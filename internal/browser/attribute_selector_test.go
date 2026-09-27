@@ -30,7 +30,7 @@ func TestInvalidAttributeSelectorsFailClosed(t *testing.T) {
 	for _, selector := range []string{
 		`[title~=x]`, `[title|=x]`, `[title^=x]`, `[title$=x]`, `[title*=x]`,
 		`[title=x i]`, `[title=x s]`, `[ns|title]`, `[title=]`, `[title`,
-		`[]`,
+		`[]`, `a:not([title~=x])`,
 	} {
 		sheet := ParseCSS(selector + `{ color: red } p { color: green }`)
 		if len(sheet.Rules) != 1 || sheet.Rules[0].Selectors[0].Parts[0].Tag != "p" {
@@ -63,6 +63,9 @@ func TestAttributeSelectorMatchingAndSpecificity(t *testing.T) {
 		{`[data-kind=primary]`, present, false},
 		{`[title]`, absent, false},
 		{`[href=next]`, absent, false},
+		{`a:not([title])`, present, false},
+		{`a:not([title])`, absent, true},
+		{`a:not([href=next])`, absent, true},
 	} {
 		sel := ParseCSS(tc.selector + `{}`).Rules[0].Selectors[0]
 		if got := matchesSelector(tc.node, sel); got != tc.want {
@@ -73,6 +76,10 @@ func TestAttributeSelectorMatchingAndSpecificity(t *testing.T) {
 	if got, want := specificity(sel), [3]int{0, 2, 1}; got != want {
 		t.Errorf("specificity = %v, want %v", got, want)
 	}
+	negated := ParseCSS(`a:not([href], [title=x]){}`).Rules[0].Selectors[0]
+	if got, want := specificity(negated), [3]int{0, 1, 1}; got != want {
+		t.Errorf("negated specificity = %v, want %v", got, want)
+	}
 }
 
 func TestAttributeSelectorCascadeAndPixels(t *testing.T) {
@@ -80,10 +87,12 @@ func TestAttributeSelectorCascadeAndPixels(t *testing.T) {
 		div { width: 20px; height: 10px; background: red }
 		[data-state=ready] { background: green }
 		[hidden] { background: blue }
+		div:not([data-state], [hidden]) { background: #ffff00 }
 	</style>
-	<div data-state=ready></div><div data-state=other></div><div hidden></div>`,
-		image.Rect(0, 0, 20, 30))
+	<div data-state=ready></div><div data-state=other></div><div hidden></div><div></div>`,
+		image.Rect(0, 0, 20, 40))
 	pixel(t, img, 5, 5, color.RGBA{0, 128, 0, 255})
 	pixel(t, img, 5, 15, color.RGBA{255, 0, 0, 255})
 	pixel(t, img, 5, 25, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 5, 35, color.RGBA{255, 255, 0, 255})
 }
