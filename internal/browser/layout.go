@@ -3,6 +3,7 @@ package browser
 import (
 	"image"
 	"math"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -238,7 +239,8 @@ func LayoutWithViewport(document StyledDocument, viewport image.Rectangle) (Layo
 	faces.images = document.Images
 	root := &Box{Node: document.Document.Root, Rect: viewport, Content: viewport}
 	if document.StyleRoot != nil {
-		root.Children, _ = layoutChildren(document.StyleRoot, viewport.Min.X, viewport.Min.Y, viewport.Dx(), faces)
+		root.Children, _ = layoutChildren(document.StyleRoot, viewport.Min.X, viewport.Min.Y, viewport.Dx(), faces,
+			containingBlock{x: viewport.Min.X, y: viewport.Min.Y, width: viewport.Dx(), height: viewport.Dy(), viewport: viewport})
 	}
 	return Layout{Document: document, Viewport: viewport, Root: root}, nil
 }
@@ -437,8 +439,21 @@ func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
 	return m
 }
 
-func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet) ([]*Box, int) {
-	boxes, bottom, trailing := layoutFlow(parent, x, y, width, faces, false, false)
+type containingBlock struct {
+	x, y, width, height int
+	viewport            image.Rectangle
+}
+
+func positioned(n *StyledNode) bool {
+	switch strings.ToLower(strings.TrimSpace(n.Style["position"])) {
+	case "absolute", "fixed":
+		return true
+	}
+	return false
+}
+
+func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) ([]*Box, int) {
+	boxes, bottom, trailing := layoutFlow(parent, x, y, width, faces, false, false, cb)
 	return boxes, bottom + trailing.value() - y
 }
 
@@ -448,8 +463,9 @@ func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet) ([]*Box
 // child's top margin has already been applied by the caller (it collapsed
 // through the parent). When keepTrailing is set, the last child's bottom
 // margin is returned instead of added, so the parent can collapse it.
-func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, keepTrailing bool) ([]*Box, int, collapsedMargin) {
+func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, keepTrailing bool, cb containingBlock) ([]*Box, int, collapsedMargin) {
 	var boxes []*Box
+	var positionedBoxes []*Box
 	cursor := y
 	pending := collapsedMargin{}
 	first := true
@@ -471,6 +487,17 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		switch kind {
 		case flowSkip:
 			continue
+		}
+		if positioned(child) {
+			// Positioned boxes retain a static position at their place in the
+			// source, but are appended after all normal-flow siblings for paint.
+			flush()
+			staticY := cursor + pending.value()
+			positionedBoxes = append(positionedBoxes,
+				layoutPositioned(child, x, staticY, width, cb, faces))
+			continue
+		}
+		switch kind {
 		case flowInline:
 			inline = append(inline, child)
 			if !emptyInline(child) {
@@ -496,13 +523,14 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			b, _ = layoutTable(child, x, top-boxEdges(child, "margin", float64(width))[0], width, parent.Style["text-align"], faces)
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		default:
-			b, bottom = layoutBlock(child, x, top, width, faces)
+			b, bottom = layoutBlock(child, x, top, width, faces, cb)
 		}
 		boxes = append(boxes, b)
 		cursor = b.Rect.Max.Y
 		pending = bottom
 	}
 	flush()
+	boxes = append(boxes, positionedBoxes...)
 	if keepTrailing {
 		return boxes, cursor, pending
 	}
@@ -512,7 +540,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 // layoutBlock lays out a block box whose border box starts at y; the caller
 // has already resolved its (collapsed) top margin. It returns the box and its
 // bottom margin, which may include a collapsed last-child margin.
-func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, collapsedMargin) {
+func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) (*Box, collapsedMargin) {
 	margin := boxEdges(n, "margin", float64(width))
 	padding := boxEdges(n, "padding", float64(width))
 	border := boxEdges(n, "border-width", float64(width))
@@ -522,13 +550,28 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, collapse
 	contentX := x + margin[3] + border[3] + padding[3]
 	contentY := y + border[0] + padding[0]
 	collapseBottom := collapsesThroughBottom(n, width)
+	childCB := cb
+	if strings.EqualFold(strings.TrimSpace(n.Style["position"]), "relative") || positioned(n) {
+		childCB = containingBlock{
+			x:        x + margin[3] + border[3],
+			y:        y + border[0],
+			width:    max(0, outerWidth-border[1]-border[3]),
+			height:   cb.height,
+			viewport: cb.viewport,
+		}
+		if h := strings.TrimSpace(n.Style["height"]); h != "" && !strings.EqualFold(h, "auto") {
+			childCB.height = int(math.Max(0, px(h, float64(width), float64(cb.height)))) +
+				padding[0] + padding[2]
+		}
+	}
 	children, childBottom, trailing := layoutFlow(n, contentX, contentY, contentWidth, faces,
-		collapsesThroughTop(n, width), collapseBottom)
+		collapsesThroughTop(n, width), collapseBottom, childCB)
 	childHeight := childBottom - contentY
 	height := childHeight
 	if h := n.Style["height"]; h != "" && h != "auto" {
 		height = int(math.Max(0, px(h, float64(childHeight), float64(height))))
 	}
+
 	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+height)
 	rect := image.Rect(x+margin[3], y, x+margin[3]+outerWidth, content.Max.Y+padding[2]+border[2])
 	bottom := collapsedMargin{}.add(verticalMargin(n, "bottom", width))
@@ -536,6 +579,91 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, collapse
 		bottom = bottom.join(trailing)
 	}
 	return &Box{Node: n.Node, Rect: rect, Content: content, Children: children}, bottom
+}
+
+// layoutPositioned lays out an absolute/fixed box without changing the
+// normal-flow cursor. Auto offsets use the position where the box occurred
+// in source order; fixed boxes always use the viewport containing block.
+func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock, faces *faceSet) *Box {
+	if strings.EqualFold(strings.TrimSpace(n.Style["position"]), "fixed") {
+		cb = containingBlock{x: cb.viewport.Min.X, y: cb.viewport.Min.Y, width: cb.viewport.Dx(),
+			height: cb.viewport.Dy(), viewport: cb.viewport}
+	}
+	width := cb.width
+	cssWidth := strings.TrimSpace(n.Style["width"])
+	if cssWidth == "" || strings.EqualFold(cssWidth, "auto") {
+		minWidth, maxWidth := positionedIntrinsicWidths(n, faces)
+		edges := boxEdges(n, "margin", float64(width))
+		padding := boxEdges(n, "padding", float64(width))
+		border := boxEdges(n, "border-width", float64(width))
+		available := max(0, width-edges[1]-edges[3]-padding[1]-padding[3]-border[1]-border[3])
+		used := min(maxWidth, available)
+		used = max(minWidth, used)
+		used = min(used, available)
+		style := cloneStyle(n.Style)
+		style["width"] = strconv.Itoa(used) + "px"
+		n = &StyledNode{Node: n.Node, Style: style, Children: n.Children}
+	}
+	positionX, positionY := staticX, staticY
+	left, top := strings.TrimSpace(n.Style["left"]), strings.TrimSpace(n.Style["top"])
+	if left != "" && !strings.EqualFold(left, "auto") {
+		positionX = cb.x + int(math.Round(px(left, float64(width), 0)))
+	}
+	if top != "" && !strings.EqualFold(top, "auto") {
+		positionY = cb.y + int(math.Round(px(top, float64(width), 0)))
+	}
+	box, _ := layoutBlock(n, positionX, positionY, width, faces, cb)
+	right, bottom := strings.TrimSpace(n.Style["right"]), strings.TrimSpace(n.Style["bottom"])
+	if right != "" && !strings.EqualFold(right, "auto") && (left == "" || strings.EqualFold(left, "auto")) {
+		offset := int(math.Round(px(right, float64(width), 0)))
+		box = translatePositionedBox(box, cb.x+width-offset-box.Rect.Max.X, 0)
+	}
+	if bottom != "" && !strings.EqualFold(bottom, "auto") && (top == "" || strings.EqualFold(top, "auto")) {
+		offset := int(math.Round(px(bottom, float64(width), 0)))
+		box = translatePositionedBox(box, 0, cb.y+cb.height-offset-box.Rect.Max.Y)
+	}
+	return box
+}
+
+func cloneStyle(style ComputedStyle) ComputedStyle {
+	out := make(ComputedStyle, len(style))
+	for key, value := range style {
+		out[key] = value
+	}
+	return out
+}
+
+func positionedIntrinsicWidths(n *StyledNode, faces *faceSet) (minimum, maximum int) {
+	if n.Node.Type == TextNode {
+		text := strings.Join(strings.Fields(n.Node.Data), " ")
+		m := faces.metrics(n.Style)
+		maximum = m.width(text)
+		for _, word := range strings.Fields(text) {
+			minimum = max(minimum, m.width(word))
+		}
+		return minimum, maximum
+	}
+	for _, child := range n.Children {
+		childMin, childMax := positionedIntrinsicWidths(child, faces)
+		minimum = max(minimum, childMin)
+		maximum += childMax
+	}
+	return minimum, maximum
+}
+
+func translatePositionedBox(box *Box, dx, dy int) *Box {
+	box.Rect = box.Rect.Add(image.Pt(dx, dy))
+	box.Content = box.Content.Add(image.Pt(dx, dy))
+	for i := range box.Text {
+		box.Text[i].Rect = box.Text[i].Rect.Add(image.Pt(dx, dy))
+	}
+	for i := range box.Images {
+		box.Images[i].Rect = box.Images[i].Rect.Add(image.Pt(dx, dy))
+	}
+	for _, child := range box.Children {
+		translatePositionedBox(child, dx, dy)
+	}
+	return box
 }
 
 // layoutReplacedBlock lays out a block-level img, honouring margins, borders
