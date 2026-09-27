@@ -42,7 +42,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 |---|---|---|
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | viewport media conditions and nested rules supported → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
 | `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | evaluated against the features this engine actually renders → [#251](https://github.com/lukehoban/simplebrowser/issues/251); `mask-image`, `grid` and `round()` report unsupported, so icon fallbacks are selected. Their SVG `data:` backgrounds decode offline, including Vector's legacy `image/svg+xml;utf8` form with literal spaces → [#268](https://github.com/lukehoban/simplebrowser/issues/268); full-page icon fidelity still depends on surrounding pseudo-element layout and sizing work such as [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
-| Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | core single-line row/column, sizing, gaps and alignment implemented → [#247](https://github.com/lukehoban/simplebrowser/issues/247); wrapping → [#272](https://github.com/lukehoban/simplebrowser/issues/272) |
+| Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | row/column, sizing, gaps, alignment ([#247](https://github.com/lukehoban/simplebrowser/issues/247)) and wrapping ([#272](https://github.com/lukehoban/simplebrowser/issues/272)) implemented; scope in [flexbox support](flexbox.md) |
 | Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping → [#252](https://github.com/lukehoban/simplebrowser/issues/252); float clearance → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | ordinary declarations now substitute inherited variables and fallbacks ([#246](https://github.com/lukehoban/simplebrowser/issues/246), shared with #242); `calc()` lengths still need #254 |
 | `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
@@ -71,8 +71,11 @@ the infobox now floats right and the lead text is visible after ordinary
 custom-property substitution and invalid-at-computed-value-time fallback
 ([#246](https://github.com/lukehoban/simplebrowser/issues/246),
 [#266](https://github.com/lukehoban/simplebrowser/issues/266)).
-Core flex layout keeps the logo/header controls and title toolbar on their
-authored single lines at 800px. Responsive multi-line flex remains #272.
+Flex layout keeps the logo/header controls and title toolbar on their
+authored lines at 800px; flex containers now report their items' combined
+intrinsic width, so the shrink-to-fit user links, tabs and indicators no
+longer overlap ([before/after](screenshots/wikipedia-moon/flex-wrap-before-after.png),
+[#272](https://github.com/lukehoban/simplebrowser/issues/272)).
 
 ## Out of scope
 

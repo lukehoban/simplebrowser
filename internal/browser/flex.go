@@ -7,9 +7,11 @@ import (
 )
 
 // This is the deliberately small flex formatting context used by the pinned
-// GitHub and Moon fixtures. It supports a single row or column, flexible main
-// sizes, gaps and the common main/cross-axis alignment values. Wrapping,
-// ordering and baseline synthesis remain outside this renderer's flex scope.
+// GitHub and Moon fixtures. It supports rows and columns, flexible main sizes,
+// gaps, the common main/cross-axis alignment values, and bounded multi-line
+// wrapping (flex-wrap:wrap and wrap-reverse with per-line flexing and
+// align-content). Ordering, align-self and baseline synthesis remain outside
+// this renderer's flex scope; see docs/flexbox.md.
 func isFlexContainer(n *StyledNode) bool {
 	if n == nil {
 		return false
@@ -27,12 +29,23 @@ type flexItem struct {
 	margin        [4]int
 	main, grow    float64
 	shrink        float64
+	extra         int // margins, borders and padding on the main axis
 	explicitCross bool
 }
 
+// flexLine is one line of items plus its resolved cross size and position.
+type flexLine struct {
+	items      []flexItem
+	cross, pos int
+}
+
 func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefinite bool, faces *faceSet, cb containingBlock) ([]*Box, int) {
-	column := strings.HasPrefix(strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"])), "column")
-	reverse := strings.HasSuffix(strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"])), "reverse")
+	direction := strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"]))
+	column := strings.HasPrefix(direction, "column")
+	reverse := strings.HasSuffix(direction, "reverse")
+	wrapMode := strings.ToLower(strings.TrimSpace(parent.Style["flex-wrap"]))
+	wrap := wrapMode == "wrap" || wrapMode == "wrap-reverse"
+	wrapReverse := wrapMode == "wrap-reverse"
 	var nodes []*StyledNode
 	var outOfFlow []*StyledNode
 	for _, child := range parent.Children {
@@ -49,13 +62,16 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		}
 	}
 	gap := flexGap(parent.Style, column, width)
+	crossGap := flexGap(parent.Style, !column, width)
+	// An auto-height column has no definite main size: it grows to its
+	// contents, never flexes and never wraps.
+	mainDefinite := !column || heightDefinite
 	availableMain := width
 	if column && heightDefinite {
 		availableMain = containerHeight
 	}
 
 	items := make([]flexItem, 0, len(nodes))
-	total := float64(max(0, len(nodes)-1) * gap)
 	for _, child := range nodes {
 		margin := boxEdges(child, "margin", float64(width))
 		grow, shrink, basis, hasBasis := flexFactors(child.Style, availableMain)
@@ -84,110 +100,167 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		}
 		main = math.Max(0, main)
 		inner := inlineInnerEdges(child, width)
-		extras := margin[1] + margin[3] + inner[1] + inner[3]
+		extra := margin[1] + margin[3] + inner[1] + inner[3]
 		if column {
-			extras = margin[0] + margin[2] + inner[0] + inner[2]
+			extra = margin[0] + margin[2] + inner[0] + inner[2]
 		}
-		total += main + float64(extras)
 		items = append(items, flexItem{node: child, margin: margin, main: main, grow: grow, shrink: shrink,
-			explicitCross: flexHasCrossSize(child, column)})
+			extra: extra, explicitCross: flexHasCrossSize(child, column)})
 	}
 
-	// An auto-height column grows to its contents; on a definite axis freeze
-	// items at their min/max constraints and redistribute the remaining space.
-	if !column || heightDefinite {
-		resolveFlexLengths(items, float64(availableMain)-total, column, availableMain)
+	// Collect items into lines. A single-line container keeps every item on
+	// one line; a wrapping container with a definite main size breaks before
+	// an item whose hypothetical (min/max-clamped) outer size would overflow.
+	var lines []flexLine
+	if wrap && mainDefinite {
+		used := 0.0
+		for _, item := range items {
+			lo, hi := flexMinMax(item, column, availableMain)
+			outer := math.Max(lo, math.Min(hi, item.main)) + float64(item.extra)
+			if n := len(lines); n > 0 && len(lines[n-1].items) > 0 && used+float64(gap)+outer <= float64(availableMain)+0.001 {
+				lines[n-1].items = append(lines[n-1].items, item)
+				used += float64(gap) + outer
+				continue
+			}
+			lines = append(lines, flexLine{items: []flexItem{item}})
+			used = outer
+		}
+	}
+	if len(lines) == 0 {
+		lines = []flexLine{{items: items}}
 	}
 
-	// Lay out at the origin first so the cross size is known before alignment.
-	cross := 0
-	for i := range items {
-		style := cloneStyle(items[i].node.Style)
-		if column {
-			style["height"] = formatFlexPixels(items[i].main)
+	// Resolve flexible lengths per line, then lay out at the origin so each
+	// line's cross size is known before alignment.
+	for li := range lines {
+		line := &lines[li]
+		if mainDefinite {
+			total := float64(max(0, len(line.items)-1) * gap)
+			for _, item := range line.items {
+				total += item.main + float64(item.extra)
+			}
+			resolveFlexLengths(line.items, float64(availableMain)-total, column, availableMain)
+		}
+		for i := range line.items {
+			item := &line.items[i]
+			style := cloneStyle(item.node.Style)
+			if column {
+				style["height"] = formatFlexPixels(item.main)
+			} else {
+				style["width"] = formatFlexPixels(item.main)
+			}
+			used := &StyledNode{Node: item.node.Node, Style: style, Children: item.node.Children}
+			item.box = layoutFlexItem(used, x, y+item.margin[0], width, faces, cb)
+			line.cross = max(line.cross, flexOuterCross(*item, column))
+		}
+	}
+
+	// The container's cross size is definite for columns (the width) and for
+	// rows with a definite height; otherwise it is the sum of the lines.
+	crossDefinite := column || heightDefinite
+	containerCross := width
+	if !column {
+		containerCross = containerHeight
+	}
+	if !wrap {
+		if crossDefinite {
+			lines[0].cross = containerCross
+		}
+	} else {
+		sum := max(0, len(lines)-1) * crossGap
+		for _, line := range lines {
+			sum += line.cross
+		}
+		free := 0
+		if crossDefinite {
+			free = containerCross - sum
+		}
+		content := strings.ToLower(strings.TrimSpace(parent.Style["align-content"]))
+		offset, between := 0, crossGap
+		if content == "" || content == "normal" || content == "stretch" {
+			if free > 0 {
+				for i := range lines {
+					lines[i].cross += free*(i+1)/len(lines) - free*i/len(lines)
+				}
+			}
 		} else {
-			style["width"] = formatFlexPixels(items[i].main)
+			offset, between = flexJustification(content, free, len(lines), crossGap)
 		}
-		used := &StyledNode{Node: items[i].node.Node, Style: style, Children: items[i].node.Children}
-		itemY := y + items[i].margin[0]
-		items[i].box = layoutFlexItem(used, x, itemY, width, faces, cb)
-		itemCross := items[i].box.Rect.Dy() + items[i].margin[0] + items[i].margin[2]
-		if column {
-			itemCross = items[i].box.Rect.Dx() + items[i].margin[1] + items[i].margin[3]
+		cursor := offset
+		for i := range lines {
+			lines[i].pos = cursor
+			cursor += lines[i].cross + between
 		}
-		cross = max(cross, itemCross)
+		if !crossDefinite {
+			containerCross = sum
+		}
 	}
-	if !column && heightDefinite {
-		cross = containerHeight
-	}
-	if column {
-		cross = width
+	if !crossDefinite && !wrap {
+		containerCross = lines[0].cross
 	}
 
-	// Stretch auto cross sizes, then align and place along the main axis.
 	align := strings.ToLower(strings.TrimSpace(parent.Style["align-items"]))
 	if align == "" || align == "normal" {
 		align = "stretch"
 	}
-	for i := range items {
-		if align == "stretch" && !items[i].explicitCross {
-			style := cloneStyle(items[i].node.Style)
-			if column {
-				inner := inlineInnerEdges(items[i].node, width)
-				style["width"] = formatFlexPixels(float64(max(0, cross-items[i].margin[1]-items[i].margin[3]-inner[1]-inner[3])))
-				style["height"] = formatFlexPixels(items[i].main)
-			} else {
-				inner := inlineInnerEdges(items[i].node, width)
-				style["width"] = formatFlexPixels(items[i].main)
-				style["height"] = formatFlexPixels(float64(max(0, cross-items[i].margin[0]-items[i].margin[2]-inner[0]-inner[2])))
-			}
-			used := &StyledNode{Node: items[i].node.Node, Style: style, Children: items[i].node.Children}
-			items[i].box = layoutFlexItem(used, x, y+items[i].margin[0], width, faces, cb)
-		}
-	}
-
-	occupied := max(0, len(items)-1) * gap
-	for _, item := range items {
-		if column {
-			occupied += item.box.Rect.Dy() + item.margin[0] + item.margin[2]
-		} else {
-			occupied += item.box.Rect.Dx() + item.margin[1] + item.margin[3]
-		}
-	}
 	mainSize := width
-	if column {
-		mainSize = occupied
-		if heightDefinite {
-			mainSize = containerHeight
-		}
-	}
-	offset, between := flexJustification(parent.Style["justify-content"], mainSize-occupied, len(items), gap)
-	cursor := offset
 	boxes := make([]*Box, 0, len(items))
-	for _, item := range items {
-		itemCross := item.box.Rect.Dy() + item.margin[0] + item.margin[2]
-		if column {
-			itemCross = item.box.Rect.Dx() + item.margin[1] + item.margin[3]
+	for _, line := range lines {
+		linePos := line.pos
+		if wrapReverse {
+			linePos = containerCross - line.pos - line.cross
 		}
-		crossOffset := flexCrossOffset(align, cross-itemCross)
-		mainPos := cursor
-		if reverse {
-			outer := item.box.Rect.Dx() + item.margin[1] + item.margin[3]
-			if column {
-				outer = item.box.Rect.Dy() + item.margin[0] + item.margin[2]
+		// Stretch auto cross sizes to the line, then align along the main axis.
+		for i := range line.items {
+			item := &line.items[i]
+			if align != "stretch" || item.explicitCross {
+				continue
 			}
-			mainPos = mainSize - cursor - outer
+			style := cloneStyle(item.node.Style)
+			inner := inlineInnerEdges(item.node, width)
+			if column {
+				style["width"] = formatFlexPixels(float64(max(0, line.cross-item.margin[1]-item.margin[3]-inner[1]-inner[3])))
+				style["height"] = formatFlexPixels(item.main)
+			} else {
+				style["width"] = formatFlexPixels(item.main)
+				style["height"] = formatFlexPixels(float64(max(0, line.cross-item.margin[0]-item.margin[2]-inner[0]-inner[2])))
+			}
+			used := &StyledNode{Node: item.node.Node, Style: style, Children: item.node.Children}
+			item.box = layoutFlexItem(used, x, y+item.margin[0], width, faces, cb)
 		}
-		wantX, wantY := x+mainPos+item.margin[3], y+crossOffset+item.margin[0]
-		if column {
-			wantX, wantY = x+crossOffset+item.margin[3], y+mainPos+item.margin[0]
+
+		occupied := max(0, len(line.items)-1) * gap
+		for _, item := range line.items {
+			occupied += flexOuterMain(item, column)
 		}
-		translatePositionedBox(item.box, wantX-item.box.Rect.Min.X, wantY-item.box.Rect.Min.Y)
-		boxes = append(boxes, item.box)
 		if column {
-			cursor += item.box.Rect.Dy() + item.margin[0] + item.margin[2] + between
-		} else {
-			cursor += item.box.Rect.Dx() + item.margin[1] + item.margin[3] + between
+			mainSize = occupied
+			if heightDefinite {
+				mainSize = containerHeight
+			}
+		}
+		offset, between := flexJustification(parent.Style["justify-content"], mainSize-occupied, len(line.items), gap)
+		cursor := offset
+		for _, item := range line.items {
+			outerCross := flexOuterCross(item, column)
+			crossOffset := flexCrossOffset(align, line.cross-outerCross)
+			if wrapReverse {
+				// wrap-reverse swaps cross-start and cross-end.
+				crossOffset = max(0, line.cross-outerCross) - crossOffset
+			}
+			crossOffset += linePos
+			outerMain := flexOuterMain(item, column)
+			mainPos := cursor
+			if reverse {
+				mainPos = mainSize - cursor - outerMain
+			}
+			wantX, wantY := x+mainPos+item.margin[3], y+crossOffset+item.margin[0]
+			if column {
+				wantX, wantY = x+crossOffset+item.margin[3], y+mainPos+item.margin[0]
+			}
+			translatePositionedBox(item.box, wantX-item.box.Rect.Min.X, wantY-item.box.Rect.Min.Y)
+			boxes = append(boxes, item.box)
+			cursor += outerMain + between
 		}
 	}
 	for _, child := range outOfFlow {
@@ -196,7 +269,79 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	if column {
 		return boxes, y + mainSize
 	}
-	return boxes, y + cross
+	return boxes, y + containerCross
+}
+
+func flexOuterMain(item flexItem, column bool) int {
+	if column {
+		return item.box.Rect.Dy() + item.margin[0] + item.margin[2]
+	}
+	return item.box.Rect.Dx() + item.margin[1] + item.margin[3]
+}
+
+func flexOuterCross(item flexItem, column bool) int {
+	if column {
+		return item.box.Rect.Dx() + item.margin[1] + item.margin[3]
+	}
+	return item.box.Rect.Dy() + item.margin[0] + item.margin[2]
+}
+
+// flexMinMax returns an item's main-axis min/max constraints. Percentages
+// resolve against the definite main size (the container height for columns,
+// its width for rows).
+func flexMinMax(item flexItem, column bool, mainSize int) (minimum, maximum float64) {
+	property := "width"
+	if column {
+		property = "height"
+	}
+	maximum = math.Inf(1)
+	if v := strings.TrimSpace(item.node.Style["min-"+property]); v != "" && v != "auto" {
+		minimum = math.Max(0, px(v, float64(mainSize), 0))
+	}
+	if v := strings.TrimSpace(item.node.Style["max-"+property]); v != "" && v != "none" {
+		maximum = math.Max(0, px(v, float64(mainSize), 0))
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
+	return
+}
+
+// flexIntrinsicWidths measures a flex container's content. A row places every
+// item on one hypothetical line for its max-content width; its min-content
+// width is the widest item when wrapping, else the sum of the items' minimums.
+// A column's widths are those of its widest item.
+func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
+	direction := strings.ToLower(strings.TrimSpace(n.Style["flex-direction"]))
+	column := strings.HasPrefix(direction, "column")
+	wrapMode := strings.ToLower(strings.TrimSpace(n.Style["flex-wrap"]))
+	wrap := wrapMode == "wrap" || wrapMode == "wrap-reverse"
+	gap := flexGap(n.Style, false, 0)
+	minWidth, maxWidth, count := 0, 0, 0
+	for _, child := range n.Children {
+		if child.Node == nil || child.Node.Type != ElementNode || childFlowKind(child) == flowSkip || hiddenNode(child) || positioned(child) {
+			continue
+		}
+		childMin, childMax := intrinsicWidths(child, faces)
+		switch {
+		case column:
+			minWidth, maxWidth = max(minWidth, childMin), max(maxWidth, childMax)
+		case wrap:
+			minWidth = max(minWidth, childMin)
+			maxWidth += childMax
+		default:
+			minWidth += childMin
+			maxWidth += childMax
+		}
+		count++
+	}
+	if !column && count > 1 {
+		maxWidth += (count - 1) * gap
+		if !wrap {
+			minWidth += (count - 1) * gap
+		}
+	}
+	return minWidth, max(minWidth, maxWidth)
 }
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
@@ -214,26 +359,13 @@ func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containin
 // Percentage min/max sizes resolve against the definite main size (the
 // container height for columns, its width for rows).
 func resolveFlexLengths(items []flexItem, free float64, column bool, mainSize int) {
-	property := "width"
-	if column {
-		property = "height"
-	}
 	base := make([]float64, len(items))
 	frozen := make([]bool, len(items))
 	minimum := make([]float64, len(items))
 	maximum := make([]float64, len(items))
 	for i := range items {
 		base[i] = items[i].main
-		maximum[i] = math.Inf(1)
-		if v := strings.TrimSpace(items[i].node.Style["min-"+property]); v != "" && v != "auto" {
-			minimum[i] = math.Max(0, px(v, float64(mainSize), 0))
-		}
-		if v := strings.TrimSpace(items[i].node.Style["max-"+property]); v != "" && v != "none" {
-			maximum[i] = math.Max(0, px(v, float64(mainSize), 0))
-		}
-		if maximum[i] < minimum[i] {
-			maximum[i] = minimum[i]
-		}
+		minimum[i], maximum[i] = flexMinMax(items[i], column, mainSize)
 	}
 	growing := free > 0
 	for pass := 0; pass <= len(items); pass++ {

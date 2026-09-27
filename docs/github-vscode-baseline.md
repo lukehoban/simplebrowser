@@ -121,9 +121,8 @@ of those mechanisms; it is not GitHub's original CSS.
 The baseline PNG shows the fixture's single-line flex rows, gaps and flexible
 main column beside the About panel. Core `flex`/`inline-flex` row and column
 placement, flex sizing, `gap`, `justify-content`, and `align-items` are
-implemented for this pinned view. This is deliberately not a claim of complete
-flexbox: multi-line wrapping is tracked in
-[#272](https://github.com/lukehoban/simplebrowser/issues/272). The renderer
+implemented for this pinned view; see [flexbox support](flexbox.md) for the
+bounded scope, including multi-line wrapping. The renderer
 also resolves inherited custom-property theme colors. The table and text are
 visible; this remains a diagnostic, not parity evidence.
 
@@ -141,8 +140,8 @@ current-render visuals:
 - [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246)
   are implemented here, distinct from the SVG-only limitation in #161.
 - [#247 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/247)
-  implements the core single-line behavior; [#272](https://github.com/lukehoban/simplebrowser/issues/272)
-  tracks wrapping outside this viewport's scope.
+  implements the core behavior; [#272](https://github.com/lukehoban/simplebrowser/issues/272)
+  adds wrapping (scope in [flexbox support](flexbox.md)).
 - [#265 Refresh separate Moon comparison/documentation after media changes](https://github.com/lukehoban/simplebrowser/issues/265)
   is tracked outside this GitHub stand-in visual.
 
