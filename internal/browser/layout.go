@@ -566,7 +566,41 @@ func isAtomicInline(n *StyledNode) bool {
 
 func emptyAtomicInline(n *StyledNode) bool {
 	for _, c := range n.Children {
-		if !emptyInline(c) {
+		if !emptyAtomicContent(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// emptyAtomicContent reports whether an inline-block can use the lightweight
+// empty-box path. Unlike emptyInline, generated block boxes are significant
+// even when their subtree has no text: they can have their own dimensions,
+// paint, and percentage-height descendants.
+func emptyAtomicContent(n *StyledNode) bool {
+	if n.Node.Type == TextNode {
+		return strings.TrimFunc(n.Node.Data, func(r rune) bool {
+			return unicode.IsSpace(r) && r != '\u00a0'
+		}) == ""
+	}
+	if n.Node.Type != ElementNode {
+		return true
+	}
+	if strings.EqualFold(n.Style["display"], "none") {
+		return true
+	}
+	switch strings.ToLower(n.Node.Name) {
+	case "img", "br":
+		return false
+	}
+	if isInlineTableNode(n) || isAtomicInline(n) {
+		return false
+	}
+	if childFlowKind(n) != flowInline {
+		return false
+	}
+	for _, child := range n.Children {
+		if !emptyAtomicContent(child) {
 			return false
 		}
 	}

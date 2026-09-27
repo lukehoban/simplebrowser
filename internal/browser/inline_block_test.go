@@ -189,13 +189,137 @@ func TestEmptyInlineBlockWrapsToNextLine(t *testing.T) {
 // Whitespace-only and zero-sized inline-blocks still generate a line box, but
 // nothing visible.
 func TestEmptyInlineBlockWithoutDimensions(t *testing.T) {
-	rects := spanRects(t, `<body style="margin:0;line-height:0"><div>`+
-		`<span style="display:inline-block"></span></div></body>`)
-	if len(rects) != 1 {
-		t.Fatalf("got %d span boxes %v, want 1", len(rects), rects)
+	for _, content := range []string{"", " \n\t "} {
+		rects := spanRects(t, `<body style="margin:0;line-height:0"><div>`+
+			`<span style="display:inline-block">`+content+`</span></div></body>`)
+		if len(rects) != 1 {
+			t.Fatalf("content %q: got %d span boxes %v, want 1", content, len(rects), rects)
+		}
+		if !rects[0].Empty() {
+			t.Errorf("content %q: span rect = %v, want an empty box", content, rects[0])
+		}
 	}
-	if !rects[0].Empty() {
-		t.Errorf("span rect = %v, want an empty box", rects[0])
+}
+
+func TestEmptyInlineBlockWithoutDimensionsKeepsBaseline(t *testing.T) {
+	for _, content := range []string{"", " \n\t "} {
+		markup := `<body style="margin:0;font:16px sans-serif;line-height:20px">before` +
+			`<span id="atomic" style="display:inline-block">` + content + `</span>after</body>`
+		layout, err := LayoutWithViewport(styledForLayout(t, markup), image.Rect(0, 0, 400, 400))
+		if err != nil {
+			t.Fatal(err)
+		}
+		box := boxesByID(layout.Root, "atomic")["atomic"]
+		if box == nil || !box.Content.Empty() {
+			t.Fatalf("content %q: empty inline-block = %#v", content, box)
+		}
+		var runs []TextRun
+		var collect func(*Box)
+		collect = func(b *Box) {
+			runs = append(runs, b.Text...)
+			for _, child := range b.Children {
+				collect(child)
+			}
+		}
+		collect(layout.Root)
+		if len(runs) != 2 || runs[0].Text != "before" || runs[1].Text != "after" {
+			t.Fatalf("content %q: text runs = %v, want before and after", content, runs)
+		}
+		faces := newFaceSet()
+		ascent, _ := faces.metrics(runs[0].Style).lineMetrics()
+		faces.close()
+		if got, want := box.Rect.Max.Y, runs[0].Rect.Min.Y+ascent; got != want {
+			t.Errorf("content %q: inline-block bottom = %d, want baseline %d", content, got, want)
+		}
+		if runs[0].Rect.Min.Y != runs[1].Rect.Min.Y {
+			t.Errorf("content %q: adjacent text baselines differ: %v and %v",
+				content, runs[0].Rect, runs[1].Rect)
+		}
+	}
+}
+
+func TestInlineBlockRetainsTextFreeBlockDescendants(t *testing.T) {
+	for _, tc := range []struct {
+		name, atomicStyle, childStyle     string
+		wantAtomicHeight, wantChildHeight int
+	}{
+		{
+			name:             "definite child grows auto height",
+			atomicStyle:      "width:100px",
+			childStyle:       "height:40px;background:red",
+			wantAtomicHeight: 40,
+			wantChildHeight:  40,
+		},
+		{
+			name:             "percentage child uses definite height",
+			atomicStyle:      "width:100px;height:80px",
+			childStyle:       "height:50%;background:blue",
+			wantAtomicHeight: 80,
+			wantChildHeight:  40,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			markup := `<body style="margin:0;line-height:0"><div id="atomic" style="display:inline-block;` +
+				tc.atomicStyle + `"><div id="child" style="` + tc.childStyle + `"></div></div></body>`
+			layout, err := LayoutWithViewport(styledForLayout(t, markup), image.Rect(0, 0, 400, 400))
+			if err != nil {
+				t.Fatal(err)
+			}
+			boxes := boxesByID(layout.Root, "atomic", "child")
+			if boxes["atomic"] == nil || boxes["child"] == nil {
+				t.Fatalf("missing generated boxes: %v", boxes)
+			}
+			if got := boxes["atomic"].Content.Dy(); got != tc.wantAtomicHeight {
+				t.Errorf("inline-block content height = %d, want %d", got, tc.wantAtomicHeight)
+			}
+			if got := boxes["child"].Content.Dy(); got != tc.wantChildHeight {
+				t.Errorf("child content height = %d, want %d", got, tc.wantChildHeight)
+			}
+			img := painted(t, markup, image.Rect(0, 0, 400, 400))
+			wantColor := color.RGBA{255, 0, 0, 255}
+			if tc.name == "percentage child uses definite height" {
+				wantColor = color.RGBA{0, 0, 255, 255}
+			}
+			pixel(t, img, boxes["child"].Content.Min.X, boxes["child"].Content.Min.Y, wantColor)
+			pixel(t, img, boxes["child"].Content.Max.X-1, boxes["child"].Content.Max.Y-1, wantColor)
+		})
+	}
+}
+
+func TestTextFreeBlockInlineBlockUsesBottomBaseline(t *testing.T) {
+	const markup = `<body style="margin:0;font:16px sans-serif;line-height:20px">before` +
+		`<span id="atomic" style="display:inline-block;width:20px"><div style="height:10px"></div></span>` +
+		`after</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, markup), image.Rect(0, 0, 400, 400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := boxesByID(layout.Root, "atomic")["atomic"]
+	if box == nil {
+		t.Fatal("missing inline-block")
+	}
+	var runs []TextRun
+	var collect func(*Box)
+	collect = func(b *Box) {
+		runs = append(runs, b.Text...)
+		for _, child := range b.Children {
+			collect(child)
+		}
+	}
+	collect(layout.Root)
+	if len(runs) != 2 || runs[0].Text != "before" || runs[1].Text != "after" {
+		t.Fatalf("text runs = %v, want before and after", runs)
+	}
+	if runs[0].Rect.Min.Y != runs[1].Rect.Min.Y {
+		t.Errorf("adjacent text baselines differ: %v and %v", runs[0].Rect, runs[1].Rect)
+	}
+	// With no in-flow line box in the atomic content, its bottom margin edge
+	// supplies the baseline and aligns with the surrounding text baseline.
+	faces := newFaceSet()
+	defer faces.close()
+	ascent, _ := faces.metrics(runs[0].Style).lineMetrics()
+	if got, want := box.Rect.Max.Y, runs[0].Rect.Min.Y+ascent; got != want {
+		t.Errorf("inline-block bottom = %d, want surrounding baseline %d", got, want)
 	}
 }
 
