@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Unitless flex shorthand basis in floated intrinsic sizing (#291)</title>
+    <style>
+      body { margin: 0; font: 13px sans-serif; background: #fff; color: #111; width: 360px; }
+      h1 { font-size: 14px; margin: 8px; }
+      p { margin: 8px; }
+      .row { clear: left; padding: 4px 8px; }
+      .float { float: left; display: flex; height: 24px; background: #cfe3ff; border: 1px solid #3b6fb6; }
+      .float div { height: 24px; background: #f6b26b; }
+      .next { float: left; width: 24px; height: 24px; background: #2f7d32; }
+      code { font-family: monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>Floated flex row width from an implied 0% basis (#291)</h1>
+    <p><code>flex:0</code> and <code>flex:0 0</code> omit the basis, which means
+      <code>0%</code>: indefinite while the float is measured, so the float takes the
+      item's 40px content contribution. An explicit <code>flex:0 0 0px</code> stays a
+      definite 0px basis and collapses the float.</p>
+    <div class="row">
+      <div class="float"><div style="flex:0;width:40px"></div></div>
+      <div class="next"></div>
+    </div>
+    <div class="row">
+      <div class="float"><div style="flex:0 0;width:40px"></div></div>
+      <div class="next"></div>
+    </div>
+    <div class="row">
+      <div class="float"><div style="flex:0 0 0px;width:40px"></div></div>
+      <div class="next"></div>
+    </div>
+  </body>
+</html>
