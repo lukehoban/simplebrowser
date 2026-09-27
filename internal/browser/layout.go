@@ -463,7 +463,7 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 		for _, p := range l.parts {
 			if p.isImage {
 				// Replaced boxes sit on the line top for now; baseline
-				// alignment arrives with image painting.
+				// alignment is tracked separately in issue #33.
 				box.Images = append(box.Images, ImageBox{Image: p.image,
 					Rect: image.Rect(xpos, cursor, xpos+p.imageW, cursor+p.imageH)})
 				xpos += p.imageW
