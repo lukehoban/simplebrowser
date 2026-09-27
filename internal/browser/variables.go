@@ -6,8 +6,51 @@ import "strings"
 // declaration does not incorrectly take its place.
 const invalidVariable = "\x00invalid-var"
 
+// containsVarFunction reports whether text contains a var() function token:
+// the ASCII case-insensitive name "var" directly followed by "(", not part of
+// a longer identifier (so novar( or my-var( do not count) and not inside a
+// string or comment.
 func containsVarFunction(text string) bool {
-	return strings.Contains(strings.ToLower(text), "var(")
+	for i := 0; i < len(text); {
+		switch c := text[i]; {
+		case c == '"' || c == '\'':
+			i = skipCSSString(text, i)
+		case c == '/' && i+1 < len(text) && text[i+1] == '*':
+			if end := strings.Index(text[i+2:], "*/"); end >= 0 {
+				i += end + 4
+			} else {
+				return false
+			}
+		case cssIdent(c) || c >= 0x80 || c == '\\':
+			// An escape is part of an identifier, so \var( is not var(.
+			start := i
+			for i < len(text) && (cssIdent(text[i]) || text[i] >= 0x80 || text[i] == '\\') {
+				if text[i] == '\\' {
+					i++
+				}
+				i++
+			}
+			if i < len(text) && text[i] == '(' && strings.EqualFold(text[start:i], "var") {
+				return true
+			}
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+// skipCSSString returns the index just past the string starting at i.
+func skipCSSString(text string, i int) int {
+	quote := text[i]
+	for i++; i < len(text); i++ {
+		if text[i] == '\\' {
+			i++
+		} else if text[i] == quote {
+			return i + 1
+		}
+	}
+	return len(text)
 }
 
 // substituteVars expands token streams before interpreting property syntax.
