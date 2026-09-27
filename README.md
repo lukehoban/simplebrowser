@@ -21,12 +21,14 @@ regenerate the committed report and inspect failure diagnostics in
 **What works:** HTTP(S) and local-file loading; HTML parsing; CSS cascade; block,
 inline, and table layout; PNG painting of text, borders, images, and a subset of
 SVG. Raster CSS backgrounds paint in layers, and local SVG `<defs>`/`<use>`
-references are supported. The offline HN fixture is rendered in CI, with the
-result available as a [workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
+references are supported. Bounded two-color CSS `linear-gradient()` backgrounds
+support directions, angles, and percentage stops. The offline HN fixture is
+rendered in CI, with the result available as a
+[workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
 
 **What's next:** Improve [HN fidelity (#12)](https://github.com/lukehoban/simplebrowser/issues/12),
-including the [remaining WPT pixel mismatch (#71)](https://github.com/lukehoban/simplebrowser/issues/71),
-[CSS gradients (#41)](https://github.com/lukehoban/simplebrowser/issues/41), and
+including broader CSS gradient syntax such as
+[color hints (#127)](https://github.com/lukehoban/simplebrowser/issues/127), and
 [SVG gradients and opacity (#84)](https://github.com/lukehoban/simplebrowser/issues/84).
 See [epic #2](https://github.com/lukehoban/simplebrowser/issues/2) for the live
 checklist and further scope.
