@@ -87,10 +87,10 @@ func TestAttributeSelectorCascadeAndPixels(t *testing.T) {
 	img := painted(t, `<style>
 		div { width: 20px; height: 10px; background: red }
 		[data-state=ready] { background: green }
-		[hidden] { background: blue }
-		div:not([data-state], [hidden]) { background: #ffff00 }
+		[data-flag] { background: blue }
+		div:not([data-state], [data-flag]) { background: #ffff00 }
 	</style>
-	<div data-state=ready></div><div data-state=other></div><div hidden></div><div></div>`,
+	<div data-state=ready></div><div data-state=other></div><div data-flag></div><div></div>`,
 		image.Rect(0, 0, 20, 40))
 	pixel(t, img, 5, 5, color.RGBA{0, 128, 0, 255})
 	pixel(t, img, 5, 15, color.RGBA{255, 0, 0, 255})
