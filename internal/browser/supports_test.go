@@ -62,7 +62,9 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(width: calc(1px + 2))", false},
 		{"(float: left)", true},
 		{"(float: inline-start)", false},
-		{"(opacity: 0.5)", false},
+		{"(opacity: 0.5)", true},
+		{"(opacity: 50%)", true},
+		{"(opacity: auto)", false},
 		// Boolean operators and nesting.
 		{"not (mask-mode: alpha)", true},
 		{"NOT (display: block)", false},

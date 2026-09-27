@@ -235,9 +235,9 @@ var supportValidators = map[string]func(string) bool{
 	"margin":               boxShorthand(supportsOr(keywordValidator("auto"), lengthOrPercentage)),
 	"padding":              boxShorthand(nonNegativeLength),
 	"border-width":         boxShorthand(nonNegativeLength),
+	// Group opacity, painted by opacity.go for HTML and svg.go for SVG.
+	"opacity": validOpacity,
 	// SVG presentation properties that svg.go resolves from the cascade.
-	// opacity is omitted: SVG group opacity works but HTML elements do not
-	// yet honor it, so claiming support would mislead HTML fallbacks.
 	"fill":            supportsOr(keywordValidator("none"), colorValue),
 	"stroke":          supportsOr(keywordValidator("none"), colorValue),
 	"stroke-width":    nonNegativeLength,
