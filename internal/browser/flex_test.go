@@ -493,6 +493,11 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 			"b": image.Rect(0, 30, 60, 50), "after": image.Rect(0, 50, 200, 55)},
 		pixels: map[image.Point]color.RGBA{{5, 5}: red, {5, 35}: blue, {70, 5}: {255, 255, 255, 255}, {5, 25}: {255, 255, 255, 255}},
 	}, {
+		name:   "percentage calc flex basis participates in wrapping",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap;width:100px;column-gap:2px"><div id="a" style="flex-basis:calc(50% - 1px);flex-shrink:0;height:10px"></div><div id="b" style="flex-basis:calc(50% - 1px);flex-shrink:0;height:10px"></div><div id="d" style="flex-basis:calc(50% - 1px);flex-shrink:0;height:10px"></div></div>`,
+		want: map[string]image.Rectangle{"c": image.Rect(0, 0, 100, 20), "a": image.Rect(0, 0, 49, 10),
+			"b": image.Rect(51, 0, 100, 10), "d": image.Rect(0, 10, 49, 20)},
+	}, {
 		name:   "per-line flexing and wrap-reverse cross placement",
 		source: `<div id="c" style="display:flex;flex-wrap:wrap-reverse;width:180px;gap:6px 10px"><div id="a" style="width:50px;height:20px;background:red"></div><div id="b" style="width:50px;height:30px;background:green"></div><div id="d" style="width:50px;height:20px"></div><div id="grow" style="flex:1 1 60px;height:20px;background:blue"></div></div>`,
 		want: map[string]image.Rectangle{"c": image.Rect(0, 0, 180, 56), "grow": image.Rect(0, 0, 180, 20),

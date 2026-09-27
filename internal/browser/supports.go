@@ -185,7 +185,8 @@ func supportsDeclaration(s string) (string, string, bool) {
 // values this renderer implements are accepted. It is intentionally
 // conservative; extend it when a feature lands. Unlisted properties such as
 // mask-image, and values such as display:grid or math functions like
-// calc()/round(), are unsupported.
+// min()/round(), are unsupported. A single calc() length is accepted for the
+// properties listed by calcLengthProperty (see docs/css-calc.md).
 var supportValidators = map[string]func(string) bool{
 	"display": keywordValidator("none", "block", "inline", "inline-block", "flex", "inline-flex", "list-item", "flow-root",
 		"table", "inline-table", "table-row", "table-cell", "table-row-group", "table-header-group",
@@ -263,6 +264,9 @@ func featureSupported(property, value string) bool {
 	case "inherit":
 		return true // resolved generically by the cascade
 	}
+	if calcLengthProperty(property) && strings.Contains(strings.ToLower(value), "calc(") {
+		return validCalcDeclaration(property, value)
+	}
 	return valid(strings.TrimSpace(value))
 }
 
@@ -288,8 +292,9 @@ func supportsOr(validators ...func(string) bool) func(string) bool {
 	}
 }
 
-// Math functions (calc, round, min, ...) are functions, not lengths, so they
-// are rejected here; classifyValue does not evaluate them.
+// Math functions are evaluated by the computed-value pipeline for the
+// supported ordinary length properties. Other function-valued lengths remain
+// outside this compact validator.
 func lengthOrPercentage(v string) bool {
 	c := classifyValue(v)
 	return c.Kind == "length" || c.Kind == "percentage" || c.Kind == "number" && c.Number == 0
