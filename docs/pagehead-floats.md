@@ -41,6 +41,7 @@ is a headless Chrome 154 capture at 800×600, device scale factor 1.
 
 On the public logged-out `https://github.com/microsoft/vscode` response of
 2026-09-27 (live content changes), the repository header row shrank from
-218px to 68px tall and the first file row moved from y≈483 to y≈333. The live
+218px to 68px tall, the Code tab moved from y=362 to y=212, and the first
+directory row moved from y=522 to y=372 (layout-box coordinates). The live
 capture is still obscured by an `opacity:0` header overlay (#353); remaining
 differences are tracked on #349.
