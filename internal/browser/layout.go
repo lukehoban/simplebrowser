@@ -237,7 +237,7 @@ func fontSize(value string) float64 {
 	default:
 		size = px(value, 16, 16)
 	}
-	if size <= 0 || size > 512 || math.IsNaN(size) || math.IsInf(size, 0) {
+	if size < 0 || size > 512 || math.IsNaN(size) || math.IsInf(size, 0) {
 		return 16
 	}
 	return size

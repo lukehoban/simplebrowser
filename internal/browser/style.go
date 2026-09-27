@@ -40,11 +40,11 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 			}
 			return result
 		}
-		computed := cascade(n, parent, rootFontSize, ua, sheets, inline[n])
+		isRootElement := !rootElementSeen
+		computed := cascade(n, parent, rootFontSize, isRootElement, ua, sheets, inline[n])
 		if !rootElementSeen {
 			rootElementSeen = true
 			rootFontSize = computedFontSize(computed)
-			computed["-simplebrowser-root-font-size"] = formatPixels(rootFontSize)
 		}
 		styles[n] = computed
 		result := &StyledNode{Node: n, Style: computed}
@@ -67,12 +67,11 @@ type winningDeclaration struct {
 	spec              [3]int
 }
 
-func cascade(n *Node, parent ComputedStyle, rootFontSize float64, ua Stylesheet, sheets []Stylesheet,
+func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
 	inline []Declaration) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-weight": "normal",
-		"line-height": "normal", "text-align": "start",
-		"-simplebrowser-root-font-size": formatPixels(rootFontSize)}
+		"line-height": "normal", "text-align": "start"}
 	// border-spacing is inherited (CSS 2.1 §17.6.1); the UA table rule sets 2px.
 	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
 		"font-style", "font-weight", "line-height", "text-align"} {
@@ -129,6 +128,9 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, ua Stylesheet,
 		parentFontSize = computedFontSize(parent)
 	}
 	values["font-size"] = formatPixels(resolveFontSize(values["font-size"], parentFontSize, rootFontSize))
+	if isRootElement {
+		rootFontSize = computedFontSize(values)
+	}
 	resolveFontRelativeValues(values, rootFontSize)
 	return values
 }
@@ -138,7 +140,7 @@ func computedFontSize(style ComputedStyle) float64 {
 		return 16
 	}
 	v := classifyValue(style["font-size"])
-	if (v.Kind == "length" || v.Kind == "number") && v.Number > 0 {
+	if (v.Kind == "length" || v.Kind == "number") && v.Number >= 0 {
 		return v.Number
 	}
 	return 16
@@ -203,7 +205,7 @@ func resolveFontSize(value string, parentSize, rootSize float64) float64 {
 func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 	fontSize := computedFontSize(values)
 	for property, text := range values {
-		if property == "font-size" || property == "-simplebrowser-root-font-size" {
+		if property == "font-size" {
 			continue
 		}
 		v := classifyValue(strings.TrimSpace(text))

@@ -90,7 +90,7 @@ func TestStylePresentationalAttributesAndDefaults(t *testing.T) {
 
 func TestComputedFontSizesAndFontRelativeLengths(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
-		<html style="font-size:20px"><body>
+		<html id=root style="font-size:20px;margin-left:1rem"><body>
 			<div id=pt style="font-size:12pt"></div>
 			<div id=em style="font-size:1.5em"><span id=percent style="font-size:50%">
 				<b id=nested style="font-size:2em"></b>
@@ -120,6 +120,9 @@ func TestComputedFontSizesAndFontRelativeLengths(t *testing.T) {
 	margin := styledElementByID(styled.StyleRoot, "margin").Style
 	if margin["margin-left"] != "20px" || margin["padding-top"] != "5px" || margin["width"] != "30px" {
 		t.Fatalf("font-relative lengths were not resolved against own 10px size: %#v", margin)
+	}
+	if got := styledElementByID(styled.StyleRoot, "root").Style["margin-left"]; got != "20px" {
+		t.Fatalf("root rem margin = %q, want 20px root computed size", got)
 	}
 }
 
