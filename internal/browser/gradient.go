@@ -22,6 +22,9 @@ type gradientStop struct {
 	color color.RGBA
 	at    float64 // fraction of the gradient line
 	set   bool
+	// A hint belongs to the interval ending at this stop, not to the stop itself.
+	hint    float64
+	hasHint bool
 }
 
 type linearGradient struct {
@@ -94,6 +97,7 @@ func parseGradient(s string, w, h int) *linearGradient {
 	}
 	line := math.Abs(dx)*float64(w) + math.Abs(dy)*float64(h)
 	stops := make([]gradientStop, 0, len(parts))
+	hintAt, hintAfter := 0.0, -1
 	for _, part := range parts {
 		tokens := parseValues(strings.TrimSpace(part))
 		if len(tokens) < 1 || len(tokens) > 2 {
@@ -101,7 +105,18 @@ func parseGradient(s string, w, h int) *linearGradient {
 		}
 		c, ok := parseColor(strings.ToLower(tokens[0].Text))
 		if !ok {
-			return nil
+			// Only one bare percentage, strictly between two color stops, is
+			// supported. Keep all other unsupported image syntax atomic.
+			if hintAfter >= 0 || len(tokens) != 1 || len(stops) == 0 ||
+				!strings.HasSuffix(tokens[0].Text, "%") {
+				return nil
+			}
+			n, err := strconv.ParseFloat(strings.TrimSuffix(tokens[0].Text, "%"), 64)
+			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) {
+				return nil
+			}
+			hintAt, hintAfter = n/100, len(stops)-1
+			continue
 		}
 		stop := gradientStop{color: c}
 		if len(tokens) == 2 {
@@ -128,6 +143,9 @@ func parseGradient(s string, w, h int) *linearGradient {
 			stop.set = true
 		}
 		stops = append(stops, stop)
+	}
+	if len(stops) < 2 || hintAfter == len(stops)-1 {
+		return nil
 	}
 	if !stops[0].set {
 		stops[0].at, stops[0].set = 0, true
@@ -166,6 +184,13 @@ func parseGradient(s string, w, h int) *linearGradient {
 		}
 		i = j + 1
 	}
+	if hintAfter >= 0 {
+		right := hintAfter + 1
+		if !(hintAt > stops[hintAfter].at && hintAt < stops[right].at) {
+			return nil
+		}
+		stops[right].hint, stops[right].hasHint = hintAt, true
+	}
 	return &linearGradient{image.Rect(0, 0, w, h), dx, dy, stops, s}
 }
 
@@ -185,6 +210,10 @@ func (g *linearGradient) At(x, y int) color.Color {
 	for i := 1; i < len(stops); i++ {
 		if t < stops[i].at {
 			u := (t - stops[i-1].at) / (stops[i].at - stops[i-1].at)
+			if stops[i].hasHint {
+				mid := (stops[i].hint - stops[i-1].at) / (stops[i].at - stops[i-1].at)
+				u = math.Pow(u, math.Log(.5)/math.Log(mid))
+			}
 			a, b := stops[i-1].color, stops[i].color
 			alpha := float64(a.A)*(1-u) + float64(b.A)*u
 			if alpha == 0 {

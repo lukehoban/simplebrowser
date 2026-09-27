@@ -29,6 +29,8 @@ func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
 				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}, {0, 9}: {13, 0, 242, 255}}},
 			{"direction", `background-image:linear-gradient(to right, #f00 0%, #00f 100%)`,
 				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}, {9, 0}: {13, 0, 242, 255}}},
+			{"hint in stacked background", `background:linear-gradient(to right, red, 20%, blue),linear-gradient(green,green)`,
+				map[image.Point]color.RGBA{{1, 0}: {142, 0, 113, 255}, {5, 0}: {58, 0, 197, 255}}},
 			{"angle", `background:linear-gradient(90deg, red, blue)`,
 				map[image.Point]color.RGBA{{0, 0}: {242, 0, 13, 255}, {9, 0}: {13, 0, 242, 255}}},
 			{"hard-stop", `background:linear-gradient(red 50%, blue 50%)`,
@@ -103,7 +105,6 @@ func TestGradientStopNormalizationAndUnsupportedSyntax(t *testing.T) {
 	for _, invalid := range []string{
 		"radial-gradient(red,blue)",
 		"linear-gradient(red)",
-		"linear-gradient(red, 20%, blue)", // color hint: #127
 		"linear-gradient(red, blue 2em)",
 		"linear-gradient(to sideways, red, blue)",
 	} {
@@ -113,6 +114,65 @@ func TestGradientStopNormalizationAndUnsupportedSyntax(t *testing.T) {
 	}
 	if g := parseGradient("linear-gradient(red, blue)", 4097, 20); g != nil {
 		t.Fatal("unbounded gradient allocation")
+	}
+}
+
+func TestGradientPercentageHint(t *testing.T) {
+	g := parseGradient("linear-gradient(to right, red, 20%, blue)", 100, 20)
+	if g == nil || len(g.stops) != 2 || !g.stops[1].hasHint || g.stops[1].hint != .2 {
+		t.Fatalf("percentage hint rejected or misplaced: %+v", g)
+	}
+	// Pixel centers are at (x+.5)%; near the 20% hint the mixture is
+	// approximately half red and half blue, instead of the usual 80/20.
+	for _, tc := range []struct {
+		x      int
+		redMin int
+		redMax int
+	}{
+		{9, 160, 164},  // first half of the gradient is compressed
+		{19, 126, 131}, // the shifted midpoint
+		{49, 65, 69},   // second half is stretched
+	} {
+		c := color.NRGBAModel.Convert(g.At(tc.x, 10)).(color.NRGBA)
+		if int(c.R) < tc.redMin || int(c.R) > tc.redMax || int(c.B) != 255-int(c.R) {
+			t.Errorf("hint pixel %d = %v", tc.x, c)
+		}
+	}
+	ordinary := parseGradient("linear-gradient(to right, red, blue)", 100, 20)
+	if c := color.NRGBAModel.Convert(ordinary.At(19, 10)).(color.NRGBA); c.R != 205 || c.B != 50 {
+		t.Errorf("ordinary midpoint shifted: %v", c)
+	}
+	// Direction, adjacent intervals and premultiplied alpha must remain intact.
+	vertical := parseGradient("linear-gradient(to bottom, transparent, 20%, blue 50%, red)", 20, 100)
+	if vertical == nil || vertical.stops[2].hasHint || !vertical.stops[1].hasHint {
+		t.Fatalf("hint interval: %+v", vertical)
+	}
+	c := color.NRGBAModel.Convert(vertical.At(10, 19)).(color.NRGBA)
+	if c.A < 120 || c.A > 130 || c.B != 255 {
+		t.Errorf("premultiplied transparent-blue hint: %v", c)
+	}
+	if c := color.NRGBAModel.Convert(vertical.At(10, 75)).(color.NRGBA); c.R < 125 || c.R > 131 || c.B < 124 || c.B > 130 {
+		t.Errorf("ordinary interval following hint: %v", c)
+	}
+	for _, invalid := range []string{
+		"linear-gradient(20%, red, blue)",
+		"linear-gradient(red, blue, 20%)",
+		"linear-gradient(red, 20%, 30%, blue)",
+		"linear-gradient(red, 20%, blue, 60%, green)",
+		"linear-gradient(red, 20px, blue)",
+		"linear-gradient(red, NaN%, blue)",
+		"linear-gradient(red, 1e309%, blue)",
+		"linear-gradient(red 30%, 20%, blue)",
+		"linear-gradient(red, 100%, blue)",
+		"linear-gradient(red, 20%, blue 10%)",
+		"linear-gradient(red, calc(20%), blue)",
+	} {
+		if got := parseGradient(invalid, 100, 20); got != nil {
+			t.Errorf("accepted malformed hint %q", invalid)
+		}
+	}
+	if got := parseGradient("linear-gradient(red, 20%, blue)", 4097, 20); got != nil {
+		t.Fatal("hint bypassed resource bounds")
 	}
 }
 
