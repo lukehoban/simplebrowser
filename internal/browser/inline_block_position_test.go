@@ -98,3 +98,29 @@ func TestExternalPositionedTextDoesNotSetInlineBlockBaseline(t *testing.T) {
 			runs["before"].Rect, runs["last"].Rect, runs["after"].Rect)
 	}
 }
+
+// Fixed margins (#215) must still apply when an inline-block's positioned
+// descendant resolves against an external containing block (#223).
+func TestInlineBlockExternalPositionedFixedMargins(t *testing.T) {
+	markup := `<body style="margin:0"><section style="position:relative;height:200px;padding:10px;line-height:0">` +
+		`<div style="height:30px"></div><div style="width:180px">` +
+		`<span id="atomic" style="display:inline-block;width:80px;line-height:20px">text` +
+		`<span id="top" style="position:absolute;left:10px;top:10px;margin-top:15px;margin-left:5px;width:10px;height:10px;background:red"></span>` +
+		`<span id="bottom" style="position:absolute;left:40px;bottom:10px;margin-bottom:20px;width:10px;height:20px;background:green"></span>` +
+		`<span id="fixed" style="position:fixed;right:10px;top:40px;margin-right:5px;margin-top:6px;width:10px;height:20px;background:blue"></span>` +
+		`</span></div></section></body>`
+	boxes := percentHeightLayout(t, markup, "atomic", "top", "bottom", "fixed")
+	if got, want := boxes["top"].Rect, image.Rect(15, 25, 25, 35); got != want {
+		t.Errorf("top-margin box = %v, want %v", got, want)
+	}
+	if got, want := boxes["bottom"].Rect, image.Rect(40, 170, 50, 190); got != want {
+		t.Errorf("bottom-margin box = %v, want %v", got, want)
+	}
+	if got, want := boxes["fixed"].Rect, image.Rect(375, 46, 385, 66); got != want {
+		t.Errorf("fixed box = %v, want %v", got, want)
+	}
+	img := painted(t, markup, image.Rect(0, 0, 400, 400))
+	pixel(t, img, 20, 30, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, 45, 180, color.RGBA{0, 128, 0, 255})
+	pixel(t, img, 380, 56, color.RGBA{0, 0, 255, 255})
+}
