@@ -23,8 +23,10 @@ Hacker News reference.*
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
 [CI workflow](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
-CI compares the generated image against this checked-in screenshot, so
-intentional rendering changes must refresh it:
+CI compares the generated image against this checked-in screenshot. The
+comparison currently warns rather than fails: macOS and Linux rasterize a few
+font pixels differently even with the same embedded font. Refresh the snapshot
+after intentional rendering changes:
 
 ```sh
 make screenshot
