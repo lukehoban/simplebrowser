@@ -311,6 +311,34 @@ func TestSVGNestedViewportViewBoxAndClip(t *testing.T) {
 	}
 }
 
+func TestSVGNestedViewportClipsEvenOddParityFill(t *testing.T) {
+	// Overlapping even-odd rectangles whose union extends past a nested
+	// viewport: the parity hole must stay empty and the clip must still apply.
+	src := `<svg width="40" height="40"><svg x="10" y="10" width="20" height="20">
+		<path fill="blue" fill-rule="evenodd" d="M-10 -10H15V15H-10Z M5 5H30V30H5Z"/>
+	</svg></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blue := color.RGBA{0, 0, 255, 255}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{12, 12, blue},         // first rect only, inside clip
+		{27, 27, blue},         // second rect only, inside clip
+		{19, 19, color.RGBA{}}, // overlap: even-odd hole
+		{27, 12, color.RGBA{}}, // outside both rects
+		{5, 5, color.RGBA{}},   // first rect but clipped by nested viewport
+		{35, 35, color.RGBA{}}, // second rect but clipped by nested viewport
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
 func TestSVGNestedViewportVisual(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "nested-viewports.svg"))
 	if err != nil {
