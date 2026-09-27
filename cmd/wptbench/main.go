@@ -148,7 +148,9 @@ func run(root, diagnostics string) report {
 			err = fmt.Errorf("image bounds differ: %v vs %v", testImg.Bounds(), refImg.Bounds())
 		}
 		if err != nil {
-			item.Status, item.Error = "error", err.Error()
+			// Temporary transport-copy paths are random; keep even error
+			// reports reproducible across machines and runs.
+			item.Status, item.Error = "error", strings.ReplaceAll(err.Error(), root, "testdata/wpt")
 			r.Error++
 		} else {
 			var diff *image.RGBA

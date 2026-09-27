@@ -3,6 +3,7 @@ package main
 import (
 	"image"
 	"image/color"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -38,5 +39,17 @@ func TestDeterministicMarkdown(t *testing.T) {
 		Results: []result{{Test: "a.html", Reference: "b.html", Relation: "mismatch", Status: "pass", Pixels: 1}}}
 	if got := string(markdown(r)); !strings.Contains(got, "1/1 passing") || !strings.Contains(got, "`a.html` | `b.html` | mismatch | **pass** | 1") {
 		t.Fatal("unexpected markdown output")
+	}
+}
+
+func TestMissingFixtureIsRunnerError(t *testing.T) {
+	r := run(t.TempDir(), filepath.Join(t.TempDir(), "diagnostics"))
+	if r.Error != len(tests) || r.Pass != 0 || r.Fail != 0 {
+		t.Fatalf("missing fixtures should be errors, got %+v", r)
+	}
+	for _, item := range r.Results {
+		if item.Status != "error" || !strings.Contains(item.Error, "testdata/wpt/") {
+			t.Fatalf("error should have deterministic path: %+v", item)
+		}
 	}
 }
