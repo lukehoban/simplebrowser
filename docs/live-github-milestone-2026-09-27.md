@@ -1,5 +1,34 @@
 # Live GitHub first-viewport check (2026-09-27)
 
+## Post-row-flex recheck on `main` `1478bb5` (23:52 UTC)
+
+This fresh 800×600 capture renders the public, logged-out
+`https://github.com/microsoft/vscode` response from merge commit
+[`1478bb5d2522924f55d4f8770d58e21feca4adb3`](https://github.com/lukehoban/simplebrowser/commit/1478bb5d2522924f55d4f8770d58e21feca4adb3),
+after the row-flex automatic minimum-size fix landed in
+[#379](https://github.com/lukehoban/simplebrowser/pull/379). The CLI does not
+execute JavaScript.
+
+![Live CLI capture after the row-flex fix](screenshots/live-github-330/simplebrowser-1478bb5-2026-09-27.png)
+
+The tab labels and adjacent count badges now occupy separate space. The thin
+empty-count lines that crossed labels in the previous capture are instead
+painted to the right of **Code**, **Actions**, **Projects**, and **Wiki**;
+**Issues** and **Pull requests** counts no longer cover their labels. This is
+fresh live confirmation for [#374](https://github.com/lukehoban/simplebrowser/issues/374)
+and complements the deterministic before/after fixture for
+[#375](https://github.com/lukehoban/simplebrowser/issues/375).
+
+The capture still shows the separately tracked clipped file names, empty branch
+controls, and grey commit-message placeholders. It remains changing production
+content and is diagnostic evidence, not a golden or a claim of pixel parity.
+
+CLI command:
+`go run ./cmd/simplebrowser -o /tmp/github-live-1478bb5.png https://github.com/microsoft/vscode`.
+The PNG is 800×600 RGB with SHA-256
+`72bf2b8b7fe6e2d66e232799e44f84913742939abb82a2283251ab2cc46625db`.
+
+
 ## Post-Cascade-Layers recheck on `main` `1b703413` (23:10 UTC)
 
 This fresh 800×600 capture renders the public, logged-out
