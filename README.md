@@ -12,8 +12,8 @@ records the initial Hacker News rendering milestone.
 not a pixel-perfect browser reference.*
 
 **Compatibility benchmark: [38/38 pinned WPT reference assertions passing](docs/compatibility.md)**
-([JSON results](docs/compatibility.json)). A separate diagnostic matrix is
-currently 5/7 WPT and 1/4 repo-owned references, reported by rendering area.
+([JSON results](docs/compatibility.json)). The separate diagnostic matrix is
+reported by rendering area in the [current report and graph](docs/compatibility.md).
 This is a small, pinned test set, not a general web-platform conformance score. Run
 `make compatibility` to regenerate the report and inspect failure diagnostics
 in `artifacts/wpt/`.
