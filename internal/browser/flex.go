@@ -96,7 +96,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	// An auto-height column grows to its contents; on a definite axis freeze
 	// items at their min/max constraints and redistribute the remaining space.
 	if !column || heightDefinite {
-		resolveFlexLengths(items, float64(availableMain)-total, column, width)
+		resolveFlexLengths(items, float64(availableMain)-total, column, availableMain)
 	}
 
 	// Lay out at the origin first so the cross size is known before alignment.
@@ -211,7 +211,9 @@ func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containin
 // Resolve flexible lengths with min/max freezing. Free space is measured
 // against the hypothetical base sizes (including outer edges); each frozen
 // item is removed from the factor sum before the next distribution pass.
-func resolveFlexLengths(items []flexItem, free float64, column bool, width int) {
+// Percentage min/max sizes resolve against the definite main size (the
+// container height for columns, its width for rows).
+func resolveFlexLengths(items []flexItem, free float64, column bool, mainSize int) {
 	property := "width"
 	if column {
 		property = "height"
@@ -224,10 +226,10 @@ func resolveFlexLengths(items []flexItem, free float64, column bool, width int) 
 		base[i] = items[i].main
 		maximum[i] = math.Inf(1)
 		if v := strings.TrimSpace(items[i].node.Style["min-"+property]); v != "" && v != "auto" {
-			minimum[i] = math.Max(0, px(v, float64(width), 0))
+			minimum[i] = math.Max(0, px(v, float64(mainSize), 0))
 		}
 		if v := strings.TrimSpace(items[i].node.Style["max-"+property]); v != "" && v != "none" {
-			maximum[i] = math.Max(0, px(v, float64(width), 0))
+			maximum[i] = math.Max(0, px(v, float64(mainSize), 0))
 		}
 		if maximum[i] < minimum[i] {
 			maximum[i] = minimum[i]

@@ -187,3 +187,35 @@ func TestFlexColumnAndInlineFlex(t *testing.T) {
 		t.Fatalf("inline-flex should be one 50x20 atomic inline: %#v", b["inline"])
 	}
 }
+
+// Main-axis percentage min/max sizes resolve against the container's definite
+// main size: height for columns, width for rows (#247 review).
+func TestFlexMainAxisPercentMinMaxResolveAgainstMainSize(t *testing.T) {
+	const source = `<body style="margin:0">
+	<div style="display:flex;flex-direction:column;width:20px;height:100px"><div id="col-a" style="height:80px;background:blue"></div><div id="col-b" style="height:80px;min-height:75%;background:red"></div></div>
+	<div style="display:flex;flex-direction:column;width:20px;height:100px"><div id="colmax-a" style="flex:1;max-height:30%;background:blue"></div><div id="colmax-b" style="flex:1;background:red"></div></div>
+	<div style="display:flex;width:100px;height:20px"><div id="row-a" style="width:80px;height:10px"></div><div id="row-b" style="width:80px;min-width:75%;height:10px"></div></div>
+	<div style="display:flex;flex-direction:column;width:20px"><div id="auto-a" style="height:30px;min-height:75%"></div><div id="auto-b" style="height:10px"></div></div>
+	</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 120, 300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := boxesByID(layout.Root, "col-a", "col-b", "colmax-a", "colmax-b", "row-a", "row-b", "auto-a", "auto-b")
+	want := map[string]image.Rectangle{
+		"col-a": image.Rect(0, 0, 20, 25), "col-b": image.Rect(0, 25, 20, 100),
+		"colmax-a": image.Rect(0, 100, 20, 130), "colmax-b": image.Rect(0, 130, 20, 200),
+		"row-a": image.Rect(0, 200, 25, 210), "row-b": image.Rect(25, 200, 100, 210),
+		// An auto-height column has no definite main size; the percentage
+		// minimum behaves as auto and items keep their specified heights.
+		"auto-a": image.Rect(0, 220, 20, 250), "auto-b": image.Rect(0, 250, 20, 260),
+	}
+	for id, rect := range want {
+		if b[id] == nil || b[id].Rect != rect {
+			t.Errorf("%s: got %v want %v", id, b[id], rect)
+		}
+	}
+	img := painted(t, source, image.Rect(0, 0, 120, 300))
+	pixel(t, img, 10, 20, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 10, 30, color.RGBA{255, 0, 0, 255})
+}
