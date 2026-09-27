@@ -919,7 +919,7 @@ header, footer, section, article, main, h1, h2, h3, h4, h5, h6 { display: block;
 head, meta, link, style, script, title { display: none; }
 body { margin: 8px; }
 a { color: blue; text-decoration: underline; }
-b, strong, th { font-weight: bold; }
+b, strong, th, h1, h2, h3, h4, h5, h6 { font-weight: bold; }
 i, em { font-style: italic; }
 h1 { font-size: 2em; margin: .67em 0; }
 h2 { font-size: 1.5em; margin: .83em 0; }
