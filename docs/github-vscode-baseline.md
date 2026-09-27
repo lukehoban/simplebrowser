@@ -7,19 +7,66 @@ is an authored, script-free stand-in assembled from a read-only public page
 inspection; it provides representative repository header, tabs, file list,
 and About landmarks while making the current renderer's limitations visible.
 
-![Current renderer baseline for the authored stand-in](screenshots/github-vscode-baseline.png)
+![Chrome reference (left) vs current simplebrowser baseline (right)](screenshots/github-vscode/comparison.png)
+
+- **Reference (left):**
+  [`chrome-reference.png`](screenshots/github-vscode/chrome-reference.png) is
+  headless Google Chrome 154.0.8037.58 on macOS rendering the same offline
+  fixture over local HTTP at 800×600, device scale 1.
+- **Baseline (right):**
+  [`baseline.png`](screenshots/github-vscode/baseline.png) is today's
+  simplebrowser output. It is a **diagnostic record, not a golden**: no CI job
+  compares it. Refresh it with `make github-vscode-baseline` when the renderer
+  changes.
 
 ## Reproduce
 
-From the repository root, with no network required:
+From the repository root, with Go installed and module dependencies cached
+(the fixture itself needs no network):
 
 ```sh
-go run ./cmd/simplebrowser -o /tmp/github-vscode-baseline.png testdata/github-vscode/index.html
+make github-vscode-baseline
 ```
 
 The input is [`testdata/github-vscode/index.html`](../testdata/github-vscode/index.html).
-The renderer's viewport is 800×600. Regenerate the committed diagnostic with
-the same command and `-o docs/screenshots/github-vscode-baseline.png`.
+The renderer's viewport is 800×600.
+
+The checked-in Chrome reference was made from a clean local profile while
+serving the committed fixture (no external network is needed). Start the
+server in one terminal:
+
+```sh
+python3 -m http.server 8765 --bind 127.0.0.1 --directory testdata
+```
+
+Then, from the repository root in a second terminal, capture with Chrome
+154.0.8037.58 (a different browser version or host font environment may
+produce different pixels):
+
+```sh
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --headless=new --disable-gpu --hide-scrollbars --no-first-run \
+  --no-default-browser-check --user-data-dir="$(mktemp -d)" \
+  --window-size=800,600 --force-device-scale-factor=1 \
+  --screenshot=docs/screenshots/github-vscode/chrome-reference.png \
+  http://127.0.0.1:8765/github-vscode/index.html
+```
+
+The command is intentionally documented rather than made a portable Make
+target: a browser executable and its path are host-specific. The comparison
+is a labeled 1600×640 composition of the two 800×600 PNGs: the reference
+starts at (0, 40) and the baseline at (800, 40), below a 40-pixel label strip.
+Both panes are unscaled, pixel-exact copies of their source images.
+
+The reference is pinned to the original capture in PR #264, with SHA-256
+`08d37263f4de629f6d9968590a51210b29b9a7ca89438e9fea3c1a80e2747b9e`.
+Integrating main `c24a989a5b0142bbe74c24b729a30d597bfc8f91` (media-query
+evaluation) left the GitHub baseline byte-identical across two regenerations
+and unchanged from the original PR: this stand-in contains no media queries.
+Integrating main `e3917f8d08751dc91aefc3167d7481303104859d` (overflow
+clipping) also left the baseline byte-identical in a fresh render. Both
+800×600 comparison panes still match their PNG sources pixel-for-pixel. The
+original reference and labeled comparison therefore remain intact.
 
 ## Source, scope, and asset notes
 
@@ -46,10 +93,10 @@ the same command and `-o docs/screenshots/github-vscode-baseline.png`.
   they are not included. The fixture uses original markup and neutral,
   hand-authored CSS, with short repository labels and counts observed in the
   public response.
-- No real-browser screenshot or image comparison is checked in. A browser
-  executable was not available in this checkout environment, and copying the
-  live page's visual assets/styles was not necessary for this baseline. The
-  PNG here is only the current simplebrowser output for the authored fixture.
+- The real-browser reference is only evidence for this original offline
+  stand-in. It does not make the stand-in a screenshot or faithful capture of
+  GitHub, and copying the live page's visual assets/styles remains unnecessary
+  and out of scope.
 
 ## Inspected layout and evidence-backed gaps
 
@@ -82,6 +129,8 @@ current-render visuals:
 - [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246),
   distinct from the SVG-only limitation in #161.
 - [#247 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/247).
+- [#265 Refresh separate Moon comparison/documentation after media changes](https://github.com/lukehoban/simplebrowser/issues/265)
+  is tracked outside this GitHub stand-in visual.
 
 These are shared renderer prerequisites linked from the [Wikipedia Moon
 epic #243](https://github.com/lukehoban/simplebrowser/issues/243); that
