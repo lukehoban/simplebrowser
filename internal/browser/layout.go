@@ -544,6 +544,12 @@ func collapsibleWhitespaceOnly(text string) bool {
 	return strings.TrimFunc(text, collapsibleSpace) == ""
 }
 
+// collapsibleFields returns the unbreakable text runs used by inline layout.
+// Unlike strings.Fields, it keeps no-break spaces inside a run.
+func collapsibleFields(text string) []string {
+	return strings.FieldsFunc(text, collapsibleSpace)
+}
+
 // emptyInline reports whether inline content would produce no line box:
 // whitespace-only text and elements containing nothing else. Such content
 // does not separate adjoining vertical margins.
@@ -1341,10 +1347,11 @@ func cloneStyle(style ComputedStyle) ComputedStyle {
 
 func positionedIntrinsicWidths(n *StyledNode, faces *faceSet, containingWidth int) (minimum, maximum int) {
 	if n.Node.Type == TextNode {
-		text := strings.Join(strings.Fields(n.Node.Data), " ")
+		fields := collapsibleFields(n.Node.Data)
+		text := strings.Join(fields, " ")
 		m := faces.metrics(n.Style)
 		maximum = m.width(text)
-		for _, word := range strings.Fields(text) {
+		for _, word := range fields {
 			minimum = max(minimum, m.width(word))
 		}
 		return minimum, maximum
