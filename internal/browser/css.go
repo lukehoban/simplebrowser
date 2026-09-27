@@ -609,7 +609,7 @@ const uaCSS = `
 html, body, div, p, pre, blockquote, ul, ol, li, table, tr, td, th,
 header, footer, section, article, main, h1, h2, h3, h4, h5, h6 { display: block; }
 head, meta, link, style, script, title { display: none; }
-body { margin: 8px; background-color: white; }
+body { margin: 8px; }
 a { color: blue; text-decoration: underline; }
 b, strong, th { font-weight: bold; }
 i, em { font-style: italic; }

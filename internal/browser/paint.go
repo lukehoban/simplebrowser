@@ -23,6 +23,14 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 	}
 	canvas := image.NewRGBA(viewport)
 	fill(canvas, viewport, color.RGBA{255, 255, 255, 255})
+	canvasRoot, canvasBody := canvasBackground(layout.Document)
+	bodyBackgroundPropagated := false
+	if c, ok := backgroundColor(layout.Document.Styles[canvasRoot]); ok {
+		fill(canvas, viewport, c)
+	} else if c, ok := backgroundColor(layout.Document.Styles[canvasBody]); ok {
+		fill(canvas, viewport, c)
+		bodyBackgroundPropagated = true
+	}
 	faces := newFaceSet()
 	defer faces.close()
 	var visit func(*Box)
@@ -32,12 +40,11 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 		}
 		style := layout.Document.Styles[box.Node]
 		if box.Node != nil && box.Node.Type == ElementNode && style != nil {
-			bg := style["background-color"]
-			if bg == "" {
-				bg = style["background"]
-			}
-			if c, ok := parseColor(strings.ToLower(strings.TrimSpace(bg))); ok {
-				fill(canvas, box.Rect, c)
+			propagated := box.Node == canvasRoot || (bodyBackgroundPropagated && box.Node == canvasBody)
+			if !propagated {
+				if c, ok := backgroundColor(style); ok {
+					fill(canvas, box.Rect, c)
+				}
 			}
 			drawBackgroundImage(canvas, box, layout.Document.BackgroundImages[box.Node], style)
 			drawBorders(canvas, box.Rect, style)
@@ -63,6 +70,44 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 		}
 	}
 	return png.Encode(output, canvas)
+}
+
+// canvasBackground finds the explicit html root and its direct body child.
+// The DOM is intentionally not repaired with implicit html/body elements, so
+// fragments and incomplete documents simply retain the white canvas default.
+func canvasBackground(document StyledDocument) (*Node, *Node) {
+	if document.Document.Root == nil {
+		return nil, nil
+	}
+	var root, body *Node
+	for _, child := range document.Document.Root.Children {
+		if child.Type == ElementNode && strings.EqualFold(child.Name, "html") {
+			root = child
+			break
+		}
+	}
+	if root == nil {
+		return nil, nil
+	}
+	for _, child := range root.Children {
+		if child.Type == ElementNode && strings.EqualFold(child.Name, "body") {
+			body = child
+			break
+		}
+	}
+	return root, body
+}
+
+func backgroundColor(style ComputedStyle) (color.RGBA, bool) {
+	if style == nil {
+		return color.RGBA{}, false
+	}
+	value := style["background-color"]
+	if value == "" {
+		value = style["background"]
+	}
+	c, ok := parseColor(strings.ToLower(strings.TrimSpace(value)))
+	return c, ok && c.A != 0
 }
 
 // Scale against the full layout rectangle, not the clipped rectangle: cropping
