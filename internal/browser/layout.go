@@ -786,7 +786,7 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 	width := cb.width
 	cssWidth := strings.TrimSpace(n.Style["width"])
 	if cssWidth == "" || strings.EqualFold(cssWidth, "auto") {
-		minWidth, maxWidth := positionedIntrinsicWidths(n, faces)
+		minWidth, maxWidth := positionedIntrinsicWidths(n, faces, width)
 		edges := boxEdges(n, "margin", float64(width))
 		padding := boxEdges(n, "padding", float64(width))
 		border := boxEdges(n, "border-width", float64(width))
@@ -869,7 +869,7 @@ func cloneStyle(style ComputedStyle) ComputedStyle {
 	return out
 }
 
-func positionedIntrinsicWidths(n *StyledNode, faces *faceSet) (minimum, maximum int) {
+func positionedIntrinsicWidths(n *StyledNode, faces *faceSet, containingWidth int) (minimum, maximum int) {
 	if n.Node.Type == TextNode {
 		text := strings.Join(strings.Fields(n.Node.Data), " ")
 		m := faces.metrics(n.Style)
@@ -880,7 +880,22 @@ func positionedIntrinsicWidths(n *StyledNode, faces *faceSet) (minimum, maximum 
 		return minimum, maximum
 	}
 	for _, child := range n.Children {
-		childMin, childMax := positionedIntrinsicWidths(child, faces)
+		childMin, childMax := positionedIntrinsicWidths(child, faces, containingWidth)
+		if child.Node.Type == ElementNode {
+			if width := strings.TrimSpace(child.Style["width"]); width != "" && !strings.EqualFold(width, "auto") {
+				used := px(width, float64(containingWidth), 0)
+				if !math.IsNaN(used) && !math.IsInf(used, 0) {
+					childMin = max(0, int(math.Round(used)))
+					childMax = childMin
+				}
+			}
+			margin := boxEdges(child, "margin", float64(containingWidth))
+			padding := boxEdges(child, "padding", float64(containingWidth))
+			border := boxEdges(child, "border-width", float64(containingWidth))
+			extras := margin[1] + margin[3] + padding[1] + padding[3] + border[1] + border[3]
+			childMin += extras
+			childMax += extras
+		}
 		minimum = max(minimum, childMin)
 		maximum += childMax
 	}

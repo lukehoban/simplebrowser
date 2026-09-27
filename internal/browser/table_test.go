@@ -193,6 +193,38 @@ func TestTableColspanAndPercentageWidths(t *testing.T) {
 	}
 }
 
+func TestFixedTableLayoutUsesColumnWidthsIncludingCellPadding(t *testing.T) {
+	source := `<body style="margin:0"><table style="border-collapse:separate;border-left:23px solid white;` +
+		`border-right:34px solid white;border-spacing:19px 0;height:100px;table-layout:fixed;width:758px">` +
+		`<caption>caption</caption><col style="width:382px"><col style="width:262px">` +
+		`<tr><td id="first" style="padding:0 127px;border-right:1px solid lime">first cell here</td>` +
+		`<td style="padding:0 127px">second cell here</td></tr></table></body>`
+	doc := styledForLayout(t, source)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tables := collectBoxes(got.Root, "table")
+	cells := collectBoxes(got.Root, "td")
+	if len(tables) != 1 || len(cells) != 2 {
+		t.Fatalf("tables = %d, cells = %d", len(tables), len(cells))
+	}
+	if cells[0].Rect != image.Rect(42, 20, 424, 120) {
+		t.Fatalf("first fixed column geometry = %v, want (42,20)-(424,120)", cells[0].Rect)
+	}
+	if cells[0].Content.Min.X != 169 || cells[0].Content.Max.X != 296 {
+		t.Fatalf("cell padding must fit inside 382px column: rect %v content %v", cells[0].Rect, cells[0].Content)
+	}
+	if tables[0].Rect.Dy() != 120 {
+		t.Fatalf("table plus caption height = %d, want 120", tables[0].Rect.Dy())
+	}
+
+	img := painted(t, source, image.Rect(0, 0, 800, 160))
+	pixel(t, img, 423, 40, color.RGBA{G: 255, A: 255})
+	pixel(t, img, 422, 40, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+}
+
 func TestTableRowspanCoversRows(t *testing.T) {
 	doc := styledForLayout(t, `<table cellspacing="0" cellpadding="0">`+
 		`<tr><td rowspan="2">tall</td><td>one</td></tr>`+
