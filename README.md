@@ -6,8 +6,8 @@ render [Hacker News](https://news.ycombinator.com/) recognizably.
 
 The project has a working fetch, parse, cascade, and initial block/inline layout
 pipeline. The CLI fetches HTTP(S) pages, builds a DOM, loads CSS, and computes
-deterministic box geometry and wrapped text runs. Painting still emits a
-deterministic placeholder image.
+deterministic box geometry and wrapped text runs across inline elements. Painting
+still emits a deterministic placeholder image.
 
 ## Architecture
 
@@ -88,6 +88,6 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9)
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10)
 - [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11)
-- [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12)
+- [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture and render artifact in CI; visual fidelity pending painting
 
 See the linked issues for current status and implementation scope.
