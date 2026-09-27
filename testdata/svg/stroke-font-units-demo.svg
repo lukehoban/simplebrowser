@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="112" viewBox="0 0 320 112">
+  <rect width="320" height="112" fill="white"/>
+  <path d="M106 8V104M212 8V104" stroke="#dde3e8"/>
+  <g font-size="20px" font-family="Verdana" stroke-linecap="butt" fill="none">
+    <line x1="14" y1="36" x2="92" y2="36" stroke="#1166aa" stroke-width="1ex"/>
+    <line x1="14" y1="80" x2="92" y2="80" stroke="#1166aa" stroke-width="1ch"/>
+    <g font-family="Courier" font-weight="bold" font-style="italic" stroke="#ee5511" stroke-width="1ex">
+      <line x1="120" y1="36" x2="198" y2="36"/>
+      <line x1="120" y1="80" x2="198" y2="80" stroke-width="1ch"/>
+    </g>
+    <g font-size="150%" font-family="Arial" stroke="#339966">
+      <line x1="226" y1="36" x2="304" y2="36" stroke-width="1ex"/>
+      <line x1="226" y1="80" x2="304" y2="80" stroke-width="1ch"/>
+    </g>
+  </g>
+</svg>
