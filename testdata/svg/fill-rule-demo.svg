@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100">
+  <rect width="240" height="100" fill="white"/>
+  <!-- Ring: outer and inner subpath wound the same way, so only even-odd
+       leaves the hole open. -->
+  <path fill="#16a" fill-rule="evenodd" d="M50 10L90 50L50 90L10 50Z M50 30L70 50L50 70L30 50Z"/>
+  <!-- Self-intersecting five-pointed star: even-odd hollows the center. -->
+  <path fill="#e51" fill-rule="evenodd" d="M120 12L133 88L74 40L166 40L107 88Z"/>
+  <!-- Same star with the default non-zero rule, for comparison. -->
+  <path fill="#645" d="M186 12L199 88L140 40L232 40L173 88Z"/>
+</svg>

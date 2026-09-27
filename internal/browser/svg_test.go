@@ -537,3 +537,155 @@ func TestSVGTransformParsing(t *testing.T) {
 		t.Error("unknown transform accepted")
 	}
 }
+
+func TestSVGFillRuleParsing(t *testing.T) {
+	for _, tc := range []struct{ src, want string }{
+		{`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><path d="M0 0L9 0L9 9Z"/></svg>`, "nonzero"},
+		{`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><path fill-rule="evenodd" d="M0 0L9 0L9 9Z"/></svg>`, "evenodd"},
+		{`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><path style="fill-rule: evenodd" d="M0 0L9 0L9 9Z"/></svg>`, "evenodd"},
+		// Unknown values keep the inherited rule.
+		{`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g fill-rule="evenodd"><path fill-rule="bogus" d="M0 0L9 0L9 9Z"/></g></svg>`, "evenodd"},
+		// Inherited from an ancestor group, and overridable by a child.
+		{`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g fill-rule="evenodd"><path d="M0 0L9 0L9 9Z"/></g></svg>`, "evenodd"},
+		{`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><g fill-rule="evenodd"><path fill-rule="nonzero" d="M0 0L9 0L9 9Z"/></g></svg>`, "nonzero"},
+	} {
+		img, err := decodeSVG([]byte(tc.src))
+		if err != nil {
+			t.Fatalf("decode %q: %v", tc.src, err)
+		}
+		if len(img.shapes) != 1 {
+			t.Fatalf("decode %q: got %d shapes, want 1", tc.src, len(img.shapes))
+		}
+		if got := img.shapes[0].fillRule; got != tc.want {
+			t.Errorf("fill-rule for %q = %q, want %q", tc.src, got, tc.want)
+		}
+	}
+}
+
+// A ring drawn as two same-direction subpaths: non-zero fills it solid,
+// even-odd leaves the inner square as a hole.
+func TestSVGFillRuleRingHole(t *testing.T) {
+	const d = "M0 0L40 0L40 40L0 40Z M10 10L30 10L30 30L10 30Z"
+	for _, tc := range []struct {
+		rule   string
+		center color.RGBA
+	}{
+		{"nonzero", color.RGBA{255, 0, 0, 255}},
+		{"evenodd", color.RGBA{0, 0, 0, 0}},
+	} {
+		src := `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><path fill="red" fill-rule="` + tc.rule + `" d="` + d + `"/></svg>`
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.rule, err)
+		}
+		if got := img.RGBAAt(20, 20); got != tc.center {
+			t.Errorf("%s center pixel = %v, want %v", tc.rule, got, tc.center)
+		}
+		// The ring band itself is filled under both rules.
+		if got := img.RGBAAt(5, 20); got != (color.RGBA{255, 0, 0, 255}) {
+			t.Errorf("%s band pixel = %v, want opaque red", tc.rule, got)
+		}
+		if got := img.RGBAAt(38, 5); got != (color.RGBA{255, 0, 0, 255}) {
+			t.Errorf("%s corner pixel = %v, want opaque red", tc.rule, got)
+		}
+	}
+}
+
+// A self-intersecting star: even-odd hollows the pentagon in the middle.
+func TestSVGFillRuleStar(t *testing.T) {
+	const d = "M50 4L63 84L4 34L96 34L37 84Z"
+	for _, tc := range []struct {
+		rule   string
+		center color.RGBA
+	}{
+		{"nonzero", color.RGBA{0, 0, 255, 255}},
+		{"evenodd", color.RGBA{0, 0, 0, 0}},
+	} {
+		src := `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><path fill="blue" fill-rule="` + tc.rule + `" d="` + d + `"/></svg>`
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.rule, err)
+		}
+		if got := img.RGBAAt(50, 45); got != tc.center {
+			t.Errorf("%s star center = %v, want %v", tc.rule, got, tc.center)
+		}
+		// A point on the upper arm is inside under both rules.
+		if got := img.RGBAAt(50, 20); got != (color.RGBA{0, 0, 255, 255}) {
+			t.Errorf("%s star arm = %v, want opaque blue", tc.rule, got)
+		}
+		// Well outside the star stays transparent.
+		if got := img.RGBAAt(2, 98); got != (color.RGBA{}) {
+			t.Errorf("%s outside = %v, want transparent", tc.rule, got)
+		}
+	}
+}
+
+// Even-odd fills antialias their edges rather than snapping to whole pixels.
+func TestSVGFillRuleAntialiasedEdge(t *testing.T) {
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="black" fill-rule="evenodd" d="M2 2L17.5 2L17.5 18L2 18Z"/></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(17, 10).A; got < 100 || got > 160 {
+		t.Errorf("half-covered edge pixel alpha = %d, want roughly 128", got)
+	}
+	if got := img.RGBAAt(10, 10).A; got != 255 {
+		t.Errorf("interior pixel alpha = %d, want 255", got)
+	}
+}
+
+// Even-odd fill respects fill-opacity and composites once, not twice, where
+// subpaths meet.
+func TestSVGFillRuleOpacity(t *testing.T) {
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="red" fill-opacity="0.5" fill-rule="evenodd" d="M0 0L20 0L20 20L0 20Z M5 5L15 5L15 15L5 15Z"/></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(2, 10); got != (color.RGBA{128, 0, 0, 128}) {
+		t.Errorf("band pixel = %v, want half-transparent red", got)
+	}
+	if got := img.RGBAAt(10, 10); got != (color.RGBA{}) {
+		t.Errorf("hole pixel = %v, want transparent", got)
+	}
+}
+
+// Set SVG_FILL_RULE_VISUAL_PATH to write this fixture's render. The before
+// image was captured before fill-rule support, when every fill used non-zero.
+func TestSVGFillRuleVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "fill-rule-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct {
+		x, y int
+		want color.RGBA
+		note string
+	}{
+		{50, 50, color.RGBA{255, 255, 255, 255}, "ring hole"},
+		{50, 20, color.RGBA{17, 102, 170, 255}, "ring band"},
+		{120, 50, color.RGBA{255, 255, 255, 255}, "even-odd star center"},
+		{120, 20, color.RGBA{238, 85, 17, 255}, "even-odd star arm"},
+		{186, 50, color.RGBA{102, 68, 85, 255}, "non-zero star center"},
+	} {
+		if got := img.RGBAAt(p.x, p.y); got != p.want {
+			t.Errorf("%s pixel (%d,%d) = %v, want %v", p.note, p.x, p.y, got, p.want)
+		}
+	}
+	if path := os.Getenv("SVG_FILL_RULE_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if err != nil || closeErr != nil {
+			t.Fatalf("write fill-rule render: %v, %v", err, closeErr)
+		}
+	}
+}
