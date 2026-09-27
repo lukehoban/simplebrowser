@@ -18,7 +18,7 @@ import (
 // A minimal SVG subset, enough for simple icons such as the Hacker News logo
 // and vote arrow: <svg> sizing/viewBox/preserveAspectRatio, <g>, <path>, and
 // the basic shapes (<rect>, <circle>, <ellipse>, <line>, <polyline>,
-// <polygon>) with solid or local gradient fills and strokes (svg_paint.go),
+// <polygon>) with solid or local gradient/pattern fills and strokes (svg_paint.go),
 // group opacity, transforms and local <defs>/<use>. Other elements are skipped.
 // A document that cannot be parsed returns an error so
 // callers keep their existing placeholder or empty-background behavior.
@@ -75,7 +75,7 @@ type svgShape struct {
 	fill      color.NRGBA
 	fillRule  string // "nonzero" (default) or "evenodd"
 	stroke    color.NRGBA
-	// fillServer/strokeServer replace the solid colour with a gradient; the
+	// fillServer/strokeServer replace the solid colour with a paint server; the
 	// colour's alpha then carries fill-opacity/stroke-opacity.
 	fillServer, strokeServer *svgPaintServer
 	width                    float64
@@ -135,30 +135,30 @@ type svgNode struct {
 }
 
 type svgFrame struct {
-	color          color.NRGBA
-	fill           color.NRGBA
-	hasFill        bool
-	fillGradient   *svgGradient
-	fontSize       float64
-	fontFamily     string
-	fontStyle      string
-	fontWeight     string
-	fontRatios     fontRatios
-	fillRule       string
-	opacity        float64
-	stroke         color.NRGBA
-	hasStroke      bool
-	strokeGradient *svgGradient
-	strokeOpacity  float64
-	width          float64
-	cap, join      string
-	miterLimit     float64
-	dashArray      []float64
-	dashOffset     float64
-	transform      svgAffine
-	userWidth      float64
-	userHeight     float64
-	dashBasis      float64
+	color         color.NRGBA
+	fill          color.NRGBA
+	hasFill       bool
+	fillServer    *svgPaintServer
+	fontSize      float64
+	fontFamily    string
+	fontStyle     string
+	fontWeight    string
+	fontRatios    fontRatios
+	fillRule      string
+	opacity       float64
+	stroke        color.NRGBA
+	hasStroke     bool
+	strokeServer  *svgPaintServer
+	strokeOpacity float64
+	width         float64
+	cap, join     string
+	miterLimit    float64
+	dashArray     []float64
+	dashOffset    float64
+	transform     svgAffine
+	userWidth     float64
+	userHeight    float64
+	dashBasis     float64
 }
 
 func svgDefaultFrame() svgFrame {
@@ -258,7 +258,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 		return nil, errUnsupportedSVG
 	}
 	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool),
-		gradients: make(map[*svgNode]*svgGradient), colors: make(map[*svgNode]color.NRGBA)}
+		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA)}
 	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
 		return nil, err
 	}
@@ -286,6 +286,10 @@ type svgExpansion struct {
 	active map[*svgNode]bool
 	// gradients memoizes resolved paint servers by element.
 	gradients map[*svgNode]*svgGradient
+	// patterns memoizes bounded user-space pattern tiles. A present nil entry
+	// marks a currently resolving or unsupported pattern.
+	patterns      map[*svgNode]*svgPattern
+	patternPixels int64
 	// colors memoizes computed color values for non-rendered gradient trees.
 	colors   map[*svgNode]color.NRGBA
 	elements int
@@ -301,7 +305,8 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		return nil
 	}
 	name := node.name
-	if name == "defs" && !referenced || name != "svg" && name != "defs" && name != "use" && !svgRenderedElements[name] {
+	if name == "defs" && !referenced || name == "pattern" && !referenced ||
+		name != "svg" && name != "defs" && name != "use" && !svgRenderedElements[name] {
 		return nil
 	}
 	current := parent
@@ -323,8 +328,8 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		"font-family": current.fontFamily, "font-style": current.fontStyle, "font-weight": current.fontWeight,
 	})
 	if value, ok := a["fill"]; ok {
-		p := parseSVGPaint(value, svgPaintValue{parent.fill, parent.fillGradient, parent.hasFill}, current.color, s.resolveGradient)
-		current.fill, current.fillGradient, current.hasFill = p.color, p.gradient, p.ok
+		p := parseSVGPaint(value, svgPaintValue{parent.fill, parent.fillServer, parent.hasFill}, current.color, s.resolvePaintServer)
+		current.fill, current.fillServer, current.hasFill = p.color, p.server, p.ok
 	}
 	rootFontSize := s.img.rootFontSize
 	if node == s.root {
@@ -346,8 +351,8 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		current.fillRule = rule
 	}
 	if value, ok := a["stroke"]; ok {
-		p := parseSVGPaint(value, svgPaintValue{parent.stroke, parent.strokeGradient, parent.hasStroke}, current.color, s.resolveGradient)
-		current.stroke, current.strokeGradient, current.hasStroke = p.color, p.gradient, p.ok
+		p := parseSVGPaint(value, svgPaintValue{parent.stroke, parent.strokeServer, parent.hasStroke}, current.color, s.resolvePaintServer)
+		current.stroke, current.strokeServer, current.hasStroke = p.color, p.server, p.ok
 	}
 	if n, ok := svgUnitInterval(a["stroke-opacity"]); ok {
 		current.strokeOpacity = n
@@ -537,13 +542,13 @@ func (s *svgExpansion) walkContent(node *svgNode, a map[string]string, current s
 			if !current.hasStroke {
 				stroke = color.NRGBA{}
 			}
-			// objectBoundingBox gradients use the fill geometry's bounds for
+			// Object-bounding-box servers use the fill geometry's bounds for
 			// both fill and stroke; an empty box paints nothing.
-			fillServer, ok := bindSVGPaint(current.fillGradient, shape)
+			fillServer, ok := bindSVGPaint(current.fillServer, shape)
 			if !ok || !current.hasFill {
 				fill, fillServer = color.NRGBA{}, nil
 			}
-			strokeServer, ok := bindSVGPaint(current.strokeGradient, shape)
+			strokeServer, ok := bindSVGPaint(current.strokeServer, shape)
 			if !ok || !current.hasStroke {
 				stroke, strokeServer = color.NRGBA{}, nil
 			}
@@ -741,6 +746,7 @@ var svgGeometryProperties = map[string]map[string]bool{
 	"rect":    {"x": true, "y": true, "width": true, "height": true, "rx": true, "ry": true},
 	"circle":  {"cx": true, "cy": true, "r": true},
 	"ellipse": {"cx": true, "cy": true, "rx": true, "ry": true},
+	"pattern": {"x": true, "y": true, "width": true, "height": true},
 }
 
 // svgGeometryDeclaration validates a CSS geometry declaration and returns its
@@ -1830,7 +1836,7 @@ func svgRectWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegmen
 
 var svgRenderedElements = map[string]bool{
 	"g": true, "path": true, "rect": true, "circle": true, "ellipse": true,
-	"line": true, "polyline": true, "polygon": true,
+	"line": true, "polyline": true, "polygon": true, "pattern": true,
 }
 
 // svgEllipseAttrs resolves ellipse radii. A missing or "auto" radius takes
