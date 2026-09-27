@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 )
@@ -47,13 +48,20 @@ func (m metrics) lineHeight() int { return int(math.Ceil(m.size * 1.2)) }
 // Each layout owns its font faces. opentype faces cache glyph data internally
 // and must not be shared across concurrent renders.
 type faceSet struct {
-	font  *opentype.Font
-	faces map[float64]font.Face
+	regular *opentype.Font
+	bold    *opentype.Font
+	faces   map[faceKey]font.Face
+}
+
+type faceKey struct {
+	size float64
+	bold bool
 }
 
 func newFaceSet() *faceSet {
-	f, _ := opentype.Parse(goregular.TTF)
-	return &faceSet{font: f, faces: make(map[float64]font.Face)}
+	regular, _ := opentype.Parse(goregular.TTF)
+	bold, _ := opentype.Parse(gobold.TTF)
+	return &faceSet{regular: regular, bold: bold, faces: make(map[faceKey]font.Face)}
 }
 
 func (f *faceSet) close() {
@@ -65,16 +73,54 @@ func (f *faceSet) close() {
 }
 
 func (f *faceSet) metrics(style ComputedStyle) metrics {
-	size := px(style["font-size"], 16, 16)
-	if size <= 0 {
-		size = 16
-	}
-	face, ok := f.faces[size]
-	if !ok && f.font != nil {
-		face, _ = opentype.NewFace(f.font, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
-		f.faces[size] = face
+	size := fontSize(style["font-size"])
+	key := faceKey{size: size, bold: isBold(style["font-weight"])}
+	face, ok := f.faces[key]
+	if !ok {
+		fontData := f.regular
+		if key.bold {
+			fontData = f.bold
+		}
+		if fontData != nil {
+			face, _ = opentype.NewFace(fontData, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
+			f.faces[key] = face
+		}
 	}
 	return metrics{face: face, size: size}
+}
+
+func fontSize(value string) float64 {
+	var size float64
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "xx-small":
+		size = 9
+	case "x-small":
+		size = 10
+	case "small":
+		size = 13
+	case "medium", "":
+		size = 16
+	case "large":
+		size = 18
+	case "x-large":
+		size = 24
+	case "xx-large":
+		size = 32
+	default:
+		size = px(value, 16, 16)
+	}
+	if size <= 0 || size > 512 || math.IsNaN(size) || math.IsInf(size, 0) {
+		return 16
+	}
+	return size
+}
+
+func isBold(weight string) bool {
+	switch strings.ToLower(strings.TrimSpace(weight)) {
+	case "bold", "bolder":
+		return true
+	}
+	return px(weight, 0, 400) >= 600
 }
 
 func px(value string, basis, fallback float64) float64 {
@@ -118,7 +164,11 @@ func displayBlock(n *StyledNode) bool {
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
 	var e [4]int
 	for i, side := range []string{"top", "right", "bottom", "left"} {
-		e[i] = int(math.Max(0, math.Round(px(n.Style[name+"-"+side], basis, 0))))
+		if name == "border-width" {
+			e[i] = borderWidth(n.Style, side)
+		} else {
+			e[i] = int(math.Max(0, math.Round(px(n.Style[name+"-"+side], basis, 0))))
+		}
 	}
 	return e
 }
