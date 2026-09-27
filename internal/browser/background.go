@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/draw"
 	"math"
+	"strconv"
 	"strings"
 )
 
@@ -178,33 +179,52 @@ func backgroundLength(s string, basis int) (int, bool) {
 	return imageDimensionValue(s, basis)
 }
 
-func backgroundAxis(words []string, horizontal bool, free int) int {
+// backgroundPositionAxes resolves the one- and two-value forms to their
+// respective axes before converting either to a pixel offset.
+func backgroundPositionAxes(words []string) (x, y string) {
+	x, y = "left", "top" // CSS's initial position is 0% 0%.
 	if len(words) == 0 {
-		return 0
+		return
 	}
-	word := words[0]
-	if len(words) > 1 {
-		word = words[0]
-		if !horizontal {
-			word = words[1]
-		} else if word == "top" || word == "bottom" {
-			word = words[1]
+	if len(words) == 1 {
+		switch words[0] {
+		case "left", "right":
+			return words[0], "center"
+		case "top", "bottom":
+			return "center", words[0]
+		case "center":
+			return "center", "center"
+		default:
+			return words[0], "center"
 		}
-	} else if (horizontal && (word == "top" || word == "bottom")) ||
-		(!horizontal && (word == "left" || word == "right")) {
-		return 0
 	}
+	// A vertical keyword followed by a horizontal value (or center followed
+	// by a horizontal keyword) is the swapped two-value syntax.
+	if words[0] == "top" || words[0] == "bottom" ||
+		(words[0] == "center" && (words[1] == "left" || words[1] == "right")) {
+		return words[1], words[0]
+	}
+	return words[0], words[1]
+}
+
+func backgroundAxis(word string, free int) int {
 	switch word {
 	case "center":
-		return free / 2
+		return int(math.Round(float64(free) / 2))
 	case "right", "bottom":
 		return free
 	case "left", "top":
 		return 0
 	}
 	if strings.HasSuffix(word, "%") {
-		if v, ok := imageDimensionValue(word, free); ok {
-			return v
+		// Unlike image dimensions, the available positioning space can be
+		// negative when the tile is larger than the padding box.
+		if pct, err := strconv.ParseFloat(strings.TrimSuffix(word, "%"), 64); err == nil {
+			offset := math.Round(float64(free) * pct / 100)
+			if !math.IsNaN(offset) && !math.IsInf(offset, 0) &&
+				offset >= float64(math.MinInt) && offset <= float64(math.MaxInt) {
+				return int(offset)
+			}
 		}
 	}
 	if v, ok := backgroundLength(word, free); ok {
@@ -260,8 +280,9 @@ func drawBackgroundImage(dst *image.RGBA, box *Box, src image.Image, style Compu
 		}
 	}
 	words := strings.Fields(strings.ToLower(style["background-position"]))
-	x := area.Min.X + backgroundAxis(words, true, area.Dx()-w)
-	y := area.Min.Y + backgroundAxis(words, false, area.Dy()-h)
+	xPosition, yPosition := backgroundPositionAxes(words)
+	x := area.Min.X + backgroundAxis(xPosition, area.Dx()-w)
+	y := area.Min.Y + backgroundAxis(yPosition, area.Dy()-h)
 	repeatX, repeatY := true, true
 	switch strings.ToLower(style["background-repeat"]) {
 	case "no-repeat":
