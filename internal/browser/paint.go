@@ -7,6 +7,8 @@ import (
 	"image/png"
 	"io"
 	"math"
+	"sort"
+	"strconv"
 	"strings"
 
 	xdraw "golang.org/x/image/draw"
@@ -14,8 +16,11 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// paint draws in tree order, so a descendant's background covers its parent's
-// background but never its own text. Each call owns its canvas and font faces.
+// paint draws each stacking context in the simplified CSS 2.1 Appendix E
+// order: the context's own background, negative z-index layers, in-flow
+// content in tree order (a descendant's background covers its parent's but
+// never its own text), then z-index auto/0 and positive layers. Each call owns
+// its canvas and font faces.
 func paint(layout Layout, output io.Writer, options renderOptions) error {
 	viewport := layout.Viewport
 	if viewport.Empty() {
@@ -33,45 +38,20 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 	}
 	faces := newFaceSet()
 	defer faces.close()
-	var visit func(*Box)
-	visit = func(box *Box) {
-		if box == nil {
-			return
-		}
-		style := layout.Document.Styles[box.Node]
-		if box.Node != nil && box.Node.Type == ElementNode && style != nil {
-			propagated := box.Node == canvasRoot || (bodyBackgroundPropagated && box.Node == canvasBody)
-			if !propagated {
-				if c, ok := backgroundColor(style); ok {
-					fill(canvas, box.Rect, c)
-				}
-			}
-			drawBackgroundImage(canvas, box, layout.Document.BackgroundImages[box.Node], style)
-			if box.BorderWidths != nil {
-				drawBordersWithWidths(canvas, box.Rect, style, *box.BorderWidths)
-			} else {
-				drawBorders(canvas, box.Rect, style)
-			}
-		}
-		for _, run := range box.Text {
-			drawText(canvas, run, layout.Document.Styles, faces)
-		}
-		for _, picture := range box.Images {
-			if options.debugImageBoxes {
-				drawImageBoxOutline(canvas, picture)
-			} else {
-				drawImageBox(canvas, picture)
-			}
-		}
-		for _, child := range box.Children {
-			visit(child)
-		}
+	p := &painter{
+		canvas:                   canvas,
+		document:                 layout.Document,
+		faces:                    faces,
+		options:                  options,
+		canvasRoot:               canvasRoot,
+		canvasBody:               canvasBody,
+		bodyBackgroundPropagated: bodyBackgroundPropagated,
+		treeOrder:                documentOrder(layout.Document.Document.Root),
 	}
 	if layout.Root != nil {
-		// The root is an anonymous viewport box, not an extra CSS element.
-		for _, child := range layout.Root.Children {
-			visit(child)
-		}
+		// The root is an anonymous viewport box, not an extra CSS element; it
+		// establishes the root stacking context.
+		p.paintStackingContext(layout.Root, false)
 	}
 	return png.Encode(output, canvas)
 }
@@ -296,5 +276,158 @@ func drawText(dst *image.RGBA, run TextRun, styles map[*Node]ComputedStyle, face
 	if decorated(run, styles, "line-through") {
 		y := baseline - m.face.Metrics().Ascent.Ceil()/3
 		fill(dst, image.Rect(run.Rect.Min.X, y, run.Rect.Max.X, y+1).Intersect(clip), ink)
+	}
+}
+
+type painter struct {
+	canvas                   *image.RGBA
+	document                 StyledDocument
+	faces                    *faceSet
+	options                  renderOptions
+	canvasRoot, canvasBody   *Node
+	bodyBackgroundPropagated bool
+	treeOrder                map[*Node]int
+}
+
+// stackingLayer is a positioned box painted as a unit by the stacking context
+// that owns it. context is false for z-index:auto boxes, whose positioned
+// descendants belong to the enclosing context instead (CSS 2.1 §9.9.1).
+type stackingLayer struct {
+	box     *Box
+	z       int
+	context bool
+	order   int
+}
+
+func documentOrder(root *Node) map[*Node]int {
+	order := make(map[*Node]int)
+	var walk func(*Node)
+	walk = func(n *Node) {
+		if n == nil {
+			return
+		}
+		order[n] = len(order)
+		for _, child := range n.Children {
+			walk(child)
+		}
+	}
+	walk(root)
+	return order
+}
+
+// stacking reports whether box is positioned and, if so, its z-index. Only
+// positioned boxes with an integer z-index form a stacking context; z-index
+// on non-positioned boxes is ignored.
+func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
+	if box == nil || box.Node == nil || box.Node.Type != ElementNode {
+		return false, 0, false
+	}
+	style := p.document.Styles[box.Node]
+	switch strings.ToLower(strings.TrimSpace(style["position"])) {
+	case "relative", "absolute", "fixed", "sticky":
+	default:
+		return false, 0, false
+	}
+	value := strings.TrimSpace(style["z-index"])
+	if value == "" || strings.EqualFold(value, "auto") {
+		return true, 0, false
+	}
+	z, err := strconv.Atoi(value)
+	if err != nil {
+		return true, 0, false
+	}
+	return true, z, true
+}
+
+// paintStackingContext paints ctx and every box it owns. includeSelf is false
+// for the anonymous viewport box, which has no background of its own.
+func (p *painter) paintStackingContext(ctx *Box, includeSelf bool) {
+	if includeSelf {
+		p.paintOwn(ctx)
+	}
+	var layers []stackingLayer
+	p.collectLayers(ctx, &layers)
+	sort.SliceStable(layers, func(i, j int) bool {
+		if layers[i].z != layers[j].z {
+			return layers[i].z < layers[j].z
+		}
+		return layers[i].order < layers[j].order
+	})
+	i := 0
+	for ; i < len(layers) && layers[i].z < 0; i++ {
+		p.paintStackingContext(layers[i].box, true)
+	}
+	p.paintFlow(ctx.Children)
+	for ; i < len(layers); i++ {
+		if layers[i].context {
+			p.paintStackingContext(layers[i].box, true)
+		} else {
+			p.paintOwn(layers[i].box)
+			p.paintFlow(layers[i].box.Children)
+		}
+	}
+}
+
+// collectLayers gathers the positioned descendants owned by the stacking
+// context containing box, without entering nested stacking contexts.
+func (p *painter) collectLayers(box *Box, layers *[]stackingLayer) {
+	for _, child := range box.Children {
+		positioned, z, context := p.stacking(child)
+		if positioned {
+			order, ok := p.treeOrder[child.Node]
+			if !ok {
+				order = len(p.treeOrder) + len(*layers)
+			}
+			*layers = append(*layers, stackingLayer{box: child, z: z, context: context, order: order})
+			if context {
+				continue
+			}
+		}
+		p.collectLayers(child, layers)
+	}
+}
+
+// paintFlow paints non-positioned boxes in tree order; positioned boxes are
+// painted later as layers of their stacking context.
+func (p *painter) paintFlow(boxes []*Box) {
+	for _, box := range boxes {
+		if positioned, _, _ := p.stacking(box); positioned {
+			continue
+		}
+		p.paintOwn(box)
+		p.paintFlow(box.Children)
+	}
+}
+
+// paintOwn draws a box's background, borders, text and images, but not its
+// child boxes.
+func (p *painter) paintOwn(box *Box) {
+	if box == nil {
+		return
+	}
+	style := p.document.Styles[box.Node]
+	if box.Node != nil && box.Node.Type == ElementNode && style != nil {
+		propagated := box.Node == p.canvasRoot || (p.bodyBackgroundPropagated && box.Node == p.canvasBody)
+		if !propagated {
+			if c, ok := backgroundColor(style); ok {
+				fill(p.canvas, box.Rect, c)
+			}
+		}
+		drawBackgroundImage(p.canvas, box, p.document.BackgroundImages[box.Node], style)
+		if box.BorderWidths != nil {
+			drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+		} else {
+			drawBorders(p.canvas, box.Rect, style)
+		}
+	}
+	for _, run := range box.Text {
+		drawText(p.canvas, run, p.document.Styles, p.faces)
+	}
+	for _, picture := range box.Images {
+		if p.options.debugImageBoxes {
+			drawImageBoxOutline(p.canvas, picture)
+		} else {
+			drawImageBox(p.canvas, picture)
+		}
 	}
 }

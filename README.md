@@ -17,9 +17,10 @@ Go fonts, and applies CSS line heights. Inline text uses font ascents and descen
 to share a baseline with replaced images (including `vertical-align: top`, `middle`,
 and `bottom`). Painting rasterizes colors, CSS background images
 (GIF/PNG/JPEG/SVG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
-elements, and neutral placeholders for unsupported `<img>` elements. A minimal
-in-repo SVG subset (`<svg>` sizing and `viewBox`, `<g>`, `<path>`, basic shapes
-(`<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`),
+elements, and neutral placeholders for unsupported `<img>` elements, honoring
+`z-index` stacking order for positioned boxes. A minimal in-repo SVG subset
+(`<svg>` sizing and `viewBox`, `<g>`, `<path>`, basic shapes including `<rect>`,
+`<circle>`, `<ellipse>`, `<line>`, `<polyline>`, and `<polygon>`),
 solid fills and strokes, elliptical path arcs, transforms) renders at the used size for both `<img>`
 and CSS backgrounds. `<use>`/`<defs>` references and advanced CSS remain future work.
 
@@ -27,7 +28,7 @@ and CSS backgrounds. `<use>`/`<defs>` references and advanced CSS remain future 
 
 ![Current centered Hacker News fixture render: orange header, painted story text, and SVG logo and vote arrows](docs/screenshots/hn-fixture.png)
 
-**Compatibility benchmark: [11/13 pinned WPT reftests passing](docs/compatibility.md)**
+**Compatibility benchmark: [12/13 pinned WPT reftests passing](docs/compatibility.md)**
 ([JSON](docs/compatibility.json)). Run `make compatibility` to regenerate the
 committed report and inspect failed test/reference/diff PNGs in `artifacts/wpt/`.
 
