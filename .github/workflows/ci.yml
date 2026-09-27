@@ -48,3 +48,9 @@ jobs:
           path: render-artifacts/*.png
           if-no-files-found: error
           retention-days: 14
+      - name: Check committed screenshot is current
+        run: |
+          cmp docs/screenshots/hn-fixture.png render-artifacts/hn-fixture.png || {
+            echo "Screenshot is stale; run 'make screenshot' and commit docs/screenshots/hn-fixture.png"
+            exit 1
+          }
