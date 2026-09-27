@@ -20,15 +20,24 @@ import (
 // the border box. Text is kept as runs so the painter does not need to walk
 // the DOM again.
 type Box struct {
-	Node     *Node
-	Rect     image.Rectangle
-	Content  image.Rectangle
-	Children []*Box
-	Text     []TextRun
-	Images   []ImageBox
+	Node              *Node
+	Rect              image.Rectangle
+	Content           image.Rectangle
+	Children          []*Box
+	Text              []TextRun
+	Images            []ImageBox
+	InlineBackgrounds []InlineBackground
 	// BorderWidths overrides the widths from the node's computed style when
 	// table border collapsing allocates a shared edge to another box.
 	BorderWidths *[4]int // top, right, bottom, left
+}
+
+// InlineBackground is one painted fragment of a text-bearing inline element.
+// Wrapped inline elements have one fragment per line so their backgrounds do
+// not fill the unused space between the end and start of adjacent lines.
+type InlineBackground struct {
+	Node *Node
+	Rect image.Rectangle
 }
 
 // ImageBox exposes a decoded replaced image and its used rectangle to the
@@ -909,6 +918,9 @@ func translatePositionedBox(box *Box, dx, dy int) *Box {
 	for i := range box.Images {
 		box.Images[i].Rect = box.Images[i].Rect.Add(image.Pt(dx, dy))
 	}
+	for i := range box.InlineBackgrounds {
+		box.InlineBackgrounds[i].Rect = box.InlineBackgrounds[i].Rect.Add(image.Pt(dx, dy))
+	}
 	for _, child := range box.Children {
 		translatePositionedBox(child, dx, dy)
 	}
@@ -935,23 +947,24 @@ func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, 
 }
 
 type inlinePart struct {
-	node       *Node
-	style      ComputedStyle
-	text       string
-	br         bool
-	image      image.Image
-	imageW     int
-	imageH     int
-	imageEdges [4]int // margin, border, and padding around replaced content
-	isImage    bool
+	node        *Node
+	style       ComputedStyle
+	text        string
+	br          bool
+	image       image.Image
+	imageW      int
+	imageH      int
+	imageEdges  [4]int // margin, border, and padding around replaced content
+	isImage     bool
+	backgrounds []*Node
 }
 
 // Inline descendants are flattened in document order, without manufacturing
 // whitespace between element boundaries. Text ownership survives flattening.
 func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 	var parts []inlinePart
-	var visit func(*StyledNode)
-	visit = func(n *StyledNode) {
+	var visit func(*StyledNode, []*Node)
+	visit = func(n *StyledNode, backgrounds []*Node) {
 		if n.Node.Type == ElementNode {
 			if strings.EqualFold(n.Style["display"], "none") {
 				return
@@ -968,16 +981,22 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 					imageEdges: inlineImageEdges(n, width), isImage: true})
 				return
 			}
+			if _, ok := backgroundColor(n.Style); ok ||
+				(strings.TrimSpace(n.Style["background-image"]) != "" &&
+					!strings.EqualFold(strings.TrimSpace(n.Style["background-image"]), "none")) {
+				backgrounds = append(append([]*Node(nil), backgrounds...), n.Node)
+			}
 		}
 		if n.Node.Type == TextNode {
-			parts = append(parts, inlinePart{node: n.Node, style: n.Style, text: n.Node.Data})
+			parts = append(parts, inlinePart{node: n.Node, style: n.Style, text: n.Node.Data,
+				backgrounds: backgrounds})
 		}
 		for _, child := range n.Children {
-			visit(child)
+			visit(child, backgrounds)
 		}
 	}
 	for _, n := range nodes {
-		visit(n)
+		visit(n, nil)
 	}
 	return parts
 }
@@ -1119,7 +1138,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if unicode.IsSpace(r) && r != '\u00a0' {
 				flushWord()
 				if space == nil {
-					p := inlinePart{node: part.node, style: part.style, text: " "}
+					p := inlinePart{node: part.node, style: part.style, text: " ",
+						backgrounds: part.backgrounds}
 					space = &p
 				}
 				continue
@@ -1127,7 +1147,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if len(word) != 0 && word[len(word)-1].node == part.node {
 				word[len(word)-1].text += string(r)
 			} else {
-				word = append(word, inlinePart{node: part.node, style: part.style, text: string(r)})
+				word = append(word, inlinePart{node: part.node, style: part.style, text: string(r),
+					backgrounds: part.backgrounds})
 			}
 		}
 	}
@@ -1151,6 +1172,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		}
 		baseline := cursor + l.ascent
 		penX := fixed.I(xpos) + (startPenX - fixed.I(x))
+		backgroundFragments := make(map[*Node]int)
 		for _, p := range l.parts {
 			if p.isImage {
 				outerHeight := p.outerImageHeight()
@@ -1177,6 +1199,17 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			right := (penX + advance).Ceil()
 			textAscent, textDescent := faces.metrics(p.style).lineMetrics()
 			textY := baseline - textAscent
+			textRect := image.Rect(left, textY, right, textY+textAscent+textDescent)
+			for _, node := range p.backgrounds {
+				if index, ok := backgroundFragments[node]; ok {
+					box.InlineBackgrounds[index].Rect =
+						box.InlineBackgrounds[index].Rect.Union(textRect)
+					continue
+				}
+				backgroundFragments[node] = len(box.InlineBackgrounds)
+				box.InlineBackgrounds = append(box.InlineBackgrounds,
+					InlineBackground{Node: node, Rect: textRect})
+			}
 			if len(box.Text) != 0 {
 				last := &box.Text[len(box.Text)-1]
 				if last.Node == p.node && last.Rect.Min.Y == textY {
@@ -1191,7 +1224,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 				}
 			}
 			box.Text = append(box.Text, TextRun{Node: p.node, Style: p.style, Text: p.text,
-				Rect: image.Rect(left, textY, right, textY+textAscent+textDescent), PenX: penX})
+				Rect: textRect, PenX: penX})
 			penX += advance
 			xpos = penX.Round()
 		}

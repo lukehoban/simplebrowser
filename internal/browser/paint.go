@@ -493,6 +493,9 @@ func (p *painter) paintContent(box *Box) {
 	if box == nil {
 		return
 	}
+	for _, fragment := range box.InlineBackgrounds {
+		p.paintInlineBackground(fragment)
+	}
 	for _, run := range box.Text {
 		drawText(p.canvas, run, p.document.Styles, p.faces)
 	}
@@ -502,6 +505,34 @@ func (p *painter) paintContent(box *Box) {
 		} else {
 			drawImageBox(p.canvas, picture)
 		}
+	}
+}
+
+// paintInlineBackground paints the background layers for one line fragment.
+// Inline borders and padding are not represented by the current inline layout
+// model; unlike paintBackground, this deliberately does not invent borders
+// around the text rectangle.
+func (p *painter) paintInlineBackground(fragment InlineBackground) {
+	style := p.document.Styles[fragment.Node]
+	if style == nil || fragment.Rect.Empty() {
+		return
+	}
+	if c, ok := backgroundColor(style); ok {
+		fill(p.canvas, fragment.Rect, c)
+	}
+	layers := p.document.BackgroundImages[fragment.Node]
+	for i := len(layers) - 1; i >= 0; i-- {
+		src := layers[i]
+		if src == nil {
+			values := backgroundLayers(style["background-image"])
+			if i < len(values) {
+				if gradient := parseGradient(values[i], fragment.Rect.Dx(), fragment.Rect.Dy()); gradient != nil {
+					src = gradient
+				}
+			}
+		}
+		drawBackgroundImage(p.canvas, &Box{Node: fragment.Node, Rect: fragment.Rect},
+			src, backgroundLayerStyle(style, i))
 	}
 }
 
