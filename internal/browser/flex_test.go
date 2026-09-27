@@ -228,6 +228,16 @@ func TestFlexSupportsClaimsOnlyImplementedAlignment(t *testing.T) {
 	if !supportsConditionMatches("(align-items: center)") {
 		t.Fatal("center alignment is implemented")
 	}
+	for _, value := range []string{"auto", "stretch", "start", "end", "flex-start", "flex-end", "center", "self-start", "self-end"} {
+		if !supportsConditionMatches("(align-self: " + value + ")") {
+			t.Errorf("implemented align-self value not reported: %s", value)
+		}
+	}
+	for _, value := range []string{"baseline", "safe center", "first baseline"} {
+		if supportsConditionMatches("(align-self: " + value + ")") {
+			t.Errorf("unsupported align-self value reported: %s", value)
+		}
+	}
 	for _, query := range []string{"(flex-wrap: wrap)", "(flex-wrap: wrap-reverse)", "(align-content: center)", "(align-content: space-between)"} {
 		if !supportsConditionMatches(query) {
 			t.Errorf("implemented value not reported: %s", query)
@@ -238,6 +248,75 @@ func TestFlexSupportsClaimsOnlyImplementedAlignment(t *testing.T) {
 			t.Errorf("unsupported value reported: %s", query)
 		}
 	}
+}
+
+func TestFlexAlignSelfGeometryPixelsAndWrappedLines(t *testing.T) {
+	const source = `<body style="margin:0">
+<div id="single" style="display:flex;align-items:flex-end;width:120px;height:40px;background:white">
+  <div id="flex-start" style="align-self:flex-start;width:12px;height:10px;background:red"></div>
+  <div id="flex-end" style="align-self:flex-end;width:12px;height:10px;background:blue"></div>
+  <div id="center" style="align-self:center;width:12px;height:10px;background:green"></div>
+  <div id="stretch" style="align-self:stretch;width:12px;background:yellow"></div>
+  <div id="start" style="align-self:start;width:12px;height:10px;background:magenta"></div>
+  <div id="end" style="align-self:end;width:12px;height:10px;background:cyan"></div>
+  <div id="self-start" style="align-self:self-start;width:12px;height:10px;background:orange"></div>
+  <div id="self-end" style="align-self:self-end;width:12px;height:10px;background:purple"></div>
+  <div id="auto" style="align-self:auto;width:12px;height:10px;background:black"></div>
+</div>
+<div id="column" style="display:flex;flex-direction:column;align-items:flex-start;width:40px;height:40px;background:white">
+  <div id="column-end" style="align-self:flex-end;width:10px;height:10px;background:blue"></div>
+</div>
+<div id="wrapped" style="display:flex;flex-wrap:wrap;align-content:flex-start;align-items:flex-start;width:80px;height:80px;background:white">
+  <div id="tall-a" style="width:40px;height:30px;background:red"></div>
+  <div id="wrapped-end" style="align-self:flex-end;width:40px;height:10px;background:blue"></div>
+  <div id="tall-b" style="width:40px;height:20px;background:green"></div>
+  <div id="wrapped-center" style="align-self:center;width:40px;height:10px;background:purple"></div>
+</div>
+<div id="reverse" style="display:flex;flex-wrap:wrap-reverse;align-content:flex-start;align-items:flex-start;width:80px;height:80px;background:white">
+  <div id="reverse-tall-a" style="width:40px;height:30px;background:red"></div>
+  <div id="reverse-end" style="align-self:flex-end;width:40px;height:10px;background:blue"></div>
+  <div id="reverse-tall-b" style="width:40px;height:20px;background:green"></div>
+  <div id="reverse-center" style="align-self:center;width:40px;height:10px;background:purple"></div>
+</div></body>`
+	viewport := image.Rect(0, 0, 160, 280)
+	layout, err := LayoutWithViewport(styledForLayout(t, source), viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := boxesByID(layout.Root, "single", "flex-start", "flex-end", "center", "stretch", "start", "end", "self-start", "self-end", "auto", "column-end",
+		"wrapped", "wrapped-end", "wrapped-center", "reverse", "reverse-end", "reverse-center")
+	wantY := map[string]int{
+		"flex-start": 0, "flex-end": 30, "center": 15, "stretch": 0,
+		"start": 0, "end": 30, "self-start": 0, "self-end": 30, "auto": 30,
+	}
+	for id, y := range wantY {
+		box := b[id]
+		if box == nil || box.Rect.Min.Y != y || (id == "stretch" && box.Rect.Dy() != 40) {
+			t.Errorf("%s: got %v, want y=%d (stretch height 40)", id, box, y)
+		}
+	}
+	if b["column-end"].Rect.Min.X != 30 || b["column-end"].Rect.Dy() != 10 {
+		t.Errorf("column cross-axis end alignment: %v, want x=30 with 10px height", b["column-end"].Rect)
+	}
+	if b["wrapped-end"].Rect.Min.Y != b["wrapped"].Rect.Min.Y+20 ||
+		b["wrapped-center"].Rect.Min.Y != b["wrapped"].Rect.Min.Y+35 {
+		t.Errorf("wrapped line alignment: end=%v center=%v parent=%v", b["wrapped-end"].Rect, b["wrapped-center"].Rect, b["wrapped"].Rect)
+	}
+	if b["reverse-end"].Rect.Min.Y != b["reverse"].Rect.Min.Y+50 ||
+		b["reverse-center"].Rect.Min.Y != b["reverse"].Rect.Min.Y+35 {
+		t.Errorf("wrap-reverse alignment: end=%v center=%v parent=%v", b["reverse-end"].Rect, b["reverse-center"].Rect, b["reverse"].Rect)
+	}
+
+	img := painted(t, source, viewport)
+	pixel(t, img, 1, 1, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, 13, 31, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 25, 16, color.RGBA{0, 128, 0, 255})
+	pixel(t, img, 37, 1, color.RGBA{255, 255, 0, 255})
+	pixel(t, img, 49, 1, color.RGBA{255, 0, 255, 255})
+	pixel(t, img, 61, 31, color.RGBA{0, 255, 255, 255})
+	pixel(t, img, b["column-end"].Rect.Min.X+1, b["column-end"].Rect.Min.Y+1, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, b["wrapped-end"].Rect.Min.X+1, b["wrapped-end"].Rect.Min.Y+1, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, b["reverse-end"].Rect.Min.X+1, b["reverse-end"].Rect.Min.Y+1, color.RGBA{0, 0, 255, 255})
 }
 
 func TestFlexColumnWrapAutoCrossWidthAndAnonymousIntrinsic(t *testing.T) {

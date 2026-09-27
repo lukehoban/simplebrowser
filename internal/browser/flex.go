@@ -10,8 +10,8 @@ import (
 // GitHub and Moon fixtures. It supports rows and columns, flexible main sizes,
 // gaps, the common main/cross-axis alignment values, and bounded multi-line
 // wrapping (flex-wrap:wrap and wrap-reverse with per-line flexing and
-// align-content). Ordering, align-self and baseline synthesis remain outside
-// this renderer's flex scope; see docs/flexbox.md.
+// align-content). Ordering and baseline synthesis remain outside this
+// renderer's flex scope; see docs/flexbox.md.
 func isFlexContainer(n *StyledNode) bool {
 	if n == nil {
 		return false
@@ -250,9 +250,9 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		containerCross = lines[0].cross
 	}
 
-	align := strings.ToLower(strings.TrimSpace(parent.Style["align-items"]))
-	if align == "" || align == "normal" {
-		align = "stretch"
+	alignItems := strings.ToLower(strings.TrimSpace(parent.Style["align-items"]))
+	if alignItems == "" || alignItems == "normal" {
+		alignItems = "stretch"
 	}
 	mainSize := width
 	boxes := make([]*Box, 0, len(items))
@@ -264,6 +264,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		// Stretch auto cross sizes to the line, then align along the main axis.
 		for i := range line.items {
 			item := &line.items[i]
+			align := flexItemAlignment(item.node.Style["align-self"], alignItems)
 			if align != "stretch" || item.explicitCross {
 				continue
 			}
@@ -294,9 +295,10 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		offset, between := flexJustification(parent.Style["justify-content"], mainSize-occupied, len(line.items), gap)
 		cursor := offset
 		for _, item := range line.items {
+			align := flexItemAlignment(item.node.Style["align-self"], alignItems)
 			outerCross := flexOuterCross(item, column)
 			crossOffset := flexCrossOffset(align, line.cross-outerCross)
-			if wrapReverse {
+			if wrapReverse && (align == "flex-start" || align == "flex-end" || (align == "stretch" && item.explicitCross)) {
 				// wrap-reverse swaps cross-start and cross-end.
 				crossOffset = max(0, line.cross-outerCross) - crossOffset
 			}
@@ -322,6 +324,21 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		return boxes, y + mainSize
 	}
 	return boxes, y + containerCross
+}
+
+func flexItemAlignment(value, alignItems string) string {
+	align := strings.ToLower(strings.TrimSpace(value))
+	if align == "" || align == "auto" {
+		return alignItems
+	}
+	switch align {
+	case "self-start":
+		return "self-start"
+	case "self-end":
+		return "self-end"
+	default:
+		return align
+	}
 }
 
 func flexOuterMain(item flexItem, column bool) int {
@@ -555,7 +572,7 @@ func flexJustification(value string, free, count, gap int) (offset, between int)
 func flexCrossOffset(align string, free int) int {
 	free = max(0, free)
 	switch align {
-	case "end", "flex-end":
+	case "end", "flex-end", "self-end":
 		return free
 	case "center":
 		return free / 2
