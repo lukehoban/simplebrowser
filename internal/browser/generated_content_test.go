@@ -343,3 +343,44 @@ func TestGeneratedContentLegacySyntaxSpecificityMatchesDoubleColon(t *testing.T)
 		}
 	}
 }
+
+func TestInvalidContentDeclarationDoesNotOverrideValidOne(t *testing.T) {
+	for _, tc := range []struct{ name, rule, want string }{
+		{"bad string after valid", "p::before{content:\"OK\";content:\"bad\nstring\"}", "OK|x|"},
+		{"bad string before valid", "p::before{content:\"bad\nstring\";content:\"OK\"}", "OK|x|"},
+		{"length after valid", `p::before{content:"OK";content:12px}`, "OK|x|"},
+		{"unknown keyword after valid", `p::before{content:"OK";content:bogus}`, "OK|x|"},
+		{"invalid important after valid important",
+			"p::before{content:\"OK\" !important}p::before{content:\"bad\nstring\" !important}", "OK|x|"},
+		{"invalid important does not beat normal",
+			"p::before{content:\"OK\"}p::before{content:\"bad\nstring\" !important}", "OK|x|"},
+		{"important before later invalid",
+			"p::before{content:\"OK\" !important;content:\"bad\nstring\"}", "OK|x|"},
+		{"invalid alone generates nothing", "p::before{content:\"bad\nstring\"}", "x|"},
+		// Valid but unsupported values still win and suppress the box (#327).
+		{"valid unsupported wins", `p::before{content:"OK";content:counter(item)}`, "x|"},
+		{"valid quote keyword wins", `p::before{content:"OK";content:open-quote}`, "x|"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := allText(t, "<style>"+tc.rule+"</style><body style=\"margin:0\"><p>x</p></body>",
+				image.Rect(0, 0, 300, 100))
+			if got != tc.want {
+				t.Fatalf("text runs = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestValidContentDeclaration(t *testing.T) {
+	for value, want := range map[string]bool{
+		`"a"`: true, `"a" "b"`: true, "none": true, "NORMAL": true, "inherit": true,
+		`url(x.png)`: true, `attr(title)`: true, `counter(a) ". "`: true, "open-quote": true,
+		`"a" / "alt"`: true, `var(--x)`: true, `"x" var(--y)`: true,
+		"\"a\nb\"": false, `"x\"`: false, `"unterminated`: false, "12px": false, "3": false,
+		"bogus": false, "red": false, `"a", "b"`: false, "": false,
+	} {
+		if got := validContentDeclaration(value); got != want {
+			t.Errorf("validContentDeclaration(%q) = %v, want %v", value, got, want)
+		}
+	}
+}

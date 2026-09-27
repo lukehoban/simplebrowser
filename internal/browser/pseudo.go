@@ -118,6 +118,49 @@ func generatedContent(value string) (string, bool) {
 	return text.String(), true
 }
 
+// validContentDeclaration reports whether a declared `content` value matches
+// the property's grammar closely enough to be kept. Declarations that do not,
+// such as bad or unterminated strings, lengths or unknown keywords, are
+// invalid and must be dropped during parsing instead of overriding an
+// earlier valid declaration in the cascade. Valid values the renderer does
+// not support yet (url(), attr(), counters, quote keywords) are kept; they
+// still suppress the generated box in generatedContent. A value containing
+// var() can only be checked after substitution, so it is kept here.
+func validContentDeclaration(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(value), "var(") {
+		return true
+	}
+	switch strings.ToLower(value) {
+	case "none", "normal", "inherit", "initial", "unset", "revert", "revert-layer":
+		return true
+	}
+	values := parseValues(value)
+	if len(values) == 0 {
+		return false
+	}
+	for _, v := range values {
+		switch v.Kind {
+		case "string":
+			if _, ok := decodeCSSString(v.Text); !ok {
+				return false
+			}
+		case "url", "function":
+			// Images, attr(), counter(s)() and similar functions.
+		default:
+			switch strings.ToLower(v.Text) {
+			case "open-quote", "close-quote", "no-open-quote", "no-close-quote", "/":
+			default:
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // decodeCSSString unquotes a CSS string token and resolves its escapes,
 // including hex escapes and escaped newlines (line continuations). It reports
 // ok=false for a bad or unterminated string: one whose closing quote is

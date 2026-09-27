@@ -27,6 +27,10 @@ go run ./cmd/simplebrowser -o out.png testdata/generated-content/index.html
   (a backslash before LF, CRLF, CR or form feed) decoded. A bad string, one
   whose closing quote is missing or escaped (`"x\"`) or that contains a raw
   newline, makes the declaration invalid.
+* Invalid `content` declarations — bad strings, lengths, numbers, unknown
+  keywords — are dropped while parsing, so an earlier valid declaration
+  still applies (`content:"OK"; content:12px` shows `OK`). Values containing
+  `var()` are checked only after substitution.
 * `content: ""` still generates a box. That is how icon-shaped pseudo-elements
   such as Vector's dropdown chevron are written, and it is why an empty string
   is not treated like `none`.
@@ -40,8 +44,8 @@ go run ./cmd/simplebrowser -o out.png testdata/generated-content/index.html
 
 Conservatively, nothing is painted when a generated box would be wrong:
 
-* Any other `content` value — `url()`, `attr()`, counters, quotes — generates
-  no box ([#327](https://github.com/lukehoban/simplebrowser/issues/327)).
+* Any other valid `content` value — `url()`, `attr()`, counters, quotes —
+  still wins the cascade but generates no box ([#327](https://github.com/lukehoban/simplebrowser/issues/327)).
 * Replaced and void elements (`img`, `br`, `input`, …) have no generated
   children.
 * A `display:none` originating element, or a generated box with its own

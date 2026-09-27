@@ -568,6 +568,11 @@ func ParseDeclarations(input string) []Declaration {
 				value = strings.TrimSpace(value[:lastBang])
 				important = true
 			}
+			if name == "content" && !validContentDeclaration(value) {
+				// An invalid declaration is dropped at parse time so that an
+				// earlier valid one still wins the cascade (CSS Syntax 3 §5.4.6).
+				value = ""
+			}
 			if value != "" || custom {
 				result = append(result, Declaration{Property: name, Value: value, Values: parseValues(value), Important: important})
 			}
