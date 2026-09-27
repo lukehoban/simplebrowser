@@ -203,6 +203,7 @@ var supportValidators = map[string]func(string) bool{
 	"font-style":           keywordValidator("normal", "italic", "oblique"),
 	"font-variant":         keywordValidator("normal", "small-caps"),
 	"font-weight":          supportsOr(keywordValidator("normal"), validFontWeight),
+	"font-family":          validFontFamilyValue,
 	"font-size":            validFontSize,
 	"line-height":          validLineHeight,
 	"color":                colorValue,

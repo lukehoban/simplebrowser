@@ -128,10 +128,16 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	consider := func(candidate winningDeclaration) {
 		if candidate.validateAfterSubstitution && candidate.d.Property == "background" &&
-			candidate.d.Value != invalidVariable && !validBackground(candidate.d.Value) {
+			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
+			!validBackground(candidate.d.Value) {
 			candidate.d.Value = invalidVariable
 		}
-		expandedDeclarations := expandDeclaration(candidate.d)
+		expandedDeclarations := []Declaration(nil)
+		if keyword := cssWideKeyword(candidate.d.Value); keyword != "" {
+			expandedDeclarations = expandCSSWideDeclaration(candidate.d, keyword)
+		} else {
+			expandedDeclarations = expandDeclaration(candidate.d)
+		}
 		// A substituted invalid font shorthand is still the cascade winner.
 		// expandFont rejects malformed shorthands by returning no longhands;
 		// represent that winner as invalid for every longhand instead.
@@ -246,18 +252,24 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	for property, winner := range winners {
 		value := winner.d.Value
 		if value == invalidVariable {
-			// Invalid at computed-value time is unset, not a zero length or
-			// the lower-priority declaration in the cascade.
+			// Invalid at computed-value time behaves as unset. The inherited
+			// value or compact initial representation is already in values.
 			continue
 		}
-		if strings.EqualFold(value, "inherit") {
-			if parent != nil {
-				value = parent[property]
-			} else {
-				continue
-			}
+		keyword := cssWideKeyword(value)
+		switch keyword {
+		case "inherit":
+			inheritComputedValue(values, parent, property)
+		case "initial":
+			setInitialComputedValue(values, property)
+		case "unset", "revert", "revert-layer":
+			// Revert keywords are not implemented; treat them as invalid at
+			// computed-value time rather than exposing the keyword. Invalid
+			// substituted values have the same unset behavior.
+			unsetComputedValue(values, parent, property)
+		default:
+			values[property] = value
 		}
-		values[property] = value
 	}
 	parentFontSize := 16.0
 	if parent != nil {
@@ -287,6 +299,86 @@ func validSubstitutedDeclaration(property, value string) bool {
 		return validate(strings.TrimSpace(value))
 	}
 	return true
+}
+
+func cssWideKeyword(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "inherit", "initial", "unset", "revert", "revert-layer":
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	return ""
+}
+
+// expandCSSWideDeclaration preserves a CSS-wide keyword until it reaches each
+// longhand. Shorthand parsers normally reject or consume these as ordinary
+// tokens, but CSS-wide keywords apply atomically to every shorthand component.
+func expandCSSWideDeclaration(d Declaration, keyword string) []Declaration {
+	var properties []string
+	switch d.Property {
+	case "font":
+		properties = []string{"font-style", "font-variant", "font-weight", "font-size", "line-height", "font-family"}
+	case "background":
+		properties = []string{"background-color", "background-image", "background-repeat", "background-position", "background-size"}
+	case "margin", "padding", "border-width", "border-color", "border-style":
+		properties = []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
+	case "border":
+		properties = []string{"border-top", "border-right", "border-bottom", "border-left"}
+	default:
+		properties = []string{d.Property}
+	}
+	if keyword == "revert" || keyword == "revert-layer" {
+		return invalidLonghands(d, properties...)
+	}
+	result := make([]Declaration, 0, len(properties))
+	for _, property := range properties {
+		result = append(result, Declaration{Property: property, Value: keyword, Important: d.Important})
+	}
+	return result
+}
+
+var inheritedCSSProperties = map[string]bool{
+	"border-spacing": true, "color": true, "font-family": true, "font-size": true,
+	"font-style": true, "font-variant": true, "font-weight": true, "line-height": true,
+	"text-align": true,
+}
+
+var initialComputedValues = map[string]string{
+	"display": "inline", "color": "black", "font-family": "serif", "font-size": "16px",
+	"font-style": "normal", "font-variant": "normal", "font-weight": "normal",
+	"line-height": "normal", "text-align": "start", "background-color": "transparent",
+	"background-image": "none", "background-repeat": "repeat", "background-position": "0% 0%",
+	"background-size": "auto",
+}
+
+func setInitialComputedValue(values ComputedStyle, property string) {
+	if value, ok := initialComputedValues[property]; ok {
+		values[property] = value
+	} else {
+		delete(values, property)
+	}
+}
+
+func inheritComputedValue(values ComputedStyle, parent ComputedStyle, property string) {
+	if parent != nil {
+		if value, ok := parent[property]; ok {
+			values[property] = value
+			return
+		}
+	}
+	setInitialComputedValue(values, property)
+}
+
+func unsetComputedValue(values ComputedStyle, parent ComputedStyle, property string) {
+	if inheritedCSSProperties[property] {
+		inheritComputedValue(values, parent, property)
+		return
+	}
+	setInitialComputedValue(values, property)
+}
+
+func validFontFamilyValue(value string) bool {
+	tokens, ok := tokenizeFont(value)
+	return ok && validFontFamily(tokens)
 }
 
 // mediaQueryMatches deliberately implements the fixed rendering environment:

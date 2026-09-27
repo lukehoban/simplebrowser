@@ -132,6 +132,87 @@ func TestInvalidSubstitutedValuesWinCascadeAcrossValidatedProperties(t *testing.
 	}
 }
 
+func TestSubstitutedCSSWideKeywordsAndFontFamilyValidation(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>
+		  :root { --bad-family: 10px }
+		  #parent { font-family: "Parent Font"; font-size: 23px; font-variant: small-caps }
+		  #keyword-unset { font-variant: normal; font-variant: var(--missing, unset) }
+		  #keyword-inherit { font-variant: normal; font-variant: var(--missing, inherit) }
+		  #keyword-initial { font-variant: small-caps; font-variant: var(--missing, initial) }
+		  #keyword-revert { font-variant: normal; font-variant: var(--missing, revert) }
+		  #keyword-revert-layer { font-variant: normal; font-variant: var(--missing, revert-layer) }
+		  #font-unset { font: var(--missing, unset) }
+		  #font-initial { font: 24px monospace; font: var(--missing, initial) }
+		  #background-initial { background-color: red; background: var(--missing, initial) }
+		  #margin-initial { margin: 12px; margin: var(--missing, initial) }
+		  #family-repro { font-family: serif; font-family: var(--bad-family) }
+		  #family-inherited { font-family: serif; font-family: var(--bad-family) }
+		</style>
+		<div id="parent">
+		  <span id="keyword-unset"></span><span id="keyword-inherit"></span>
+		  <span id="keyword-revert"></span><span id="keyword-revert-layer"></span>
+		  <span id="font-unset"></span>
+		  <span id="font-initial"></span><span id="family-inherited"></span>
+		</div>
+		<span id="keyword-initial"></span><span id="background-initial"></span>
+		<span id="margin-initial"></span><span id="family-repro"></span>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled = computeStyles(styled, image.Pt(800, 600))
+	tests := []struct {
+		id, property, want string
+	}{
+		{"keyword-unset", "font-variant", "small-caps"},
+		{"keyword-inherit", "font-variant", "small-caps"},
+		{"keyword-initial", "font-variant", "normal"},
+		// revert and revert-layer are deliberately unsupported and behave as unset.
+		{"keyword-revert", "font-variant", "small-caps"},
+		{"keyword-revert-layer", "font-variant", "small-caps"},
+		{"font-unset", "font-family", `"Parent Font"`},
+		{"font-unset", "font-size", "23px"},
+		{"font-unset", "font-variant", "small-caps"},
+		{"font-initial", "font-family", "serif"},
+		{"font-initial", "font-size", "16px"},
+		{"font-initial", "font-variant", "normal"},
+		{"background-initial", "background-color", "transparent"},
+		{"background-initial", "background-image", "none"},
+		{"background-initial", "background-repeat", "repeat"},
+		{"family-repro", "font-family", "serif"},
+		{"family-inherited", "font-family", `"Parent Font"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id+"/"+tc.property, func(t *testing.T) {
+			got := styledElementByID(styled.StyleRoot, tc.id).Style[tc.property]
+			if got != tc.want {
+				t.Errorf("%s.%s = %q, want %q", tc.id, tc.property, got, tc.want)
+			}
+		})
+	}
+	margin := styledElementByID(styled.StyleRoot, "margin-initial").Style
+	if got := margin["margin-top"]; got == "12px" || got == "initial" {
+		t.Errorf("margin shorthand initial leaked previous/literal value: %v", margin)
+	}
+}
+
+func TestFontFamilyValidatorAcceptsSupportedFamiliesAndRejectsDimensions(t *testing.T) {
+	for _, value := range []string{"serif", "Arial, sans-serif", `"Open Sans", Arial, sans-serif`} {
+		if !validFontFamilyValue(value) {
+			t.Errorf("valid font family %q rejected", value)
+		}
+	}
+	for _, value := range []string{"10px", "12", "serif 10px", "serif, 10px"} {
+		if validFontFamilyValue(value) {
+			t.Errorf("invalid font family %q accepted", value)
+		}
+	}
+}
+
 func TestCustomPropertyCycleCannotUseFallbackInsideCycle(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 		<style>:root { --a: var(--b, red); --b: var(--a, blue) }
