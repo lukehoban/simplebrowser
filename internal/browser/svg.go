@@ -907,6 +907,9 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 	}
 	for _, sheet := range s.sheets {
 		for _, rule := range sheet.Rules {
+			if rule.Media != "" && !mediaQueryMatches(rule.Media, image.Pt(800, 600)) {
+				continue
+			}
 			for _, selector := range rule.Selectors {
 				if !matchesSelector(node.cssNode, selector) {
 					continue

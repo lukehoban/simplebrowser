@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"image"
 	"image/color"
 	"io"
 	"net/http"
@@ -10,6 +11,60 @@ import (
 	"reflect"
 	"testing"
 )
+
+func TestCSSMediaRulesAreBalancedAndConditional(t *testing.T) {
+	sheet := ParseCSS(`
+		@media screen and (min-width: 640px) {
+			.a { color: red }
+			@media (max-width: calc(800px - 1px)) { .nested { color: blue } }
+			.b { color: green }
+		}
+		@media print { .print { color: black } }
+		@media (prefers-color-scheme: light) and (prefers-reduced-motion: no-preference) {
+			.pref { color: white }
+		}`)
+	if len(sheet.Rules) != 5 {
+		t.Fatalf("rules = %d, want 5: %#v", len(sheet.Rules), sheet.Rules)
+	}
+	if sheet.Rules[0].Media != "screen and (min-width: 640px)" ||
+		sheet.Rules[1].Media != "screen and (min-width: 640px) and (max-width: calc(800px - 1px))" ||
+		sheet.Rules[2].Media != "screen and (min-width: 640px)" {
+		t.Fatalf("conditional media = %#v", []string{sheet.Rules[0].Media, sheet.Rules[1].Media, sheet.Rules[2].Media})
+	}
+	if !mediaQueryMatches(sheet.Rules[0].Media, image.Pt(800, 600)) ||
+		mediaQueryMatches(sheet.Rules[1].Media, image.Pt(800, 600)) ||
+		mediaQueryMatches("print", image.Pt(800, 600)) {
+		t.Fatal("unexpected media evaluation")
+	}
+	if !mediaQueryMatches(sheet.Rules[4].Media, image.Pt(800, 600)) {
+		t.Fatal("light/no-preference query did not match")
+	}
+}
+
+func TestCSSNestedMediaListsDistributeConditions(t *testing.T) {
+	sheet := ParseCSS(`
+		@media screen, print {
+			@media (min-width: 801px), (max-width: 639px) {
+				.nested { color: red }
+			}
+		}`)
+	if len(sheet.Rules) != 1 {
+		t.Fatalf("rules = %d, want one rule with distributed alternatives: %#v", len(sheet.Rules), sheet.Rules)
+	}
+	want := "screen and (min-width: 801px), screen and (max-width: 639px), " +
+		"print and (min-width: 801px), print and (max-width: 639px)"
+	if sheet.Rules[0].Media != want {
+		t.Fatalf("media = %q, want %q", sheet.Rules[0].Media, want)
+	}
+	if mediaQueryMatches(sheet.Rules[0].Media, image.Pt(800, 600)) {
+		t.Fatal("nested alternatives unexpectedly matched at the 800px screen viewport")
+	}
+
+	sheet = ParseCSS(`@media screen, print { @media (min-width: 800px) { .at-800 { color: red } } }`)
+	if len(sheet.Rules) != 1 || !mediaQueryMatches(sheet.Rules[0].Media, image.Pt(800, 600)) {
+		t.Fatalf("800px nested screen alternative did not match: %#v", sheet.Rules)
+	}
+}
 
 func TestCSSSelectorsAndRecovery(t *testing.T) {
 	s := ParseCSS(`/* initial */ div.card#main.hot > a.link, * .item { color: #f60; broken; margin: 2px 0 ! important; }

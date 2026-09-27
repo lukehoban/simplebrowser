@@ -21,6 +21,9 @@ type Stylesheet struct {
 type CSSRule struct {
 	Selectors    []Selector
 	Declarations []Declaration
+	// Media is the conditional prelude for rules nested in @media. An empty
+	// value means the rule is unconditional.
+	Media string
 }
 
 // A selector is stored left-to-right. The first part has no combinator;
@@ -180,8 +183,16 @@ func stripComments(s string) string {
 // ParseCSS parses supported style rules; malformed and unsupported rules are
 // skipped, so a broken rule does not suppress later valid rules.
 func ParseCSS(input string) Stylesheet {
-	p := cssScanner{s: input}
 	var sheet Stylesheet
+	parseCSSRules(input, "", &sheet)
+	return sheet
+}
+
+// parseCSSRules parses a stylesheet fragment. Keeping the block parser here
+// (rather than using readUntil("}")) is important: braces in nested
+// conditional rules must not terminate their parent rule.
+func parseCSSRules(input, media string, sheet *Stylesheet) {
+	p := cssScanner{s: input}
 	for p.i < len(p.s) {
 		p.skip()
 		if p.i >= len(p.s) {
@@ -191,13 +202,86 @@ func ParseCSS(input string) Stylesheet {
 		if delim != '{' {
 			continue
 		}
-		body, _ := p.readUntil("}")
-		selectors, ok := parseSelectorGroup(stripComments(prelude))
-		if ok {
-			sheet.Rules = append(sheet.Rules, CSSRule{Selectors: selectors, Declarations: ParseDeclarations(body)})
+		body, ok := readCSSBlock(&p)
+		if !ok {
+			break
+		}
+		prelude = strings.TrimSpace(stripComments(prelude))
+		if strings.HasPrefix(strings.ToLower(prelude), "@media") {
+			condition := strings.TrimSpace(prelude[len("@media"):])
+			condition = combineMediaConditions(media, condition)
+			parseCSSRules(body, condition, sheet)
+			continue
+		}
+		// Other at-rules are intentionally left for their own, narrower
+		// implementations (notably @supports, tracked by #251).
+		if strings.HasPrefix(prelude, "@") {
+			continue
+		}
+		selectors, valid := parseSelectorGroup(prelude)
+		if valid {
+			sheet.Rules = append(sheet.Rules, CSSRule{Selectors: selectors, Declarations: ParseDeclarations(body), Media: media})
 		}
 	}
-	return sheet
+}
+
+// combineMediaConditions distributes nested conditions over comma-separated
+// alternatives. A comma in a media query is an OR, so "(a, b) and c" must be
+// represented as "(a and c), (b and c)" rather than allowing the evaluator to
+// interpret the comma as part of only one branch.
+func combineMediaConditions(parent, child string) string {
+	if strings.TrimSpace(parent) == "" {
+		return strings.TrimSpace(child)
+	}
+	if strings.TrimSpace(child) == "" {
+		return strings.TrimSpace(parent)
+	}
+	var combined []string
+	for _, outer := range splitMediaList(parent) {
+		for _, inner := range splitMediaList(child) {
+			combined = append(combined, strings.TrimSpace(outer)+" and "+strings.TrimSpace(inner))
+		}
+	}
+	return strings.Join(combined, ", ")
+}
+
+func readCSSBlock(p *cssScanner) (string, bool) {
+	start := p.i
+	depth := 1
+	var quote byte
+	for p.i < len(p.s) {
+		c := p.s[p.i]
+		if quote != 0 {
+			if c == '\\' && p.i+1 < len(p.s) {
+				p.i += 2
+				continue
+			}
+			if c == quote {
+				quote = 0
+			}
+		} else if strings.HasPrefix(p.s[p.i:], "/*") {
+			end := strings.Index(p.s[p.i+2:], "*/")
+			if end < 0 {
+				p.i = len(p.s)
+				return "", false
+			}
+			p.i += end + 4
+			continue
+		} else if c == '"' || c == '\'' {
+			quote = c
+		} else if c == '{' {
+			depth++
+		} else if c == '}' {
+			depth--
+			if depth == 0 {
+				body := p.s[start:p.i]
+				p.i++
+				return body, true
+			}
+		}
+		p.i++
+	}
+	return "", false
 }
 
 func parseSelectorGroup(s string) ([]Selector, bool) {
