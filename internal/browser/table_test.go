@@ -542,11 +542,17 @@ func TestTableCollapsedOuterCellTrailingBordersContributeToGeometry(t *testing.T
 	if len(table) != 1 || len(cells) != 1 {
 		t.Fatalf("tables=%d cells=%d", len(table), len(cells))
 	}
-	if want := image.Rect(0, 20, 110, 60); cells[0].Rect != want {
+	// The caption is a block container, so its 4px borders add to its 20px
+	// line: the cell starts below the 28px caption border box.
+	captions := collectBoxes(got.Root, "caption")
+	if want := image.Rect(0, 0, 110, 28); len(captions) != 1 || captions[0].Rect != want {
+		t.Fatalf("captions = %v, want one at %v", captions, want)
+	}
+	if want := image.Rect(0, 28, 110, 68); cells[0].Rect != want {
 		t.Fatalf("collapsed cell rect = %v, want %v", cells[0].Rect, want)
 	}
-	if table[0].Rect.Dx() != 110 || table[0].Rect.Dy() != 60 {
-		t.Fatalf("collapsed table rect = %v, want 110x60", table[0].Rect)
+	if table[0].Rect.Dx() != 110 || table[0].Rect.Dy() != 68 {
+		t.Fatalf("collapsed table rect = %v, want 110x68", table[0].Rect)
 	}
 }
 

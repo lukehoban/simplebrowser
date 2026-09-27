@@ -364,14 +364,18 @@ func displayBlock(n *StyledNode) bool {
 		return false
 	}
 	switch n.Node.Name {
-	case "html", "body", "address", "article", "aside", "blockquote", "div", "dl",
+	case "html", "body", "address", "article", "aside", "blockquote", "caption", "div", "dl",
 		"dt", "dd", "fieldset", "figcaption", "figure", "footer", "form", "h1",
 		"h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav",
 		"ol", "p", "pre", "section", "table", "tbody", "td", "tfoot", "th",
 		"thead", "tr", "ul":
 		return true
 	}
-	return strings.EqualFold(n.Style["display"], "block") || strings.EqualFold(n.Style["display"], "list-item")
+	// A table caption is a block container (CSS 2.1 §17.4), so it keeps its
+	// margins when laid out inside the table wrapper's caption row.
+	display := n.Style["display"]
+	return strings.EqualFold(display, "block") || strings.EqualFold(display, "list-item") ||
+		strings.EqualFold(display, "table-caption")
 }
 
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
@@ -591,7 +595,9 @@ func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
 		return m
 	}
 	inner := blockContentWidth(n, width)
-	for _, child := range n.Children {
+	// Match layoutFlow's children: an anonymous table, like any table, keeps
+	// its first cell's or caption's margins from collapsing through.
+	for _, child := range wrapAnonymousTables(n, n.Children) {
 		switch k := childFlowKind(child); k {
 		case flowSkip:
 			continue
@@ -673,7 +679,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		}
 		inline = nil
 	}
-	for _, child := range splitInlineBlocks(parent.Children) {
+	for _, child := range wrapAnonymousTables(parent, splitInlineBlocks(parent.Children)) {
 		kind := childFlowKind(child)
 		switch kind {
 		case flowSkip:

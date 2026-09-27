@@ -25,7 +25,11 @@ import (
 //     their own. The table box itself has no padding.
 //   - Malformed markup is repaired with anonymous boxes: cells outside a row
 //     get an anonymous row, and non-cell content inside a row (or directly
-//     inside a table) gets an anonymous cell.
+//     inside a table) gets an anonymous cell. Runs of misparented
+//     table-internal boxes in block flow are wrapped in an anonymous table.
+//   - Each caption occupies a full row of the wrapper: `caption-side: top`
+//     captions precede the grid and `bottom` captions follow it. Captions
+//     do not yet span multiple columns.
 //   - Cell content is top aligned; `valign` and vertical centering are not
 //     implemented yet.
 //   - `border-collapse: collapse` is partial: border-spacing is dropped,
@@ -264,6 +268,11 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 		switch {
 		case hiddenNode(child) || blankText(child):
 			continue
+		case isTableCaptionNode(child):
+			// Each caption occupies its own anonymous-wrapper row, placed
+			// above or below the grid by orderedTableChildren.
+			flushPending()
+			grid.addRow(nil, []*StyledNode{child}, nil)
 		case isRowNode(child):
 			flushPending()
 			grid.addRow(child, child.Children, nil)
@@ -303,10 +312,117 @@ func tableCaptionMinWidth(n *StyledNode, faces *faceSet) int {
 	return width
 }
 
-// orderedTableChildren moves the first header group to the top and the first
-// footer group to the bottom of the table, as CSS 2.1 §17.2 requires,
-// regardless of their source order.
+// anonymousCellKey marks the computed style of an anonymous grid cell. The
+// space makes it impossible for a CSS declaration to set.
+const anonymousCellKey = " anonymous-cell"
+
+// isTableInternalNode reports whether a box is a proper table child or cell
+// by its display value (CSS 2.1 §17.2.1). Floated and absolutely positioned
+// boxes are blockified and so never table-internal.
+func isTableInternalNode(n *StyledNode) bool {
+	if !displayIs(n, "table-cell", "table-row", "table-row-group", "table-header-group",
+		"table-footer-group", "table-caption", "table-column", "table-column-group") {
+		return false
+	}
+	if f := strings.ToLower(strings.TrimSpace(n.Style["float"])); f != "" && f != "none" {
+		return false
+	}
+	return !positioned(n)
+}
+
+// wrapAnonymousTables wraps each run of consecutive misparented
+// table-internal children of a block container in an anonymous table box
+// (CSS 2.1 §17.2.1 rules 2–3). Whitespace between table-internal siblings is
+// dropped. A run holding only captions is left as ordinary blocks: the
+// anonymous table would contribute nothing but the caption, and a caption
+// is itself laid out as the child of an anonymous grid cell.
+func wrapAnonymousTables(parent *StyledNode, children []*StyledNode) []*StyledNode {
+	// An anonymous grid cell already holds its table's misparented children;
+	// wrapping them again would recurse without end.
+	if parent == nil || parent.Style[anonymousCellKey] != "" ||
+		isTableNode(parent) || isRowNode(parent) || isRowGroupNode(parent) {
+		return children
+	}
+	var result, run []*StyledNode
+	var trailing []*StyledNode // whitespace held until the run continues
+	flush := func() {
+		wrap := false
+		for _, n := range run {
+			wrap = wrap || !isTableCaptionNode(n)
+		}
+		if wrap {
+			result = append(result, anonymousTable(parent, run))
+		} else {
+			result = append(result, run...)
+		}
+		result = append(result, trailing...)
+		run, trailing = nil, nil
+	}
+	for _, child := range children {
+		switch {
+		case isTableInternalNode(child):
+			trailing = nil
+			run = append(run, child)
+		case len(run) > 0 && blankText(child):
+			trailing = append(trailing, child)
+		default:
+			if len(run) > 0 {
+				flush()
+			}
+			result = append(result, child)
+		}
+	}
+	if len(run) > 0 {
+		flush()
+	}
+	return result
+}
+
+// anonymousTable returns an anonymous display:table box for run, inheriting
+// the parent's inherited properties.
+func anonymousTable(parent *StyledNode, run []*StyledNode) *StyledNode {
+	style := ComputedStyle{"display": "table"}
+	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
+		"font-style", "font-variant", "font-weight", "lang", "line-height", "text-align"} {
+		if v, ok := parent.Style[p]; ok {
+			style[p] = v
+		}
+	}
+	node := &Node{Type: ElementNode, Parent: parent.nodeOrNil()}
+	return &StyledNode{Node: node, Style: style, Children: run}
+}
+
+// captionSideBottom reports whether a caption is placed below the table grid.
+func captionSideBottom(n *StyledNode) bool {
+	return strings.EqualFold(strings.TrimSpace(n.Style["caption-side"]), "bottom")
+}
+
+// orderedTableChildren places captions in the table wrapper and orders row
+// groups, regardless of source order: top captions precede the grid and
+// bottom captions follow it (CSS 2.1 §17.4), while the first header group
+// renders first and the first footer group last within the grid (§17.2).
 func orderedTableChildren(children []*StyledNode) []*StyledNode {
+	var top, grid, bottom []*StyledNode
+	for _, child := range children {
+		switch {
+		case hiddenNode(child) || !isTableCaptionNode(child):
+			grid = append(grid, child)
+		case captionSideBottom(child):
+			bottom = append(bottom, child)
+		default:
+			top = append(top, child)
+		}
+	}
+	if len(top) == 0 && len(bottom) == 0 {
+		return orderedTableGroups(children)
+	}
+	ordered := append(top, orderedTableGroups(grid)...)
+	return append(ordered, bottom...)
+}
+
+// orderedTableGroups moves the first header group to the top and the first
+// footer group to the bottom of the table grid.
+func orderedTableGroups(children []*StyledNode) []*StyledNode {
 	header, footer := -1, -1
 	for i, child := range children {
 		if hiddenNode(child) || !isRowGroupNode(child) {
@@ -372,7 +488,7 @@ func (g *tableGrid) addRow(node *StyledNode, children []*StyledNode, group *tabl
 		if len(loose) == 0 {
 			return
 		}
-		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{}, Children: loose}
+		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{anonymousCellKey: "1"}, Children: loose}
 		caption := len(loose) == 1 && isTableCaptionNode(loose[0])
 		g.caption = g.caption || caption
 		row.cells = append(row.cells, &tableCellBox{node: anonymous, colspan: 1, rowspan: 1, caption: caption})
@@ -1036,7 +1152,7 @@ func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 		maxWidth = max(maxWidth, inlineMax)
 		inlineMin, inlineMax = 0, 0
 	}
-	for _, child := range n.Children {
+	for _, child := range wrapAnonymousTables(n, n.Children) {
 		if hiddenNode(child) {
 			continue
 		}
