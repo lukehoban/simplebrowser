@@ -41,6 +41,31 @@ func TestCSSMediaRulesAreBalancedAndConditional(t *testing.T) {
 	}
 }
 
+func TestCSSNestedMediaListsDistributeConditions(t *testing.T) {
+	sheet := ParseCSS(`
+		@media screen, print {
+			@media (min-width: 801px), (max-width: 639px) {
+				.nested { color: red }
+			}
+		}`)
+	if len(sheet.Rules) != 1 {
+		t.Fatalf("rules = %d, want one rule with distributed alternatives: %#v", len(sheet.Rules), sheet.Rules)
+	}
+	want := "screen and (min-width: 801px), screen and (max-width: 639px), " +
+		"print and (min-width: 801px), print and (max-width: 639px)"
+	if sheet.Rules[0].Media != want {
+		t.Fatalf("media = %q, want %q", sheet.Rules[0].Media, want)
+	}
+	if mediaQueryMatches(sheet.Rules[0].Media, image.Pt(800, 600)) {
+		t.Fatal("nested alternatives unexpectedly matched at the 800px screen viewport")
+	}
+
+	sheet = ParseCSS(`@media screen, print { @media (min-width: 800px) { .at-800 { color: red } } }`)
+	if len(sheet.Rules) != 1 || !mediaQueryMatches(sheet.Rules[0].Media, image.Pt(800, 600)) {
+		t.Fatalf("800px nested screen alternative did not match: %#v", sheet.Rules)
+	}
+}
+
 func TestCSSSelectorsAndRecovery(t *testing.T) {
 	s := ParseCSS(`/* initial */ div.card#main.hot > a.link, * .item { color: #f60; broken; margin: 2px 0 ! important; }
 	[unsupported~=value] { color: red } h1, h2 { font-size: 1.5rem } p { color: blue; }`)

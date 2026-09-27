@@ -209,9 +209,7 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 		prelude = strings.TrimSpace(stripComments(prelude))
 		if strings.HasPrefix(strings.ToLower(prelude), "@media") {
 			condition := strings.TrimSpace(prelude[len("@media"):])
-			if media != "" {
-				condition = media + " and " + condition
-			}
+			condition = combineMediaConditions(media, condition)
 			parseCSSRules(body, condition, sheet)
 			continue
 		}
@@ -225,6 +223,26 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 			sheet.Rules = append(sheet.Rules, CSSRule{Selectors: selectors, Declarations: ParseDeclarations(body), Media: media})
 		}
 	}
+}
+
+// combineMediaConditions distributes nested conditions over comma-separated
+// alternatives. A comma in a media query is an OR, so "(a, b) and c" must be
+// represented as "(a and c), (b and c)" rather than allowing the evaluator to
+// interpret the comma as part of only one branch.
+func combineMediaConditions(parent, child string) string {
+	if strings.TrimSpace(parent) == "" {
+		return strings.TrimSpace(child)
+	}
+	if strings.TrimSpace(child) == "" {
+		return strings.TrimSpace(parent)
+	}
+	var combined []string
+	for _, outer := range splitMediaList(parent) {
+		for _, inner := range splitMediaList(child) {
+			combined = append(combined, strings.TrimSpace(outer)+" and "+strings.TrimSpace(inner))
+		}
+	}
+	return strings.Join(combined, ", ")
 }
 
 func readCSSBlock(p *cssScanner) (string, bool) {
