@@ -134,6 +134,13 @@ func decodeDataImageURL(source string) ([]byte, bool) {
 			base64.StdEncoding.DecodedLen(len(encoded)) > maxDataImageBytes {
 			return nil, false
 		}
+		// Strict base64 still ignores CR and LF. Reject all decoded control
+		// characters in the base64 text before handing it to the decoder.
+		for _, b := range encoded {
+			if b < 0x20 || b == 0x7f {
+				return nil, false
+			}
+		}
 		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(encoded)))
 		n, err := base64.StdEncoding.Strict().Decode(decoded, encoded)
 		if err != nil {

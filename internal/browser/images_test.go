@@ -117,6 +117,10 @@ func TestDecodeDataImageURL(t *testing.T) {
 		"data:image/png;base64,not-valid",
 		"data:image/png;base64;name=pixel,AAAA", // base64 marker must be last
 		"data:image/png;base64,AAAA\n",
+		"data:image/png;base64,AA%0AAA",
+		"data:image/png;base64,AA%0dAA",
+		"data:image/png;base64,AA%00AA",
+		"data:image/png;base64,AA%7fAA",
 		"data:image/png;broken parameter,x",
 		"data:text/plain,x",
 		"data:image/png,%zz",
@@ -142,11 +146,14 @@ func TestDecodeDataImageURL(t *testing.T) {
 
 func TestDataURLImagesAreOfflineForImgAndBackground(t *testing.T) {
 	pngData := base64.StdEncoding.EncodeToString(encodedTestImage(t, "png", image.Rect(0, 0, 2, 2)))
+	badPNG := pngData[:8] + "%0A" + pngData[8:]
 	svgURL := "data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2220%22%20height=%2220%22%3E%3Crect%20width=%2220%22%20height=%2220%22%20fill=%22%2300aa44%22/%3E%3C/svg%3E"
 	source := []byte(`<img src="data:image/png;base64,` + pngData + `">` +
 		`<div style="background-image:url('` + svgURL + `')"></div>` +
 		`<img src="data:image/png;base64,invalid">` +
-		`<div style="background-image:url('data:image/png;base64,invalid')"></div>`)
+		`<div style="background-image:url('data:image/png;base64,invalid')"></div>` +
+		`<img src="data:image/png;base64,` + badPNG + `">` +
+		`<div style="background-image:url('data:image/png;base64,` + badPNG + `')"></div>`)
 	doc, err := parse(Resource{URL: "https://example.invalid/page", Body: source})
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +171,7 @@ func TestDataURLImagesAreOfflineForImgAndBackground(t *testing.T) {
 	for node, decoded := range styled.Images {
 		imgs++
 		src, _ := node.Attribute("src")
-		if strings.Contains(src.Value, "invalid") {
+		if strings.Contains(src.Value, "invalid") || strings.Contains(src.Value, "%0A") {
 			if decoded != nil {
 				t.Errorf("malformed img data URL decoded: %v", decoded)
 			}
@@ -175,7 +182,7 @@ func TestDataURLImagesAreOfflineForImgAndBackground(t *testing.T) {
 	for node, layers := range styled.BackgroundImages {
 		backgrounds++
 		styleAttr, _ := node.Attribute("style")
-		if strings.Contains(styleAttr.Value, "invalid") {
+		if strings.Contains(styleAttr.Value, "invalid") || strings.Contains(styleAttr.Value, "%0A") {
 			if len(layers) != 1 || layers[0] != nil {
 				t.Errorf("malformed background data URL decoded: %v", layers)
 			}
@@ -183,8 +190,8 @@ func TestDataURLImagesAreOfflineForImgAndBackground(t *testing.T) {
 			t.Errorf("valid background data URL did not decode: %v", layers)
 		}
 	}
-	if imgs != 2 || backgrounds != 2 {
-		t.Fatalf("loaded %d img and %d background resources, want 2 each", imgs, backgrounds)
+	if imgs != 3 || backgrounds != 3 {
+		t.Fatalf("loaded %d img and %d background resources, want 3 each", imgs, backgrounds)
 	}
 	if got := dials.Load(); got != 0 {
 		t.Fatalf("data URLs triggered %d network dials", got)
