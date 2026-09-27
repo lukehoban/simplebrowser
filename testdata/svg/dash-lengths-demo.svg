@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="72" viewBox="0 0 180 72">
+  <rect width="180" height="72" fill="#fff"/>
+  <g fill="none" stroke-width="4">
+    <path stroke="#1766aa" stroke-dasharray="10% 10%" d="M10 16H170"/>
+    <path stroke="#ee5511" stroke-dasharray="8px 5px" d="M10 36H170"/>
+    <path stroke="#228855" stroke-dasharray="0.1in 0.05in" stroke-dashoffset="2%" d="M10 56H170"/>
+  </g>
+</svg>

@@ -80,6 +80,7 @@ type svgShape struct {
 // know the used size call rasterize to render crisply at that size instead.
 type svgImage struct {
 	width, height float64
+	dashBasis     float64
 	viewBox       [4]float64
 	hasViewBox    bool
 	align         string // "none" or e.g. "xMidYMid"
@@ -274,11 +275,11 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		current.miterLimit = n
 	}
 	if value, ok := a["stroke-dasharray"]; ok {
-		if pattern, valid := parseSVGStrokeDashArray(value); valid {
+		if pattern, valid := parseSVGStrokeDashArray(value, s.img.dashBasis); valid {
 			current.dashArray = pattern
 		}
 	}
-	if n, valid := parseSVGStrokeDashOffset(a["stroke-dashoffset"]); valid {
+	if n, valid := parseSVGStrokeDashOffset(a["stroke-dashoffset"], s.img.dashBasis); valid {
 		current.dashOffset = n
 	}
 	if value, ok := a["transform"]; ok {
@@ -359,12 +360,12 @@ const maxSVGStrokeDashLength = 1e7
 
 // An empty dash array means a solid stroke. Invalid values are ignored by the
 // caller, preserving the inherited value just like other presentation styles.
-func parseSVGStrokeDashArray(value string) ([]float64, bool) {
+func parseSVGStrokeDashArray(value string, percentBasis float64) ([]float64, bool) {
 	value = strings.TrimSpace(value)
 	if value == "none" {
 		return nil, true
 	}
-	values, ok := svgNumberList(value)
+	values, ok := parseSVGStrokeLengths(value, percentBasis)
 	if !ok || len(values) == 0 || len(values) > maxSVGStrokeDashEntries {
 		return nil, false
 	}
@@ -387,10 +388,109 @@ func parseSVGStrokeDashArray(value string) ([]float64, bool) {
 	return values, true
 }
 
-func parseSVGStrokeDashOffset(value string) (float64, bool) {
-	value = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(value), "px"))
-	n, err := strconv.ParseFloat(value, 64)
-	return n, err == nil && !math.IsNaN(n) && !math.IsInf(n, 0) && math.Abs(n) <= maxSVGStrokeDashLength
+func parseSVGStrokeDashOffset(value string, percentBasis float64) (float64, bool) {
+	n, ok := parseSVGStrokeLength(value, percentBasis)
+	return n, ok && math.Abs(n) <= maxSVGStrokeDashLength
+}
+
+// parseSVGStrokeLengths reads the comma/whitespace-separated CSS lengths used
+// by stroke-dasharray. Restricting separators and entries keeps malformed or
+// adversarial values from growing parser or rasterizer work without bound.
+func parseSVGStrokeLengths(value string, percentBasis float64) ([]float64, bool) {
+	p := &svgNumbers{s: strings.TrimSpace(value)}
+	if p.i == len(p.s) || p.s[0] == ',' {
+		return nil, false
+	}
+	var values []float64
+	for p.i < len(p.s) {
+		n, ok := p.number()
+		if !ok {
+			return nil, false
+		}
+		unitStart := p.i
+		for p.i < len(p.s) && ((p.s[p.i] >= 'a' && p.s[p.i] <= 'z') ||
+			(p.s[p.i] >= 'A' && p.s[p.i] <= 'Z') || p.s[p.i] == '%') {
+			p.i++
+		}
+		length, ok := resolveSVGStrokeLength(n, strings.ToLower(p.s[unitStart:p.i]), percentBasis)
+		if !ok {
+			return nil, false
+		}
+		if len(values) >= maxSVGStrokeDashEntries {
+			return nil, false
+		}
+		values = append(values, length)
+		if p.i == len(p.s) {
+			break
+		}
+		if p.s[p.i] != ',' && p.s[p.i] != ' ' && p.s[p.i] != '\t' &&
+			p.s[p.i] != '\n' && p.s[p.i] != '\r' && p.s[p.i] != '\f' {
+			return nil, false
+		}
+		hadComma := false
+		for p.i < len(p.s) {
+			switch p.s[p.i] {
+			case ',':
+				if hadComma {
+					return nil, false
+				}
+				hadComma = true
+				p.i++
+			case ' ', '\t', '\n', '\r', '\f':
+				p.i++
+			default:
+				goto separated
+			}
+		}
+		return nil, false
+	separated:
+	}
+	return values, len(values) > 0
+}
+
+func parseSVGStrokeLength(value string, percentBasis float64) (float64, bool) {
+	value = strings.TrimSpace(value)
+	p := &svgNumbers{s: value}
+	n, ok := p.number()
+	if !ok {
+		return 0, false
+	}
+	unitStart := p.i
+	for p.i < len(p.s) && ((p.s[p.i] >= 'a' && p.s[p.i] <= 'z') ||
+		(p.s[p.i] >= 'A' && p.s[p.i] <= 'Z') || p.s[p.i] == '%') {
+		p.i++
+	}
+	if p.i != len(p.s) {
+		return 0, false
+	}
+	return resolveSVGStrokeLength(n, strings.ToLower(p.s[unitStart:p.i]), percentBasis)
+}
+
+func resolveSVGStrokeLength(n float64, unit string, percentBasis float64) (float64, bool) {
+	if math.IsNaN(n) || math.IsInf(n, 0) {
+		return 0, false
+	}
+	switch unit {
+	case "":
+	case "px":
+	case "in":
+		n *= 96
+	case "cm":
+		n *= 96 / 2.54
+	case "mm":
+		n *= 96 / 25.4
+	case "q":
+		n *= 96 / 101.6
+	case "pt":
+		n *= 96.0 / 72
+	case "pc":
+		n *= 16
+	case "%":
+		n *= percentBasis / 100
+	default:
+		return 0, false
+	}
+	return n, !math.IsNaN(n) && !math.IsInf(n, 0)
 }
 
 func svgUnitInterval(s string) (float64, bool) {
@@ -466,6 +566,11 @@ func (img *svgImage) parseRoot(attrs map[string]string) error {
 		return errUnsupportedSVG
 	}
 	img.width, img.height = width, height
+	basisWidth, basisHeight := width, height
+	if img.hasViewBox {
+		basisWidth, basisHeight = img.viewBox[2], img.viewBox[3]
+	}
+	img.dashBasis = math.Hypot(basisWidth/math.Sqrt2, basisHeight/math.Sqrt2)
 	return nil
 }
 
