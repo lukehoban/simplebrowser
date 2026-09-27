@@ -58,6 +58,29 @@ func TestFlexMainAxisGrowShrinkAndJustification(t *testing.T) {
 	}
 }
 
+func TestFlexSizingAccountsForPaddingAndPercentageBasis(t *testing.T) {
+	const source = `<body style="margin:0">
+	<div style="display:flex;width:200px">
+		<div id="padded" style="flex:1;padding:0 10px;height:10px"></div>
+		<div id="fixed-size" style="width:50px;height:10px"></div>
+	</div>
+	<div style="display:flex;width:200px">
+		<div id="percentage" style="flex:0 0 50%;height:10px"></div>
+		<div id="remainder" style="flex:1;height:10px"></div>
+	</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 240, 80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := boxesByID(layout.Root, "padded", "fixed-size", "percentage", "remainder")
+	if b["padded"].Rect.Dx() != 150 || b["fixed-size"].Rect.Min.X != 150 {
+		t.Fatalf("padding must count in the flex main size: padded=%v fixed=%v", b["padded"].Rect, b["fixed-size"].Rect)
+	}
+	if b["percentage"].Rect.Dx() != 100 || b["remainder"].Rect != image.Rect(100, 10, 200, 20) {
+		t.Fatalf("percentage basis geometry: percentage=%v remainder=%v", b["percentage"].Rect, b["remainder"].Rect)
+	}
+}
+
 func TestFlexColumnAndInlineFlex(t *testing.T) {
 	const source = `<body style="margin:0">
 	<div id="column" style="display:flex;flex-direction:column;width:80px;height:110px;gap:10px">

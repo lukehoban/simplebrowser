@@ -34,8 +34,13 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	column := strings.HasPrefix(strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"])), "column")
 	reverse := strings.HasSuffix(strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"])), "reverse")
 	var nodes []*StyledNode
+	var outOfFlow []*StyledNode
 	for _, child := range parent.Children {
 		if childFlowKind(child) == flowSkip || (child.Node.Type == TextNode && strings.TrimSpace(child.Node.Data) == "") {
+			continue
+		}
+		if positioned(child) {
+			outOfFlow = append(outOfFlow, child)
 			continue
 		}
 		// The fixtures contain element flex items. Keeping non-whitespace text
@@ -59,7 +64,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	total := float64(max(0, len(nodes)-1) * gap)
 	for _, child := range nodes {
 		margin := boxEdges(child, "margin", float64(width))
-		grow, shrink, basis, hasBasis := flexFactors(child.Style)
+		grow, shrink, basis, hasBasis := flexFactors(child.Style, availableMain)
 		main := 0.0
 		if column {
 			if h, ok := specifiedHeight(child, containerHeight, heightDefinite); ok {
@@ -81,9 +86,10 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			}
 		}
 		main = math.Max(0, main)
-		extras := margin[1] + margin[3]
+		inner := inlineInnerEdges(child, width)
+		extras := margin[1] + margin[3] + inner[1] + inner[3]
 		if column {
-			extras = margin[0] + margin[2]
+			extras = margin[0] + margin[2] + inner[0] + inner[2]
 		}
 		total += main + float64(extras)
 		items = append(items, flexItem{node: child, margin: margin, main: main, grow: grow, shrink: shrink,
@@ -200,13 +206,16 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			cursor += item.box.Rect.Dx() + item.margin[1] + item.margin[3] + between
 		}
 	}
+	for _, child := range outOfFlow {
+		boxes = append(boxes, layoutPositioned(child, x, y, width, cb, faces))
+	}
 	if column {
 		return boxes, y + mainSize
 	}
 	return boxes, y + cross
 }
 
-func flexFactors(style ComputedStyle) (grow, shrink, basis float64, hasBasis bool) {
+func flexFactors(style ComputedStyle, basisSize int) (grow, shrink, basis float64, hasBasis bool) {
 	grow, shrink = 0, 1
 	if shorthand := strings.Fields(strings.TrimSpace(style["flex"])); len(shorthand) > 0 {
 		if strings.EqualFold(shorthand[0], "none") {
@@ -219,11 +228,11 @@ func flexFactors(style ComputedStyle) (grow, shrink, basis float64, hasBasis boo
 				if value, err = strconv.ParseFloat(shorthand[1], 64); err == nil {
 					shrink = math.Max(0, value)
 				} else {
-					basis, hasBasis = flexBasis(shorthand[1])
+					basis, hasBasis = flexBasis(shorthand[1], basisSize)
 				}
 			}
 			if len(shorthand) > 2 {
-				basis, hasBasis = flexBasis(shorthand[2])
+				basis, hasBasis = flexBasis(shorthand[2], basisSize)
 			}
 		}
 	}
@@ -234,18 +243,18 @@ func flexFactors(style ComputedStyle) (grow, shrink, basis float64, hasBasis boo
 		shrink = math.Max(0, value)
 	}
 	if value := strings.TrimSpace(style["flex-basis"]); value != "" && !strings.EqualFold(value, "auto") {
-		basis, hasBasis = flexBasis(value)
+		basis, hasBasis = flexBasis(value, basisSize)
 	}
 	return
 }
 
-func flexBasis(value string) (float64, bool) {
+func flexBasis(value string, basisSize int) (float64, bool) {
 	if strings.EqualFold(value, "0") || strings.EqualFold(value, "0%") {
 		return 0, true
 	}
 	v := classifyValue(value)
-	if v.Kind == "length" || v.Kind == "number" {
-		return math.Max(0, px(value, 0, 0)), true
+	if v.Kind == "length" || v.Kind == "number" || v.Kind == "percentage" {
+		return math.Max(0, px(value, float64(basisSize), 0)), true
 	}
 	return 0, false
 }
