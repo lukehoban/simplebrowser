@@ -524,6 +524,46 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 50, 50), "a": image.Rect(-15, 0, 25, 50), "b": image.Rect(25, 0, 65, 50)},
 		pixels: map[image.Point]color.RGBA{{0, 5}: red, {24, 5}: red, {25, 5}: blue, {49, 5}: blue},
 	}, {
+		name:   "wrap-reverse row end keeps logical end with negative space",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap-reverse;align-content:end;align-items:flex-start;width:20px;height:30px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 20, 30), "a": image.Rect(0, 10, 20, 30), "b": image.Rect(0, -10, 20, 10)},
+		pixels: map[image.Point]color.RGBA{{5, 0}: blue, {5, 9}: blue, {5, 10}: red, {5, 29}: red},
+	}, {
+		name:   "wrap-reverse row flex-end follows reversed cross end with negative space",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap-reverse;align-content:flex-end;align-items:flex-start;width:20px;height:30px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 20, 30), "a": image.Rect(0, 20, 20, 40), "b": image.Rect(0, 0, 20, 20)},
+		pixels: map[image.Point]color.RGBA{{5, 0}: blue, {5, 19}: blue, {5, 20}: red, {5, 29}: red},
+	}, {
+		name:   "wrap-reverse row end keeps logical end with positive space",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap-reverse;align-content:end;align-items:flex-start;width:20px;height:60px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 20, 60), "a": image.Rect(0, 40, 20, 60), "b": image.Rect(0, 20, 20, 40)},
+		pixels: map[image.Point]color.RGBA{{5, 0}: {255, 255, 255, 255}, {5, 20}: blue, {5, 40}: red, {5, 59}: red},
+	}, {
+		name:   "wrap-reverse row flex-end follows reversed cross end with positive space",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap-reverse;align-content:flex-end;align-items:flex-start;width:20px;height:60px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 20, 60), "a": image.Rect(0, 20, 20, 40), "b": image.Rect(0, 0, 20, 20)},
+		pixels: map[image.Point]color.RGBA{{5, 0}: blue, {5, 20}: red, {5, 39}: red, {5, 40}: {255, 255, 255, 255}},
+	}, {
+		name:   "wrap-reverse column end keeps logical end with negative space",
+		source: `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap-reverse;align-content:end;align-items:flex-start;width:30px;height:20px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 30, 20), "a": image.Rect(10, 0, 30, 20), "b": image.Rect(-10, 0, 10, 20)},
+		pixels: map[image.Point]color.RGBA{{0, 5}: blue, {9, 5}: blue, {10, 5}: red, {29, 5}: red},
+	}, {
+		name:   "wrap-reverse column flex-end follows reversed cross end with negative space",
+		source: `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap-reverse;align-content:flex-end;align-items:flex-start;width:30px;height:20px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 30, 20), "a": image.Rect(20, 0, 40, 20), "b": image.Rect(0, 0, 20, 20)},
+		pixels: map[image.Point]color.RGBA{{0, 5}: blue, {19, 5}: blue, {20, 5}: red, {29, 5}: red},
+	}, {
+		name:   "wrap-reverse column end keeps logical end with positive space",
+		source: `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap-reverse;align-content:end;align-items:flex-start;width:60px;height:20px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 60, 20), "a": image.Rect(40, 0, 60, 20), "b": image.Rect(20, 0, 40, 20)},
+		pixels: map[image.Point]color.RGBA{{0, 5}: {255, 255, 255, 255}, {20, 5}: blue, {40, 5}: red, {59, 5}: red},
+	}, {
+		name:   "wrap-reverse column flex-end follows reversed cross end with positive space",
+		source: `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap-reverse;align-content:flex-end;align-items:flex-start;width:60px;height:20px"><div id="a" style="flex:none;width:20px;height:20px;background:red"></div><div id="b" style="flex:none;width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 60, 20), "a": image.Rect(20, 0, 40, 20), "b": image.Rect(0, 0, 20, 20)},
+		pixels: map[image.Point]color.RGBA{{0, 5}: blue, {20, 5}: red, {39, 5}: red, {40, 5}: {255, 255, 255, 255}},
+	}, {
 		name:   "wrapped line stretches auto-height items",
 		source: `<div style="display:flex;flex-wrap:wrap;width:100px"><div id="a" style="width:60px;height:15px"></div><div id="e" style="width:30px"></div><div id="b" style="width:60px;height:20px"></div><div id="d" style="width:30px"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 60, 15), "e": image.Rect(60, 0, 90, 15), "b": image.Rect(0, 15, 60, 35), "d": image.Rect(60, 15, 90, 35)},

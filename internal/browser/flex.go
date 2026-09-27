@@ -247,6 +247,13 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 					offset = free
 				}
 			}
+			// "end" follows the container's logical cross axis, while
+			// "flex-end" follows the flex cross axis. wrap-reverse flips only
+			// the latter. Line positions are mirrored below, so logical end
+			// must start at the unmirrored logical start.
+			if wrapReverse && content == "end" {
+				offset = 0
+			}
 		}
 		cursor := offset
 		for i := range lines {

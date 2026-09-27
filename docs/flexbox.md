@@ -43,7 +43,8 @@ its second item must stay inside the 180px container.
   any cross-axis gap); explicit safe/unsafe keywords remain unsupported
   ([#297](https://github.com/lukehoban/simplebrowser/issues/297)).
   [Overflow alignment render](screenshots/flex-align-content-overflow.png)
-  (top: center, middle: end, bottom: center with positive free space).
+  compares logical `end` with flex-relative `flex-end` under `wrap-reverse`
+  for positive and negative free space in row and column containers.
 - Intrinsic (shrink-to-fit) widths: a row's max-content width is its items
   plus gaps on one line; its min-content width is the widest item when
   wrapping, else the sum of items.
