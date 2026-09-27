@@ -14,8 +14,13 @@ func containsVarFunction(text string) bool {
 // Strings are opaque, and commas inside nested functions are not fallbacks.
 // The bounded recursion also protects the renderer from adversarial CSS.
 func substituteVars(text string, properties ComputedStyle, visiting map[string]bool) (string, bool) {
+	value, ok, _ := substituteVarsInner(text, properties, visiting)
+	return value, ok
+}
+
+func substituteVarsInner(text string, properties ComputedStyle, visiting map[string]bool) (string, bool, bool) {
 	if len(text) > 1<<20 || len(visiting) > 128 {
-		return "", false
+		return "", false, false
 	}
 	var out strings.Builder
 	for i := 0; i < len(text); {
@@ -68,7 +73,7 @@ func substituteVars(text string, properties ComputedStyle, visiting map[string]b
 			}
 		}
 		if depth != 0 {
-			return "", false
+			return "", false, false
 		}
 		end := j - 1
 		nameEnd := end
@@ -77,36 +82,45 @@ func substituteVars(text string, properties ComputedStyle, visiting map[string]b
 		}
 		name := strings.TrimSpace(text[start:nameEnd])
 		if !strings.HasPrefix(name, "--") || !validProperty(name) {
-			return "", false
+			return "", false, false
+		}
+		// A dependency cycle makes the entire custom property's computed
+		// value invalid. A fallback inside that cycle cannot repair it.
+		if visiting[name] {
+			return "", false, true
 		}
 		raw, exists := properties[name]
-		if visiting[name] || raw == invalidVariable {
+		if raw == invalidVariable {
 			exists = false
 		}
 		var replacement string
 		var ok bool
+		var cyclic bool
 		if exists {
 			if visiting == nil {
 				visiting = make(map[string]bool)
 			}
 			visiting[name] = true
-			replacement, ok = substituteVars(raw, properties, visiting)
+			replacement, ok, cyclic = substituteVarsInner(raw, properties, visiting)
 			delete(visiting, name)
+		}
+		if cyclic {
+			return "", false, true
 		}
 		if !exists || !ok {
 			if comma < 0 {
-				return "", false
+				return "", false, false
 			}
-			replacement, ok = substituteVars(text[comma+1:end], properties, visiting)
+			replacement, ok, cyclic = substituteVarsInner(text[comma+1:end], properties, visiting)
 			if !ok {
-				return "", false
+				return "", false, cyclic
 			}
 		}
 		out.WriteString(replacement)
 		i = j
 	}
 	if out.Len() > 1<<20 {
-		return "", false
+		return "", false, false
 	}
-	return out.String(), true
+	return out.String(), true, false
 }

@@ -68,6 +68,23 @@ func TestCustomPropertyFallbackCyclesAndComputedInvalid(t *testing.T) {
 	}
 }
 
+func TestCustomPropertyCycleCannotUseFallbackInsideCycle(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>:root { --a: var(--b, red); --b: var(--a, blue) }
+		#target { color:var(--a, green) }</style><div id="target"></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled = computeStyles(styled, image.Pt(800, 600))
+	if got := styledElementByID(styled.StyleRoot, "target").Style["color"]; got != "green" {
+		t.Fatalf("cycle with fallback color = %q, want green", got)
+	}
+}
+
 func TestUnresolvedVariableFontSizeMoonRepro(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`<html><body style="margin:0;font-size:16px">
 		<div id="article" style="font-size:var(--font-size-medium)">
