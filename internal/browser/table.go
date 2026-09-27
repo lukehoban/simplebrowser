@@ -48,6 +48,7 @@ type tableCellBox struct {
 	maxWidth int
 	fixed    int     // explicit width in px, -1 when absent
 	percent  float64 // explicit percentage width, -1 when absent
+	caption  bool    // anonymous cell holding a table caption
 
 	box    *Box
 	height int // outer height required by the cell content
@@ -261,6 +262,28 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 	return grid
 }
 
+func isTableCaptionNode(n *StyledNode) bool {
+	return displayIs(n, "table-caption") || strings.EqualFold(nodeName(n), "caption")
+}
+
+// tableCaptionMinWidth returns the widest minimum intrinsic width of a
+// visible direct caption. CSS 2.1 sizes the anonymous table box to at least
+// this width, independently of the table grid's own width.
+func tableCaptionMinWidth(n *StyledNode, faces *faceSet) int {
+	width := 0
+	if n == nil {
+		return width
+	}
+	for _, child := range n.Children {
+		if hiddenNode(child) || !isTableCaptionNode(child) {
+			continue
+		}
+		minWidth, _ := intrinsicWidths(child, faces)
+		width = max(width, minWidth)
+	}
+	return width
+}
+
 // orderedTableChildren moves the first header group to the top and the first
 // footer group to the bottom of the table, as CSS 2.1 §17.2 requires,
 // regardless of their source order.
@@ -331,7 +354,8 @@ func (g *tableGrid) addRow(node *StyledNode, children []*StyledNode, group *tabl
 			return
 		}
 		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{}, Children: loose}
-		row.cells = append(row.cells, &tableCellBox{node: anonymous, colspan: 1, rowspan: 1})
+		caption := len(loose) == 1 && isTableCaptionNode(loose[0])
+		row.cells = append(row.cells, &tableCellBox{node: anonymous, colspan: 1, rowspan: 1, caption: caption})
 		loose = nil
 	}
 	for _, child := range children {
@@ -430,6 +454,11 @@ func (g *tableGrid) measureCells(faces *faceSet) {
 				// enough for the narrow fixed columns Hacker News uses.
 				cell.fixed = max(0, int(math.Round(px(value, 0, 0))))
 				cell.minWidth = cell.fixed + extra
+				cell.maxWidth = cell.minWidth
+			}
+			if cell.caption {
+				// The caption constrains the anonymous table box by its
+				// min-content width, not by its no-wrap max-content width.
 				cell.maxWidth = cell.minWidth
 			}
 		}
@@ -637,6 +666,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		}
 		contentWidth = min(available, intrinsic)
 	}
+	contentWidth = max(contentWidth, tableCaptionMinWidth(n, faces))
 	// Border spacing never pushes the table past the space it was given, so
 	// very narrow viewports shrink the gaps before they clip content.
 	if grid.columns > 0 && grid.spacing*(grid.columns+1) > contentWidth {
@@ -940,13 +970,14 @@ func tableIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
 		minWidth += sizes.min[i]
 		maxWidth += sizes.max[i]
 	}
+	captionMinWidth := tableCaptionMinWidth(n, faces)
 	border := boxEdges(n, "border-width", 0)
 	margin := boxEdges(n, "margin", 0)
 	extra := border[1] + border[3] + margin[1] + margin[3]
 	if value := strings.TrimSpace(n.Style["width"]); value != "" && !strings.EqualFold(value, "auto") &&
 		classifyValue(value).Kind != "percentage" {
 		fixed := max(0, int(math.Round(px(value, 0, 0))))
-		return fixed + extra, max(fixed, minWidth) + extra
+		return max(fixed+extra, captionMinWidth), max(max(fixed, minWidth)+extra, captionMinWidth)
 	}
-	return minWidth + extra, max(minWidth, maxWidth) + extra
+	return max(minWidth+extra, captionMinWidth), max(max(minWidth, maxWidth)+extra, captionMinWidth)
 }
