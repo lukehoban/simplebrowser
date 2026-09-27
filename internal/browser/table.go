@@ -1330,6 +1330,10 @@ func translateBox(b *Box, dx, dy int) {
 	offset := image.Pt(dx, dy)
 	b.Rect = b.Rect.Add(offset)
 	b.Content = b.Content.Add(offset)
+	b.LastBaseline += dy
+	for i := range b.InlineBackgrounds {
+		b.InlineBackgrounds[i].Rect = b.InlineBackgrounds[i].Rect.Add(offset)
+	}
 	for i := range b.Text {
 		b.Text[i].Rect = b.Text[i].Rect.Add(offset)
 		b.Text[i].PenX += fixed.I(dx)

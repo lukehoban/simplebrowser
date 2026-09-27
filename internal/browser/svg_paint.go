@@ -62,7 +62,7 @@ type svgPaintValue struct {
 
 // parseSVGPaint parses a fill or stroke value. resolve looks up a local
 // gradient; it returns nil for missing or unsupported references.
-func parseSVGPaint(value string, inherited svgPaintValue, resolve func(string) *svgGradient) svgPaintValue {
+func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRGBA, resolve func(string) *svgGradient) svgPaintValue {
 	trimmed := strings.TrimSpace(value)
 	if len(trimmed) >= 4 && strings.EqualFold(trimmed[:4], "url(") {
 		end := strings.IndexByte(trimmed, ')')
@@ -88,9 +88,9 @@ func parseSVGPaint(value string, inherited svgPaintValue, resolve func(string) *
 		if fallback == "" || strings.HasPrefix(strings.ToLower(fallback), "url(") {
 			return svgPaintValue{}
 		}
-		return parseSVGPaint(fallback, inherited, nil)
+		return parseSVGPaint(fallback, inherited, currentColor, nil)
 	}
-	c, ok := svgPaint(value, inherited.color, inherited.ok)
+	c, ok := svgPaint(value, inherited.color, inherited.ok, currentColor)
 	if strings.EqualFold(trimmed, "inherit") {
 		return inherited
 	}
@@ -203,7 +203,7 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 			if !child.valid || child.name != "stop" || len(g.stops) >= maxSVGGradientStops {
 				continue
 			}
-			g.stops = append(g.stops, svgParseStop(s.cascadedAttributes(child), g.stops))
+			g.stops = append(g.stops, svgParseStop(s.cascadedAttributes(child), s.computedColor(child), g.stops))
 		}
 		if len(g.stops) > 0 {
 			break
@@ -213,7 +213,20 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 	return g
 }
 
-func svgParseStop(a map[string]string, previous []svgStop) svgStop {
+func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
+	if c, ok := s.colors[node]; ok {
+		return c
+	}
+	parentColor := color.NRGBA{A: 255}
+	if node.parent != nil {
+		parentColor = s.computedColor(node.parent)
+	}
+	c := svgColor(s.cascadedAttributes(node)["color"], parentColor)
+	s.colors[node] = c
+	return c
+}
+
+func svgParseStop(a map[string]string, currentColor color.NRGBA, previous []svgStop) svgStop {
 	offset := 0.0
 	if v := strings.TrimSpace(a["offset"]); v != "" {
 		scale := 1.0
@@ -228,8 +241,10 @@ func svgParseStop(a map[string]string, previous []svgStop) svgStop {
 		offset = previous[len(previous)-1].offset
 	}
 	c := color.NRGBA{A: 255}
-	if v := strings.ToLower(strings.TrimSpace(a["stop-color"])); v != "" && v != "currentcolor" {
-		if parsed, ok := parseColor(v); ok {
+	if v := strings.ToLower(strings.TrimSpace(a["stop-color"])); v != "" {
+		if v == "currentcolor" {
+			c = currentColor
+		} else if parsed, ok := parseColor(v); ok {
 			c = color.NRGBA{R: parsed.R, G: parsed.G, B: parsed.B, A: parsed.A}
 		}
 	}
