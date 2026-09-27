@@ -444,6 +444,9 @@ func (p *painter) paintFlowContent(boxes []*Box) {
 		}
 		if box.AtomicInline {
 			p.paintBackground(box)
+			p.paintContent(box)
+			p.paintFlow(box.Children)
+			continue
 		}
 		p.paintContent(box)
 		p.paintFlowContent(box.Children)
