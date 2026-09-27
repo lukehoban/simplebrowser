@@ -103,3 +103,48 @@ func TestCSSTableHasNoDefaultBorderSpacing(t *testing.T) {
 		t.Fatalf("HTML table should keep 2px UA spacing: %v", html)
 	}
 }
+
+func TestTableCaptionMinimumWidthExpandsAnonymousTableBox(t *testing.T) {
+	for _, tableWidth := range []string{"", "40px"} {
+		name := "automatic table width"
+		tableStyle := "border-spacing:0"
+		if tableWidth != "" {
+			name = "caption wider than specified table"
+			tableStyle += ";width:" + tableWidth
+		}
+		t.Run(name, func(t *testing.T) {
+			doc := styledForLayout(t, `<table style="`+tableStyle+`">`+
+				`<caption style="width:100px"></caption><tr><td style="padding:0"></td></tr></table>`)
+			got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 200))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tables := collectBoxes(got.Root, "table")
+			if len(tables) != 1 || tables[0].Rect.Dx() != 100 {
+				t.Fatalf("table width = %v, want 100px for caption minimum width", tables)
+			}
+			if cells := collectBoxes(got.Root, "td"); len(cells) != 1 {
+				t.Fatalf("table cells = %d, want one cell", len(cells))
+			}
+		})
+	}
+}
+
+func TestTableCaptionContributesMinimumNotMaxContentWidth(t *testing.T) {
+	doc := styledForLayout(t, `<table style="border-spacing:0"><caption class="caption">narrow broader</caption>`+
+		`<tr><td style="padding:0"></td></tr></table>`)
+	caption := styledByClass(doc.StyleRoot, "caption")
+	captionMin, captionMax := intrinsicWidths(caption, &faceSet{})
+	if captionMin >= captionMax {
+		t.Fatalf("caption intrinsic widths = (%d, %d), need distinct min/max content widths", captionMin, captionMax)
+	}
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables := collectBoxes(got.Root, "table")
+	if len(tables) != 1 || tables[0].Rect.Dx() != captionMin {
+		t.Fatalf("table width = %v, want caption min-content width %d (not max-content %d)",
+			tables, captionMin, captionMax)
+	}
+}
