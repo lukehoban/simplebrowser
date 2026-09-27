@@ -108,6 +108,8 @@ func looksLikeSVG(data []byte) bool {
 type svgNode struct {
 	name     string
 	attrs    map[string]string
+	cssNode  *Node
+	style    string
 	href     string
 	valid    bool
 	children []*svgNode
@@ -149,6 +151,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	img := &svgImage{align: "xMidYMid"}
 	var root *svgNode
 	var stack []*svgNode
+	var sheets []Stylesheet
 	ids := make(map[string]*svgNode)
 	elements := 0
 	for {
@@ -167,6 +170,12 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			}
 			node := &svgNode{name: t.Name.Local, attrs: svgAttributes(t),
 				valid: t.Name.Space == svgNamespace || t.Name.Space == ""}
+			node.cssNode = &Node{Type: ElementNode, Name: node.name}
+			for _, attr := range t.Attr {
+				if attr.Name.Space == "" || attr.Name.Space == svgNamespace {
+					node.cssNode.Attributes = append(node.cssNode.Attributes, Attribute{Name: attr.Name.Local, Value: attr.Value})
+				}
+			}
 			hasHref := false
 			for _, a := range t.Attr {
 				if a.Name.Local == "href" && (a.Name.Space == "" || a.Name.Space == svgNamespace) {
@@ -188,9 +197,6 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					return nil, errUnsupportedSVG
 				}
 				root = node
-				if err := img.parseRoot(node.attrs); err != nil {
-					return nil, err
-				}
 				// The root's own transform attribute (SVG 2) is not applied.
 				delete(node.attrs, "transform")
 			} else if len(stack) == 0 {
@@ -199,6 +205,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			} else {
 				parent := stack[len(stack)-1]
 				parent.children = append(parent.children, node)
+				node.cssNode.Parent = parent.cssNode
 			}
 			if node.valid && node.attrs["id"] != "" {
 				if _, exists := ids[node.attrs["id"]]; !exists {
@@ -207,13 +214,27 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			}
 			stack = append(stack, node)
 		case xml.EndElement:
+			node := stack[len(stack)-1]
+			if node.name == "style" && node.valid {
+				sheets = append(sheets, ParseCSS(node.style))
+			}
 			stack = stack[:len(stack)-1]
+		case xml.CharData:
+			if len(stack) > 0 {
+				node := stack[len(stack)-1]
+				if node.name == "style" && node.valid {
+					node.style += string(t)
+				}
+			}
 		}
 	}
 	if root == nil {
 		return nil, errUnsupportedSVG
 	}
-	state := svgExpansion{img: img, root: root, ids: ids, active: make(map[*svgNode]bool)}
+	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool)}
+	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
+		return nil, err
+	}
 	if err := state.walk(root, svgDefaultFrame(), false, 0); err != nil {
 		return nil, err
 	}
@@ -232,6 +253,7 @@ type svgExpansion struct {
 	img      *svgImage
 	root     *svgNode
 	ids      map[string]*svgNode
+	sheets   []Stylesheet
 	active   map[*svgNode]bool
 	elements int
 	segments int
@@ -255,7 +277,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		return nil
 	}
 	current := parent
-	a := node.attrs
+	a := s.cascadedAttributes(node)
 	for _, property := range []struct {
 		key string
 		dst *string
@@ -535,23 +557,72 @@ func svgUnitInterval(s string) (float64, bool) {
 	return math.Max(0, math.Min(1, n)), err == nil && !math.IsNaN(n)
 }
 
-// svgAttributes merges presentation attributes with the style attribute; the
-// style attribute wins, as in CSS.
+// svgAttributes retains presentation attributes and inline declarations
+// separately so stylesheet declarations can participate in the cascade.
 func svgAttributes(t xml.StartElement) map[string]string {
 	attrs := make(map[string]string, len(t.Attr))
-	style := ""
 	for _, a := range t.Attr {
 		if a.Name.Space != "" && a.Name.Space != svgNamespace {
 			continue
 		}
-		if a.Name.Local == "style" {
-			style = a.Value
-			continue
-		}
 		attrs[a.Name.Local] = a.Value
 	}
-	for _, d := range ParseDeclarations(style) {
-		attrs[strings.ToLower(d.Property)] = d.Value
+	return attrs
+}
+
+// CSS presentation properties are inherited from the parent frame in walk.
+// Presentation attributes are lowest-priority author hints; a matching rule
+// wins even over an id attribute, while !important beats normal inline style.
+// Non-presentation geometry remains sourced from attributes (and inline style)
+// as before; external stylesheets and unsupported CSS properties are ignored.
+var svgStyleProperties = map[string]bool{
+	"fill": true, "fill-rule": true, "fill-opacity": true,
+	"stroke": true, "stroke-opacity": true, "stroke-width": true,
+	"stroke-linecap": true, "stroke-linejoin": true, "stroke-miterlimit": true,
+	"stroke-dasharray": true, "stroke-dashoffset": true, "font-size": true,
+	"font-family": true, "font-style": true, "font-weight": true,
+}
+
+func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
+	attrs := make(map[string]string, len(node.attrs))
+	for k, v := range node.attrs {
+		attrs[k] = v
+	}
+	winners := make(map[string]winningDeclaration)
+	order := 0
+	add := func(d Declaration, spec [3]int, inline bool) {
+		if !svgStyleProperties[d.Property] {
+			return
+		}
+		order++
+		candidate := winningDeclaration{d: d, important: d.Important, inline: inline, origin: 1, order: order, spec: spec}
+		if old, ok := winners[d.Property]; !ok || beats(candidate, old) {
+			winners[d.Property] = candidate
+		}
+	}
+	for _, sheet := range s.sheets {
+		for _, rule := range sheet.Rules {
+			for _, selector := range rule.Selectors {
+				if !matchesSelector(node.cssNode, selector) {
+					continue
+				}
+				for _, d := range rule.Declarations {
+					add(d, specificity(selector), false)
+				}
+			}
+		}
+	}
+	for _, d := range ParseDeclarations(attrs["style"]) {
+		// The normal cascade uses a single id unit for inline specificity;
+		// SVG's bounded XML tree can contain arbitrary compound selectors.
+		// Keep inline specificity above every stylesheet selector.
+		add(d, [3]int{maxSVGElements + 1, 0, 0}, true)
+		if !svgStyleProperties[d.Property] {
+			attrs[d.Property] = d.Value // preserve existing inline geometry behavior
+		}
+	}
+	for property, winner := range winners {
+		attrs[property] = winner.d.Value
 	}
 	return attrs
 }
