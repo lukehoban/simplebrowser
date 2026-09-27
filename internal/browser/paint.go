@@ -348,6 +348,76 @@ type stackingLayer struct {
 	z       int
 	context bool
 	order   int
+	clip    image.Rectangle
+}
+
+// withClip constrains all drawing paths (including text, images and background
+// layers) without changing their original layout coordinates or image scaling.
+func (p *painter) withClip(rect image.Rectangle, paint func()) {
+	canvas := p.canvas
+	p.canvas = canvas.SubImage(rect.Intersect(canvas.Bounds())).(*image.RGBA)
+	defer func() { p.canvas = canvas }()
+	paint()
+}
+
+func (p *painter) overflowClip(box *Box) (image.Rectangle, bool) {
+	if box == nil || box.Node == nil || box.Anonymous {
+		return image.Rectangle{}, false
+	}
+	style := p.document.Styles[box.Node]
+	value := strings.ToLower(strings.TrimSpace(style["overflow"]))
+	if value == "" || value == "visible" {
+		return image.Rectangle{}, false
+	}
+	rect := box.Rect
+	widths := [4]int{borderWidth(style, "top"), borderWidth(style, "right"),
+		borderWidth(style, "bottom"), borderWidth(style, "left")}
+	if box.BorderWidths != nil {
+		widths = *box.BorderWidths
+	}
+	return image.Rect(rect.Min.X+widths[3], rect.Min.Y+widths[0],
+		rect.Max.X-widths[1], rect.Max.Y-widths[2]), true
+}
+
+// clip: rect() uses offsets from the border box of an absolutely positioned
+// element. Comma and whitespace separated CSS 2.1 forms are both accepted.
+func (p *painter) legacyClip(box *Box) (image.Rectangle, bool) {
+	if box == nil || box.Node == nil || box.Anonymous {
+		return image.Rectangle{}, false
+	}
+	style := p.document.Styles[box.Node]
+	if !strings.EqualFold(strings.TrimSpace(style["position"]), "absolute") {
+		return image.Rectangle{}, false
+	}
+	value := strings.TrimSpace(style["clip"])
+	if len(value) < 6 || !strings.EqualFold(value[:5], "rect(") || value[len(value)-1] != ')' {
+		return image.Rectangle{}, false
+	}
+	parts := strings.Fields(strings.ReplaceAll(value[5:len(value)-1], ",", " "))
+	if len(parts) != 4 {
+		return image.Rectangle{}, false
+	}
+	edges := [4]int{0, box.Rect.Dx(), box.Rect.Dy(), 0}
+	for i, part := range parts {
+		if strings.EqualFold(part, "auto") {
+			continue
+		}
+		n := px(part, 0, math.NaN())
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return image.Rectangle{}, false
+		}
+		edges[i] = int(math.Round(n))
+	}
+	return image.Rect(box.Rect.Min.X+edges[3], box.Rect.Min.Y+edges[0],
+		box.Rect.Min.X+edges[1], box.Rect.Min.Y+edges[2]), true
+}
+
+func (p *painter) paintChildren(box *Box, paint func()) {
+	if clip, ok := p.overflowClip(box); ok {
+		p.withClip(clip, paint)
+	} else {
+		paint()
+	}
 }
 
 func documentOrder(root *Node) map[*Node]int {
@@ -393,8 +463,17 @@ func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 // paintStackingContext paints ctx and every box it owns. includeSelf is false
 // for the anonymous viewport box, which has no background of its own.
 func (p *painter) paintStackingContext(ctx *Box, includeSelf bool) {
+	if clip, ok := p.legacyClip(ctx); ok {
+		p.withClip(clip, func() { p.paintStackingContextContents(ctx, includeSelf) })
+		return
+	}
+	p.paintStackingContextContents(ctx, includeSelf)
+}
+
+func (p *painter) paintStackingContextContents(ctx *Box, includeSelf bool) {
 	if includeSelf {
-		p.paintOwn(ctx)
+		p.paintBackground(ctx)
+		p.paintChildren(ctx, func() { p.paintContent(ctx) })
 	}
 	var layers []stackingLayer
 	p.collectLayers(ctx, &layers)
@@ -406,22 +485,47 @@ func (p *painter) paintStackingContext(ctx *Box, includeSelf bool) {
 	})
 	i := 0
 	for ; i < len(layers) && layers[i].z < 0; i++ {
-		p.paintStackingContext(layers[i].box, true)
+		layer := layers[i]
+		p.withClip(layer.clip, func() { p.paintStackingContext(layer.box, true) })
 	}
-	p.paintFlow(ctx.Children)
+	p.paintChildren(ctx, func() { p.paintFlow(ctx.Children) })
 	for ; i < len(layers); i++ {
-		if layers[i].context {
-			p.paintStackingContext(layers[i].box, true)
-		} else {
-			p.paintOwn(layers[i].box)
-			p.paintFlow(layers[i].box.Children)
-		}
+		layer := layers[i]
+		p.withClip(layer.clip, func() {
+			if layer.context {
+				p.paintStackingContext(layer.box, true)
+			} else {
+				p.paintPositionedAuto(layer.box)
+			}
+		})
+	}
+}
+
+func (p *painter) paintPositionedAuto(box *Box) {
+	paint := func() {
+		p.paintBackground(box)
+		p.paintChildren(box, func() {
+			p.paintContent(box)
+			p.paintFlow(box.Children)
+		})
+	}
+	if clip, ok := p.legacyClip(box); ok {
+		p.withClip(clip, paint)
+	} else {
+		paint()
 	}
 }
 
 // collectLayers gathers the positioned descendants owned by the stacking
 // context containing box, without entering nested stacking contexts.
 func (p *painter) collectLayers(box *Box, layers *[]stackingLayer) {
+	clip := p.canvas.Bounds()
+	if rect, ok := p.overflowClip(box); ok {
+		clip = clip.Intersect(rect)
+	}
+	if rect, ok := p.legacyClip(box); ok {
+		clip = clip.Intersect(rect)
+	}
 	for _, child := range box.Children {
 		positioned, z, context := p.stacking(child)
 		if positioned {
@@ -429,12 +533,12 @@ func (p *painter) collectLayers(box *Box, layers *[]stackingLayer) {
 			if !ok {
 				order = len(p.treeOrder) + len(*layers)
 			}
-			*layers = append(*layers, stackingLayer{box: child, z: z, context: context, order: order})
+			*layers = append(*layers, stackingLayer{box: child, z: z, context: context, order: order, clip: clip})
 			if context {
 				continue
 			}
 		}
-		p.collectLayers(child, layers)
+		p.withClip(clip, func() { p.collectLayers(child, layers) })
 	}
 }
 
@@ -456,7 +560,7 @@ func (p *painter) paintFlowBackgrounds(boxes []*Box) {
 			continue
 		}
 		p.paintBackground(box)
-		p.paintFlowBackgrounds(box.Children)
+		p.paintChildren(box, func() { p.paintFlowBackgrounds(box.Children) })
 	}
 }
 
@@ -466,11 +570,14 @@ func (p *painter) paintFlowFloats(boxes []*Box) {
 			continue
 		}
 		if p.isFloat(box) {
-			p.paintOwn(box)
-			p.paintFlow(box.Children)
+			p.paintBackground(box)
+			p.paintChildren(box, func() {
+				p.paintContent(box)
+				p.paintFlow(box.Children)
+			})
 			continue
 		}
-		p.paintFlowFloats(box.Children)
+		p.paintChildren(box, func() { p.paintFlowFloats(box.Children) })
 	}
 }
 
@@ -484,12 +591,16 @@ func (p *painter) paintFlowContent(boxes []*Box) {
 		}
 		if box.AtomicInline {
 			p.paintBackground(box)
-			p.paintContent(box)
-			p.paintFlow(box.Children)
+			p.paintChildren(box, func() {
+				p.paintContent(box)
+				p.paintFlow(box.Children)
+			})
 			continue
 		}
-		p.paintContent(box)
-		p.paintFlowContent(box.Children)
+		p.paintChildren(box, func() {
+			p.paintContent(box)
+			p.paintFlowContent(box.Children)
+		})
 	}
 }
 

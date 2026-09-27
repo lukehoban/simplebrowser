@@ -36,6 +36,58 @@ func pixel(t *testing.T, img *image.RGBA, x, y int, want color.RGBA) {
 	}
 }
 
+func TestPaintOverflowClipsDescendantsButNotBorder(t *testing.T) {
+	img := painted(t, `<body style="margin:0">
+		<div style="width:20px;height:20px;border:4px solid blue;overflow:hidden;background:red">
+			<div style="width:40px;height:40px;background:green"></div>
+			<div style="position:relative;z-index:2;left:15px;top:-35px;width:20px;height:20px;background:green"></div>
+		</div></body>`, image.Rect(0, 0, 80, 60))
+	blue := color.RGBA{0, 0, 255, 255}
+	green := color.RGBA{0, 128, 0, 255}
+	white := color.RGBA{255, 255, 255, 255}
+	pixel(t, img, 2, 10, blue)
+	pixel(t, img, 4, 5, green)
+	pixel(t, img, 23, 10, green)
+	pixel(t, img, 26, 10, blue)
+	pixel(t, img, 29, 10, white)
+	pixel(t, img, 10, 29, white)
+}
+
+func TestPaintNestedOverflowAndAbsoluteClipRect(t *testing.T) {
+	img := painted(t, `<body style="margin:0">
+		<div style="position:relative;width:30px;height:30px;overflow:hidden">
+			<div style="position:absolute;left:10px;top:10px;width:30px;height:30px;background:blue;clip:rect(5px, 25px, 25px, 5px)">
+				<div style="position:absolute;left:-10px;top:-10px;width:40px;height:40px;background:red"></div>
+			</div>
+		</div></body>`, image.Rect(0, 0, 60, 60))
+	red := color.RGBA{255, 0, 0, 255}
+	white := color.RGBA{255, 255, 255, 255}
+	pixel(t, img, 14, 20, white) // clip rect left edge
+	pixel(t, img, 15, 15, red)
+	pixel(t, img, 29, 29, red)
+	pixel(t, img, 30, 20, white) // ancestor overflow
+	pixel(t, img, 20, 30, white)
+}
+
+func TestPaintMoonJumpLinkHidden(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/wikipedia-moon/repros/jump-link.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := painted(t, string(source), image.Rect(0, 0, 300, 100))
+	white := color.RGBA{255, 255, 255, 255}
+	// The paragraph begins below y=18; the top-left jump text must not
+	// escape the zero-area clip rectangle.
+	for y := 0; y < 19; y++ {
+		for x := 0; x < 60; x++ {
+			pixel(t, img, x, y, white)
+		}
+	}
+	if img.RGBAAt(14, 24) == white {
+		t.Fatal("visible paragraph did not paint")
+	}
+}
+
 func TestPaintTextInsideAbsoluteAndFixedBoxes(t *testing.T) {
 	img := painted(t, `<div style="position:relative;margin:0;height:70px">
 	<div style="position:absolute;left:10px;top:5px;color:red">hello</div>
