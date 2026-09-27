@@ -1,10 +1,14 @@
-.PHONY: screenshot moon-baseline github-vscode-baseline image-boxes compatibility compatibility-check
+.PHONY: baselines screenshot moon-baseline github-vscode-baseline image-boxes compatibility compatibility-check
 
 compatibility:
 	go run ./cmd/wptbench
 
 compatibility-check:
 	go run ./cmd/wptbench -check
+
+# Refresh every checked-in current renderer output. The HN screenshot is the
+# blocking golden; the Moon and GitHub VS Code images are diagnostic baselines.
+baselines: screenshot moon-baseline github-vscode-baseline
 
 # Refresh the checked-in offline render after intentional painting changes.
 screenshot:
