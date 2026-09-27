@@ -67,12 +67,16 @@ visible; this is a diagnostic of the renderer, not parity evidence. No flex,
 grid, or custom-property work is assumed complete based on other display
 values or SVG-specific parsing.
 
-Confirmed follow-ups are tracked separately:
+Confirmed follow-ups are tracked separately and have isolated repros and
+current-render visuals:
 
-- [#245 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/245)
-  (tracked after this PR is opened).
-- [#246 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/246)
-  (tracked after this PR is opened).
+- [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246),
+  distinct from the SVG-only limitation in #161.
+- [#247 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/247).
+
+These are shared renderer prerequisites linked from the [Wikipedia Moon
+epic #243](https://github.com/lukehoban/simplebrowser/issues/243); that
+cross-link does not assert that either feature is needed for the Moon viewport.
 
 Grid is not used as a requirement in this stand-in; no grid issue is proposed
 without a confirmed, isolated reproduction. Existing rendering limitations
