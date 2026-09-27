@@ -20,7 +20,7 @@ and `bottom`). Painting rasterizes colors, CSS background images
 elements, and neutral placeholders for unsupported `<img>` elements, honoring
 `z-index` stacking order for positioned boxes. A minimal
 in-repo SVG subset (`<svg>` sizing and `viewBox`, `<g>`, `<path>`, `<rect>`,
-solid fills and strokes, transforms) renders at the used size for both `<img>`
+solid fills and strokes, elliptical path arcs, transforms) renders at the used size for both `<img>`
 and CSS backgrounds. Other SVG shapes and advanced CSS remain future work.
 
 ## Rendering progress
@@ -37,7 +37,7 @@ logo and vote-arrow backgrounds. This is a progress snapshot, not a
 pixel-accurate HN reference.*
 
 **What's next**
-- Continue closing tracked SVG gaps [#81–#84](https://github.com/lukehoban/simplebrowser/issues/81) and typography gaps [#87–#89](https://github.com/lukehoban/simplebrowser/issues/87).
+- Continue closing tracked SVG gaps [#82–#84](https://github.com/lukehoban/simplebrowser/issues/82) and typography gaps [#87–#89](https://github.com/lukehoban/simplebrowser/issues/87).
 
 SVG strokes (paths and rectangles) now include inherited solid stroke paint,
 pixel/unitless widths, independent stroke opacity, and butt/square/round caps

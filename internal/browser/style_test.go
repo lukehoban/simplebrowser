@@ -188,6 +188,39 @@ func TestInvalidFontShorthandsAreIgnored(t *testing.T) {
 	}
 }
 
+func TestBackgroundShorthandSlashExpansion(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<div id=compact style="background:url(tile.png) center/4px 4px"></div>
+		<div id=spaced style="background:url(tile.png) center / 4px 4px no-repeat"></div>
+		<div id=color style="background:url(tile.png) center / 4px 4px no-repeat #123456"></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"compact", "spaced", "color"} {
+		got := styledElementByID(styled.StyleRoot, id).Style
+		if got["background-position"] != "center" || got["background-size"] != "4px 4px" {
+			t.Errorf("%s background position/size = %q / %q", id,
+				got["background-position"], got["background-size"])
+		}
+	}
+	if got := styledElementByID(styled.StyleRoot, "compact").Style["background-repeat"]; got != "repeat" {
+		t.Errorf("compact background-repeat = %q, want repeat", got)
+	}
+	spaced := styledElementByID(styled.StyleRoot, "spaced").Style
+	if spaced["background-repeat"] != "no-repeat" {
+		t.Errorf("spaced background-repeat = %q, want no-repeat", spaced["background-repeat"])
+	}
+	withColor := styledElementByID(styled.StyleRoot, "color").Style
+	if withColor["background-repeat"] != "no-repeat" || withColor["background-color"] != "#123456" {
+		t.Errorf("trailing shorthand values leaked into size: %#v", withColor)
+	}
+}
+
 func TestStyleAppliesXHTMLCDATAStylesheet(t *testing.T) {
 	doc, err := parse(Resource{
 		URL:  "fixture.xht",
