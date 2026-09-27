@@ -931,6 +931,7 @@ table { display: table; border-spacing: 2px; }
 tr { display: table-row; }
 td, th { display: table-cell; text-align: start; }
 img { display: inline-block; }
+template { display: none; }
 `
 
 // UserAgentStylesheet returns fresh rules so callers may modify them safely.
