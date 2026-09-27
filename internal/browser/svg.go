@@ -117,6 +117,10 @@ type svgFrame struct {
 	fill          color.NRGBA
 	hasFill       bool
 	fontSize      float64
+	fontFamily    string
+	fontStyle     string
+	fontWeight    string
+	fontRatios    fontRatios
 	fillRule      string
 	opacity       float64
 	stroke        color.NRGBA
@@ -132,7 +136,7 @@ type svgFrame struct {
 
 func svgDefaultFrame() svgFrame {
 	return svgFrame{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero",
-		fontSize: 16, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
+		fontSize: 16, fontRatios: ratiosFor(nil), opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
 		miterLimit: 4, transform: svgIdentity}
 }
 
@@ -252,6 +256,21 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	}
 	current := parent
 	a := node.attrs
+	for _, property := range []struct {
+		key string
+		dst *string
+	}{
+		{"font-family", &current.fontFamily},
+		{"font-style", &current.fontStyle},
+		{"font-weight", &current.fontWeight},
+	} {
+		if value := strings.TrimSpace(a[property.key]); value != "" && !strings.EqualFold(value, "inherit") {
+			*property.dst = value
+		}
+	}
+	current.fontRatios = ratiosFor(ComputedStyle{
+		"font-family": current.fontFamily, "font-style": current.fontStyle, "font-weight": current.fontWeight,
+	})
 	if value, ok := a["fill"]; ok {
 		current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
 	}
@@ -261,8 +280,12 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		// than to the root font size being computed here.
 		rootFontSize = 16
 	}
-	if n, ok := svgFontSize(a["font-size"], parent.fontSize, rootFontSize); ok {
+	if n, ok := svgFontSize(a["font-size"], parent.fontSize, rootFontSize, parent.fontRatios); ok {
 		current.fontSize = n
+	}
+	basis := svgLengthBasis{
+		horizontal: s.img.userWidth, vertical: s.img.userHeight, diagonal: s.img.dashBasis,
+		fontSize: current.fontSize, rootFontSize: s.img.rootFontSize, ratios: current.fontRatios,
 	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
 		current.opacity = n // inherited property, not ancestor compositing
@@ -330,19 +353,15 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		case "path":
 			shape = parseSVGPath(a["d"], maxSVGPathSegs-s.segments)
 		case "rect":
-			shape = svgRectWithLengths(a, s.img, current.fontSize)
+			shape = svgRectWithBasis(a, basis)
 		case "circle":
-			basis := svgLengthBasis{
-				horizontal: s.img.userWidth, vertical: s.img.userHeight, diagonal: s.img.dashBasis,
-				fontSize: current.fontSize, rootFontSize: s.img.rootFontSize,
-			}
 			if r, ok := basis.length(a["r"], svgDiagonal); ok {
 				shape = svgEllipseWithLengths(a, r, r, basis)
 			}
 		case "ellipse":
-			shape = svgEllipseAttrsWithLengths(a, s.img, current.fontSize)
+			shape = svgEllipseAttrsWithBasis(a, basis)
 		case "line":
-			shape = svgLineWithLengths(a, s.img, current.fontSize)
+			shape = svgLineWithBasis(a, basis)
 		case "polyline", "polygon":
 			shape = svgPolyline(a["points"], name == "polygon", maxSVGPathSegs-s.segments)
 		}
@@ -674,6 +693,7 @@ const (
 type svgLengthBasis struct {
 	horizontal, vertical, diagonal float64
 	fontSize, rootFontSize         float64
+	ratios                         fontRatios
 }
 
 func (b svgLengthBasis) length(value string, axis svgAxis) (float64, bool) {
@@ -709,6 +729,20 @@ func (b svgLengthBasis) length(value string, axis svgAxis) (float64, bool) {
 		n *= b.fontSize
 		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
 	}
+	for _, unit := range []string{"ex", "ch"} {
+		if strings.HasSuffix(strings.ToLower(value), unit) {
+			n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-len(unit)]), 64)
+			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+				return 0, false
+			}
+			ratio := b.ratios.ex
+			if unit == "ch" {
+				ratio = b.ratios.ch
+			}
+			n *= b.fontSize * ratio
+			return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+		}
+	}
 	return svgLength(value)
 }
 
@@ -725,7 +759,7 @@ func (b svgLengthBasis) coordinate(value string, axis svgAxis) (float64, bool) {
 	return n, ok
 }
 
-func svgFontSize(value string, parentSize, rootSize float64) (float64, bool) {
+func svgFontSize(value string, parentSize, rootSize float64, parentRatios ...fontRatios) (float64, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0, false
@@ -753,6 +787,24 @@ func svgFontSize(value string, parentSize, rootSize float64) (float64, bool) {
 		}
 		n *= parentSize
 		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	for _, unit := range []string{"ex", "ch"} {
+		if strings.HasSuffix(strings.ToLower(value), unit) {
+			n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-len(unit)]), 64)
+			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+				return 0, false
+			}
+			ratios := ratiosFor(nil)
+			if len(parentRatios) > 0 {
+				ratios = parentRatios[0]
+			}
+			ratio := ratios.ex
+			if unit == "ch" {
+				ratio = ratios.ch
+			}
+			n *= parentSize * ratio
+			return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+		}
 	}
 	n, ok := svgLength(value)
 	return n, ok
@@ -1199,7 +1251,7 @@ func svgRect(attrs map[string]string) []svgSegment {
 func svgRectWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
 	return svgRectWithBasis(attrs, svgLengthBasis{
 		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
-		fontSize: fontSize, rootFontSize: img.rootFontSize,
+		fontSize: fontSize, rootFontSize: img.rootFontSize, ratios: ratiosFor(nil),
 	})
 }
 
@@ -1259,7 +1311,7 @@ func svgEllipseAttrs(attrs map[string]string) []svgSegment {
 func svgEllipseAttrsWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
 	return svgEllipseAttrsWithBasis(attrs, svgLengthBasis{
 		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
-		fontSize: fontSize, rootFontSize: img.rootFontSize,
+		fontSize: fontSize, rootFontSize: img.rootFontSize, ratios: ratiosFor(nil),
 	})
 }
 
@@ -1324,7 +1376,7 @@ func svgLine(attrs map[string]string) []svgSegment {
 func svgLineWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
 	return svgLineWithBasis(attrs, svgLengthBasis{
 		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
-		fontSize: fontSize, rootFontSize: img.rootFontSize,
+		fontSize: fontSize, rootFontSize: img.rootFontSize, ratios: ratiosFor(nil),
 	})
 }
 

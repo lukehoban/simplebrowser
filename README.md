@@ -24,7 +24,8 @@ SVG. Raster CSS backgrounds paint in layers, and local SVG `<defs>`/`<use>`
 references are supported. Bounded two-color CSS `linear-gradient()` backgrounds
 support directions, angles, percentage stops, and multiple interpolation
 hints. SVG strokes support bounded dash arrays and offsets with CSS lengths
-and percentages. The offline HN
+and percentages; basic shapes resolve font-relative `ex`/`ch` lengths using
+embedded face metrics. The offline HN
 fixture is rendered in CI, with the result available as a
 [workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
 

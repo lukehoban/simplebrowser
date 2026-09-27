@@ -355,6 +355,145 @@ func TestSVGShapeLengthsResolveAgainstViewportAndFont(t *testing.T) {
 	}
 }
 
+func TestSVGFontMetricGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name, family, weight, style, unit string
+		size                              float64
+	}{
+		{"sans ex", "Arial", "", "", "ex", 20},
+		{"verdana ch", "Verdana", "", "", "ch", 30},
+		{"mono italic bold ex", "Courier", "bold", "italic", "ex", 26},
+		{"mono bold ch", "monospace", "700", "", "ch", 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ratios := ratiosFor(ComputedStyle{"font-family": tc.family, "font-weight": tc.weight, "font-style": tc.style})
+			ratio := ratios.ex
+			if tc.unit == "ch" {
+				ratio = ratios.ch
+			}
+			src := `<svg width="100" height="100"><g font-size="` + trimFloat(tc.size) + `" font-family="` + tc.family +
+				`" font-weight="` + tc.weight + `" font-style="` + tc.style + `"><circle cx="50" cy="50" r="1` + tc.unit + `"/></g></svg>`
+			img, err := decodeSVG([]byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(img.shapes) != 1 {
+				t.Fatalf("shapes = %d, want one", len(img.shapes))
+			}
+			got := img.shapes[0].segments[0].pts[0][0] - 50
+			if math.Abs(got-tc.size*ratio) > 1e-8 {
+				t.Errorf("radius = %.6f, want selected-face metric %.6f", got, tc.size*ratio)
+			}
+			if got := img.RGBAAt(50, 50); got != (color.RGBA{0, 0, 0, 255}) {
+				t.Errorf("center pixel = %v, want opaque circle", got)
+			}
+		})
+	}
+	if ratiosFor(ComputedStyle{"font-family": "Verdana"}).ch == ratiosFor(ComputedStyle{"font-family": "Courier"}).ch {
+		t.Fatal("fixture font faces must have distinct 0 glyph advances")
+	}
+}
+
+func TestSVGFontMetricLengthsAndInheritance(t *testing.T) {
+	mono := ratiosFor(ComputedStyle{"font-family": "Courier", "font-weight": "bold", "font-style": "italic"})
+	verdana := ratiosFor(ComputedStyle{"font-family": "Verdana"})
+	src := `<svg width="100" height="100" font-size="20" font-family="Verdana">` +
+		`<g font-size="2ex" font-family="Courier" font-style="italic" font-weight="bold">` +
+		`<rect x="-1ch" y="1ex" width="2ch" height="1ex"/></g>` +
+		`<circle cx="50" cy="50" r="1ch"/></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 2 {
+		t.Fatalf("shapes = %d, want rect and circle", len(img.shapes))
+	}
+	childSize := 40 * verdana.ex // font-size uses parent's x-height, not new face
+	rect := img.shapes[0].segments[0].pts[0]
+	if math.Abs(rect[0]+childSize*mono.ch) > 1e-8 || math.Abs(rect[1]-childSize*mono.ex) > 1e-8 {
+		t.Errorf("inherited rect origin = %v, want (%g,%g)", rect, -childSize*mono.ch, childSize*mono.ex)
+	}
+	if got, want := img.shapes[1].segments[0].pts[0][0], 50+20*verdana.ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("sibling font leaked: radius endpoint %g, want %g", got, want)
+	}
+	for _, value := range []string{"1e999ex", "-1ex", "1000000000ch", "NaNex", "1exgarbage"} {
+		if _, ok := (svgLengthBasis{fontSize: 20, ratios: mono}).length(value, svgHorizontal); ok {
+			t.Errorf("unbounded/invalid shape length accepted: %q", value)
+		}
+	}
+	// Root font-size: ch uses the initial face, not the root's new family.
+	root, err := decodeSVG([]byte(`<svg width="100" height="100" font-family="Courier" font-size="2ch"><circle cx="50" cy="50" r="1ex"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 32 * ratiosFor(nil).ch * ratiosFor(ComputedStyle{"font-family": "Courier"}).ex
+	if got := root.shapes[0].segments[0].pts[0][0] - 50; math.Abs(got-want) > 1e-8 {
+		t.Errorf("root font-size/new face radius = %g, want %g", got, want)
+	}
+	// Inline style wins over presentation attributes and flows into local
+	// <use> expansion without leaking to sibling shapes.
+	reused, err := decodeSVG([]byte(`<svg width="100" height="100"><defs><rect id="bar" width="1ch" height="1ex"/></defs>` +
+		`<use href="#bar" x="10" font-family="Verdana" style="font-family: Courier; font-size: 20px"/>` +
+		`<rect y="50" width="1ch" height="1ex"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reused.shapes) != 2 {
+		t.Fatalf("reused shapes = %d", len(reused.shapes))
+	}
+	monoRegular := ratiosFor(ComputedStyle{"font-family": "Courier"})
+	if got, want := reused.shapes[0].segments[1].pts[0][0], 20*monoRegular.ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("reused width = %g, want %g", got, want)
+	}
+	if got, want := reused.shapes[1].segments[1].pts[0][0], 16*ratiosFor(nil).ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("sibling width = %g, want %g", got, want)
+	}
+}
+
+func TestSVGFontMetricVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "font-geometry-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{54, 38, color.RGBA{17, 102, 170, 255}},
+		{160, 38, color.RGBA{238, 85, 17, 255}},
+		{266, 38, color.RGBA{51, 153, 102, 255}},
+		{40, 80, color.RGBA{17, 102, 170, 255}},
+		{90, 4, color.RGBA{255, 255, 255, 255}},
+	} {
+		if got := img.RGBAAt(p.x, p.y); got != p.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", p.x, p.y, got, p.want)
+		}
+	}
+	if dir := os.Getenv("SVG_FONT_METRIC_VISUAL_DIR"); dir != "" {
+		// Before reproduces the old parser's behavior: ex/ch were invalid.
+		before := strings.NewReplacer("ex", "unsupported", "ch", "unsupported").Replace(string(data))
+		old, err := decodeSVG([]byte(before))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, render := range map[string]*svgImage{"svg-font-metrics-before.png": old, "svg-font-metrics-after.png": img} {
+			f, err := os.Create(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			encodeErr := png.Encode(f, render.RGBA)
+			closeErr := f.Close()
+			if encodeErr != nil || closeErr != nil {
+				t.Fatalf("%s: %v / %v", name, encodeErr, closeErr)
+			}
+		}
+	}
+}
+
 // The paired fixture visual shows percentages, absolute units and inherited
 // font-relative units before and after shape-length resolution.
 func TestSVGShapeLengthsVisual(t *testing.T) {
