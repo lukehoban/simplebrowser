@@ -148,8 +148,7 @@ func run(root, diagnostics string) report {
 			err = fmt.Errorf("image bounds differ: %v vs %v", testImg.Bounds(), refImg.Bounds())
 		}
 		if err != nil {
-			// Temporary transport-copy paths are random; keep even error
-			// reports reproducible across machines and runs.
+			// Keep error reports reproducible across machines and runs.
 			item.Status, item.Error = "error", strings.ReplaceAll(err.Error(), root, "testdata/wpt")
 			r.Error++
 		} else {
@@ -203,43 +202,7 @@ func markdown(r report) []byte {
 func main() {
 	check := flag.Bool("check", false, "verify committed reports without changing them")
 	flag.Parse()
-	// WPT's .xht files are served as XHTML upstream. The browser currently
-	// treats local .xht as HTML: HTML style contents do not recognize XML CDATA
-	// delimiters. Strip only those delimiters in a disposable copy so CSS is
-	// measured, not an artifact of the fixture's XML transport format.
-	root, err := os.MkdirTemp("", "simplebrowser-wpt-*")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	defer os.RemoveAll(root)
-	err = filepath.WalkDir("testdata/wpt", func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		relative, e := filepath.Rel("testdata/wpt", path)
-		if e != nil {
-			return e
-		}
-		dest := filepath.Join(root, relative)
-		if entry.IsDir() {
-			return os.MkdirAll(dest, 0755)
-		}
-		data, e := os.ReadFile(path)
-		if e != nil {
-			return e
-		}
-		if strings.HasSuffix(path, ".xht") {
-			data = bytes.ReplaceAll(data, []byte("<![CDATA["), nil)
-			data = bytes.ReplaceAll(data, []byte("]]>"), nil)
-		}
-		return os.WriteFile(dest, data, 0644)
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
-	}
-	r := run(root, "artifacts/wpt")
+	r := run("testdata/wpt", "artifacts/wpt")
 	j, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		panic(err)

@@ -39,9 +39,17 @@ type Tokenizer struct {
 	input string
 	pos   int
 	raw   string
+	xhtml bool
 }
 
 func NewTokenizer(input string) *Tokenizer { return &Tokenizer{input: input} }
+
+// NewXHTMLTokenizer enables the small set of XML lexical rules needed by
+// XHTML resources. It intentionally remains a browser-oriented subset rather
+// than a general-purpose XML tokenizer.
+func NewXHTMLTokenizer(input string) *Tokenizer {
+	return &Tokenizer{input: input, xhtml: true}
+}
 
 func (t *Tokenizer) Next() Token {
 	if t.pos >= len(t.input) {
@@ -53,6 +61,9 @@ func (t *Tokenizer) Next() Token {
 		for offset := 0; offset < len(s); {
 			i := strings.Index(strings.ToLower(s[offset:]), close)
 			if i < 0 {
+				if token, ok := t.nextRawCDATA(s, len(s)); ok {
+					return token
+				}
 				t.pos = len(t.input)
 				return Token{Type: TextToken, Data: s}
 			}
@@ -60,6 +71,9 @@ func (t *Tokenizer) Next() Token {
 			end := i + len(close)
 			if end == len(s) || isSpace(s[end]) || s[end] == '>' || s[end] == '/' {
 				if i > 0 {
+					if token, ok := t.nextRawCDATA(s, i); ok {
+						return token
+					}
 					t.pos += i
 					return Token{Type: TextToken, Data: s[:i]}
 				}
@@ -70,6 +84,9 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	s = t.input[t.pos:]
+	if t.xhtml && strings.HasPrefix(s, "<![CDATA[") {
+		return t.cdataToken(s)
+	}
 	if s[0] != '<' {
 		i := strings.IndexByte(s, '<')
 		if i < 0 {
@@ -202,6 +219,35 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	return token
+}
+
+// nextRawCDATA splits XHTML raw text at a CDATA opener so the next call can
+// consume it without exposing the delimiters to the style or script content.
+func (t *Tokenizer) nextRawCDATA(s string, before int) (Token, bool) {
+	if !t.xhtml {
+		return Token{}, false
+	}
+	i := strings.Index(s[:before], "<![CDATA[")
+	if i < 0 {
+		return Token{}, false
+	}
+	if i > 0 {
+		t.pos += i
+		return Token{Type: TextToken, Data: s[:i]}, true
+	}
+	return t.cdataToken(s), true
+}
+
+func (t *Tokenizer) cdataToken(s string) Token {
+	const opener = "<![CDATA["
+	content := s[len(opener):]
+	end := strings.Index(content, "]]>")
+	if end < 0 {
+		t.pos = len(t.input)
+		return Token{Type: TextToken, Data: content}
+	}
+	t.pos += len(opener) + end + len("]]>")
+	return Token{Type: TextToken, Data: content[:end]}
 }
 
 func isSpace(b byte) bool  { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' }

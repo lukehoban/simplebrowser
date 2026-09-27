@@ -14,9 +14,10 @@ const (
 
 // Resource is the output of the fetch stage.
 type Resource struct {
-	Source string // Requested source (for display and diagnostics).
-	URL    string // Effective source after redirects; base for relative links.
-	Body   []byte
+	Source      string // Requested source (for display and diagnostics).
+	URL         string // Effective source after redirects; base for relative links.
+	ContentType string // HTTP Content-Type when the transport provides one.
+	Body        []byte
 }
 
 // Document is the output of the parse stage.
