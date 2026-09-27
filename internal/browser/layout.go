@@ -11,6 +11,8 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // Box is a laid out element. Coordinates are in viewport pixels and include
@@ -51,6 +53,7 @@ type TextRun struct {
 
 type metrics struct {
 	face            font.Face
+	smallCapsFace   font.Face
 	size            float64
 	lineHeightValue string
 }
@@ -63,7 +66,57 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 	if m.face == nil {
 		return fixed.I(utf8.RuneCountInString(s) * int(m.size*0.55))
 	}
+	if m.smallCapsFace != nil {
+		var total fixed.Int26_6
+		m.eachTextSegment(s, func(face font.Face, text string) {
+			total += font.MeasureString(face, text)
+		})
+		return total
+	}
 	return font.MeasureString(m.face, s)
+}
+
+// Synthetic small caps use uppercase glyphs at 80% of the selected face's
+// size. Preserve the original text in the DOM and layout runs; both measurement
+// and painting walk the same contiguous face segments (including kerning).
+//
+// Lowercase runs are mapped with Unicode full (SpecialCasing) uppercase rules
+// for the root locale, so one source rune may expand to several glyphs
+// (ß → SS, ﬁ → FI, ŉ → ʼN). Mapping a whole contiguous lowercase segment
+// rather than rune-by-rune keeps any context-sensitive rules deterministic.
+// Language-tailored mappings (lang="tr", "lt", "el") are not applied.
+func (m metrics) eachTextSegment(s string, visit func(font.Face, string)) {
+	if m.smallCapsFace == nil {
+		visit(m.face, s)
+		return
+	}
+	start := 0
+	small := false
+	flush := func(end int) {
+		if end <= start {
+			return
+		}
+		face, text := m.face, s[start:end]
+		if small {
+			face, text = m.smallCapsFace, smallCapsUpper(text)
+		}
+		visit(face, text)
+		start = end
+	}
+	for i, r := range s {
+		if next := unicode.IsLower(r); next != small {
+			flush(i)
+			small = next
+		}
+	}
+	flush(len(s))
+}
+
+// smallCapsUpper applies root-locale full uppercase mapping. A fresh Caser is
+// used per call because cases.Caser is stateful and not safe for concurrent
+// renders.
+func smallCapsUpper(s string) string {
+	return cases.Upper(language.Und).String(s)
 }
 
 func (m metrics) lineHeight() int {
@@ -152,18 +205,29 @@ func (f *faceSet) metrics(style ComputedStyle) metrics {
 	size := fontSize(style["font-size"])
 	variant := styleFontVariant(style)
 	key := faceKey{size: size, family: variant.family, bold: variant.bold, italic: variant.italic}
-	face, ok := f.faces[key]
-	if !ok {
-		fontData := f.fonts[variant]
-		if fontData == nil {
-			fontData = f.fonts[fontVariant{family: "sans"}]
-		}
-		if fontData != nil {
-			face, _ = opentype.NewFace(fontData, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
-			f.faces[key] = face
-		}
+	face := f.face(key, variant)
+	m := metrics{face: face, size: size, lineHeightValue: style["line-height"]}
+	if strings.EqualFold(strings.TrimSpace(style["font-variant"]), "small-caps") {
+		key.size = size * .8
+		m.smallCapsFace = f.face(key, variant)
 	}
-	return metrics{face: face, size: size, lineHeightValue: style["line-height"]}
+	return m
+}
+
+func (f *faceSet) face(key faceKey, variant fontVariant) font.Face {
+	if face, ok := f.faces[key]; ok {
+		return face
+	}
+	fontData := f.fonts[variant]
+	if fontData == nil {
+		fontData = f.fonts[fontVariant{family: "sans"}]
+	}
+	if fontData == nil {
+		return nil
+	}
+	face, _ := opentype.NewFace(fontData, &opentype.FaceOptions{Size: key.size, DPI: 72, Hinting: font.HintingNone})
+	f.faces[key] = face
+	return face
 }
 
 // mappedFontFamily picks the first supported family in a CSS family list.
