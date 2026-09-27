@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Baseline stand-in: microsoft/vscode</title>
+  <style>
+    :root {
+      --page-bg: #ffffff;
+      --muted-bg: #f6f8fa;
+      --fg: #1f2328;
+      --muted: #656d76;
+      --border: #d1d9e0;
+      --accent: #0969da;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--fg);
+      background: var(--page-bg);
+      font: 14px Arial, sans-serif;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 12px 22px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { font-size: 19px; font-weight: bold; color: var(--fg); }
+    .toplink { color: var(--fg); }
+    .signin { margin-left: auto; }
+    .repo { padding: 21px 28px 0; }
+    .repo-title { display: flex; align-items: center; gap: 8px; }
+    h1 { margin: 0; font-size: 21px; font-weight: 400; }
+    .owner { font-weight: 600; }
+    .slash { color: var(--muted); }
+    .public {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 2px 8px;
+    }
+    .actions { display: flex; gap: 8px; margin: 16px 0; }
+    .button {
+      padding: 6px 11px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--muted-bg);
+      color: var(--fg);
+    }
+    .tabs {
+      display: flex;
+      gap: 20px;
+      margin: 0 -28px;
+      padding: 0 28px 11px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab { color: var(--fg); white-space: nowrap; }
+    .selected { color: var(--fg); border-bottom: 2px solid #fd8c73; padding-bottom: 12px; }
+    main { padding: 19px 28px; }
+    .columns { display: flex; align-items: flex-start; gap: 22px; }
+    .files { flex: 1; min-width: 0; }
+    .sidebar { width: 230px; }
+    .branch-row { display: flex; gap: 8px; margin-bottom: 14px; }
+    .file-list { width: 100%; border-collapse: collapse; }
+    .file-list td { border: 1px solid var(--border); padding: 8px; }
+    .file-list tr:first-child td { background: var(--muted-bg); }
+    .file-list td:first-child { width: 42%; }
+    .muted { color: var(--muted); }
+    .about { border-bottom: 1px solid var(--border); padding-bottom: 13px; margin-bottom: 12px; }
+    .about h2 { font-size: 15px; margin: 0 0 8px; }
+    .about p { line-height: 1.45; margin: 0; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">GitHub</span>
+    <span class="toplink">Product</span>
+    <span class="toplink">Solutions</span>
+    <span class="toplink">Open Source</span>
+    <span class="toplink">Pricing</span>
+    <span class="toplink signin">Sign in</span>
+  </header>
+  <section class="repo">
+    <div class="repo-title">
+      <span class="owner">microsoft</span><span class="slash">/</span>
+      <h1>vscode</h1><span class="public">Public</span>
+    </div>
+    <div class="actions">
+      <span class="button">Notifications</span>
+      <span class="button">Fork&nbsp; 43.6k</span>
+      <span class="button">Star&nbsp; 193k</span>
+    </div>
+    <nav class="tabs">
+      <span class="tab selected">Code</span><span class="tab">Issues&nbsp; 5k+</span>
+      <span class="tab">Pull requests&nbsp; 2.7k</span><span class="tab">Actions</span>
+      <span class="tab">Projects</span><span class="tab">Wiki</span>
+    </nav>
+  </section>
+  <main>
+    <div class="columns">
+      <section class="files">
+        <div class="branch-row">
+          <span class="button">main</span><span class="button">Branches</span>
+          <span class="button">Tags</span><span class="button">Go to file</span>
+        </div>
+        <table class="file-list">
+          <tbody>
+            <tr><td>Latest commit</td><td class="muted">History · 166,265 commits</td></tr>
+            <tr><td>.agents/</td><td class="muted">skills/ launch</td></tr>
+            <tr><td>.config/</td><td class="muted">Update configuration</td></tr>
+            <tr><td>.devcontainer/</td><td class="muted">Update dev container</td></tr>
+            <tr><td>.eslint-plugin-local/</td><td class="muted">Add local rules</td></tr>
+            <tr><td>.github/</td><td class="muted">Update workflows</td></tr>
+            <tr><td>.vscode/</td><td class="muted">Update settings</td></tr>
+            <tr><td>build/</td><td class="muted">Build scripts</td></tr>
+            <tr><td>cli/</td><td class="muted">Update CLI</td></tr>
+          </tbody>
+        </table>
+      </section>
+      <aside class="sidebar">
+        <section class="about">
+          <h2>About</h2>
+          <p>Visual Studio Code - Open Source (“Code - OSS”) is where Microsoft develops Visual Studio Code with the community.</p>
+        </section>
+        <p class="muted">54 insights · MIT license</p>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

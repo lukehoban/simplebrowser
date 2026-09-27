@@ -1,0 +1,9 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>CSS custom property diagnostic</title>
+<style>
+  :root { --accent: #0969da; }
+  .sample { color: #cf222e; color: var(--accent); }
+</style>
+<p>Expected: this text is blue (#0969da), not red.</p>
+<p class="sample">The var(--accent) declaration should override the earlier red.</p>
