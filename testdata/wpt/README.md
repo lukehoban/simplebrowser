@@ -6,10 +6,10 @@ under the upstream [WPT 3-clause BSD license](https://github.com/web-platform-te
 Each path here corresponds to `css/CSS2/<path>` upstream. Only the 13
 manifest-listed tests, their references, and three PNG support assets are
 included. No local edits were made to these upstream fixtures.
-The harness makes a temporary copy, removing XML `<![CDATA[` / `]]>` wrappers
-from `.xht` CSS before rendering: local XHTML is parsed as HTML by this
-browser, which otherwise treats XML CDATA delimiters as CSS text. The
-original fixtures remain byte-for-byte unchanged. No other markup is adapted.
+The harness renders the vendored files directly without adapting their
+contents. Local `.xht` files use the browser's focused XHTML mode, so XML
+`<![CDATA[` / `]]>` wrappers around CSS are interpreted while the fixtures
+remain byte-for-byte unchanged.
 
 Selection covers color inheritance, cascade through tables, background
 painting, normal block flow, block-in-inline, anonymous tables, and collapsed
