@@ -782,6 +782,35 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			groupBox.Content = groupBox.Rect
 			groupBox.Rect.Min.Y -= top
 			groupBox.Rect.Max.Y += bottom
+			widths := [4]int{
+				borderWidth(group.node.Style, "top"),
+				borderWidth(group.node.Style, "right"),
+				borderWidth(group.node.Style, "bottom"),
+				borderWidth(group.node.Style, "left"),
+			}
+			groupBox.BorderWidths = &widths
+		}
+		// A collapsed edge is painted once by its winning row-group side.
+		// Otherwise overlapping expanded group boxes can paint two colors
+		// into the same reserved gap when the preceding bottom border wins.
+		for i := 1; i < len(grid.rows); i++ {
+			previous, current := grid.rows[i-1].group, grid.rows[i].group
+			if previous == current || previous == nil || current == nil {
+				continue
+			}
+			previousBox, currentBox := groupBoxes[previous], groupBoxes[current]
+			if previousBox == nil || currentBox == nil {
+				continue
+			}
+			previousWidths, currentWidths := previousBox.BorderWidths, currentBox.BorderWidths
+			if previousWidths == nil || currentWidths == nil {
+				continue
+			}
+			if (*previousWidths)[2] >= (*currentWidths)[0] {
+				(*currentWidths)[0] = 0
+			} else {
+				(*previousWidths)[2] = 0
+			}
 		}
 	}
 

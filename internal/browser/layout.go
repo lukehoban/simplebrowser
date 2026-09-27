@@ -24,6 +24,9 @@ type Box struct {
 	Children []*Box
 	Text     []TextRun
 	Images   []ImageBox
+	// BorderWidths overrides the widths from the node's computed style when
+	// table border collapsing allocates a shared edge to another box.
+	BorderWidths *[4]int // top, right, bottom, left
 }
 
 // ImageBox exposes a decoded replaced image and its used rectangle to the
