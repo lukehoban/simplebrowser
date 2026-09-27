@@ -179,6 +179,16 @@ func px(value string, basis, fallback float64) float64 {
 			return v.Number * 16
 		case "pt":
 			return v.Number * 96 / 72
+		case "pc":
+			return v.Number * 16
+		case "in":
+			return v.Number * 96
+		case "cm":
+			return v.Number * 96 / 2.54
+		case "mm":
+			return v.Number * 96 / 25.4
+		case "q":
+			return v.Number * 96 / 101.6
 		default:
 			return v.Number
 		}
