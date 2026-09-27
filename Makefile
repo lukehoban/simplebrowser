@@ -1,4 +1,10 @@
-.PHONY: screenshot image-boxes
+.PHONY: screenshot image-boxes compatibility compatibility-check
+
+compatibility:
+	go run ./cmd/wptbench
+
+compatibility-check:
+	go run ./cmd/wptbench -check
 
 # Refresh the checked-in offline render after intentional painting changes.
 screenshot:

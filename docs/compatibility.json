@@ -1,0 +1,101 @@
+{
+  "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
+  "viewport": "800x600",
+  "total": 13,
+  "pass": 6,
+  "fail": 7,
+  "error": 0,
+  "results": [
+    {
+      "test": "colors/color-175.xht",
+      "reference": "colors/color-175-ref.xht",
+      "relation": "match",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "colors/color-176.xht",
+      "reference": "reference/ref-this-text-should-be-green.xht",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 1092
+    },
+    {
+      "test": "colors/color-177.xht",
+      "reference": "colors/color-175-ref.xht",
+      "relation": "match",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "colors/color-applies-to-001.xht",
+      "reference": "colors/color-applies-to-001-ref.xht",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 1476
+    },
+    {
+      "test": "backgrounds/background-001.xht",
+      "reference": "backgrounds/background-001-ref.xht",
+      "relation": "match",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "backgrounds/background-002.xht",
+      "reference": "backgrounds/background-001-ref.xht",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 39200
+    },
+    {
+      "test": "normal-flow/block-formatting-contexts-001.xht",
+      "reference": "normal-flow/block-formatting-contexts-001-ref.xht",
+      "relation": "match",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "normal-flow/block-formatting-contexts-003.xht",
+      "reference": "normal-flow/block-formatting-contexts-003-ref.xht",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 6023
+    },
+    {
+      "test": "normal-flow/block-formatting-contexts-005.xht",
+      "reference": "normal-flow/block-formatting-contexts-005-ref.xht",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 960
+    },
+    {
+      "test": "normal-flow/block-formatting-context-height-001.xht",
+      "reference": "reference/ref-filled-black-96px-square.xht",
+      "relation": "match",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "normal-flow/block-in-inline-align-001.html",
+      "reference": "normal-flow/block-in-inline-align-001-ref.html",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 2678
+    },
+    {
+      "test": "tables/anonymous-table-box-width-001.xht",
+      "reference": "reference/ref-filled-green-100px-square.xht",
+      "relation": "match",
+      "status": "fail",
+      "different_pixels": 20000
+    },
+    {
+      "test": "tables/border-collapse-005.html",
+      "reference": "tables/border-collapse-005-ref.html",
+      "relation": "match",
+      "status": "pass",
+      "different_pixels": 0
+    }
+  ]
+}
