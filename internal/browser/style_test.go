@@ -121,6 +121,58 @@ func TestComputedBorderShorthandWidthKeywordsMatchLonghands(t *testing.T) {
 	}
 }
 
+func TestOmittedBorderWidthUsesMediumOnlyForVisibleStyles(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<div id=shorthand style="border:solid black"></div>
+		<div id=longhand style="border-style:solid"></div>
+		<div id=side style="border-left-style:dashed"></div>
+		<div id=none style="border: none black"></div>
+		<div id=hidden style="border-style:hidden"></div>
+		<div id=none-width style="border:5px none black"></div>
+		<div id=longhand-none-width style="border-width:5px;border-style:none"></div>
+		<div id=width-only style="border-width:7px"></div>
+		<div id=explicit style="border:5px solid black"></div>
+		<div id=longhand-width style="border-width:7px;border-style:solid"></div>
+		<div id=invalid style="border:black solid wide"></div>
+		<div id=parent style="border-style:solid"><span id=child></span>` +
+		`<span id=width-child style="border-width:4px"></span></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id    string
+		side  string
+		width int
+	}{
+		{"shorthand", "top", 3},
+		{"longhand", "top", 3},
+		{"side", "left", 3},
+		{"none", "top", 0},
+		{"hidden", "top", 0},
+		{"none-width", "top", 0},
+		{"longhand-none-width", "top", 0},
+		{"width-only", "top", 0},
+		{"explicit", "top", 5},
+		{"longhand-width", "top", 7},
+		{"invalid", "top", 0},
+		{"child", "top", 0},
+		{"width-child", "top", 0},
+	} {
+		node := styledElementByID(styled.StyleRoot, tc.id)
+		if node == nil {
+			t.Fatalf("missing element %q", tc.id)
+		}
+		if got := borderWidth(node.Style, tc.side); got != tc.width {
+			t.Errorf("%s %s border width = %d, want %d; style=%#v",
+				tc.id, tc.side, got, tc.width, node.Style)
+		}
+	}
+}
+
 func TestComputedFontSizesAndFontRelativeLengths(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 		<html id=root style="font-size:20px;margin-left:1rem"><body>

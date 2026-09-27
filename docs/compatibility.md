@@ -1,6 +1,6 @@
-# WPT compatibility: 37/38 reference assertions passing
+# WPT compatibility: 38/38 reference assertions passing
 
-Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels; 1 compatibility failures, 0 runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
+Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels; 0 compatibility failures, 0 runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
 
 ![Stacked pass/fail graph by selected WPT tranche and area](compatibility.svg)
 
@@ -27,7 +27,7 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | `margin-padding-clear/margin-002.xht` | `margin-padding-clear/margin-002-ref.xht` | match | **pass** | 0 |
 | `margin-padding-clear/margin-003.xht` | `margin-padding-clear/margin-003-ref.xht` | match | **pass** | 0 |
 | `margin-padding-clear/margin-004.xht` | `margin-padding-clear/margin-004-ref.xht` | match | **pass** | 0 |
-| `positioning/absolute-non-replaced-height-003.xht` | `positioning/absolute-non-replaced-height-003-ref.xht` | match | **fail** | 5490 |
+| `positioning/absolute-non-replaced-height-003.xht` | `positioning/absolute-non-replaced-height-003-ref.xht` | match | **pass** | 0 |
 | `positioning/absolute-non-replaced-height-006.xht` | `positioning/absolute-non-replaced-height-006-ref.xht` | match | **pass** | 0 |
 | `positioning/position-relative-001.xht` | `positioning/position-relative-001-ref.xht` | match | **pass** | 0 |
 | `positioning/position-relative-003.xht` | `positioning/position-relative-003-ref.xht` | match | **pass** | 0 |

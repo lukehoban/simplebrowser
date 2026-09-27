@@ -152,30 +152,62 @@ func fill(dst *image.RGBA, rect image.Rectangle, c color.RGBA) {
 
 func borderWidth(style ComputedStyle, side string) int {
 	shorthand := style["border-"+side]
+	sideStyle := style["border-style-"+side]
+	if sideStyle == "" {
+		sideStyle = style["border-"+side+"-style"]
+	}
+	hasVisibleStyle := false
+	if sideStyle != "" {
+		switch strings.ToLower(strings.TrimSpace(sideStyle)) {
+		case "none", "hidden":
+			return 0
+		case "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset":
+			hasVisibleStyle = true
+		default:
+			return 0
+		}
+	} else {
+		for _, token := range parseValues(shorthand) {
+			switch strings.ToLower(token.Text) {
+			case "none", "hidden":
+				return 0
+			case "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset":
+				hasVisibleStyle = true
+			}
+		}
+	}
+	if !hasVisibleStyle {
+		// border-style is non-inherited and its initial value is none, so a
+		// specified width without a visible style has no used border width.
+		return 0
+	}
+
 	value := style["border-width-"+side]
 	if value == "" {
 		value = style["border-"+side+"-width"]
 	}
-	if value == "" && (strings.EqualFold(style["border-"+side+"-style"], "none") ||
-		strings.EqualFold(style["border-"+side+"-style"], "hidden")) {
-		return 0
-	}
-	for _, part := range strings.Fields(strings.ToLower(shorthand)) {
-		if value == "" && (part == "none" || part == "hidden") {
-			return 0
-		}
-	}
 	if value == "" {
-		for _, part := range strings.Fields(shorthand) {
-			if isBorderWidthKeyword(part) ||
-				classifyValue(part).Kind == "length" || classifyValue(part).Kind == "number" {
-				value = part
+		for _, token := range parseValues(shorthand) {
+			if isBorderWidthKeyword(token.Text) ||
+				token.Kind == "length" || token.Kind == "number" {
+				value = token.Text
 				break
 			}
 		}
 	}
 	if value == "" {
-		return 0
+		// CSS 2.1's initial border-width is medium: 3px for visible styles,
+		// while none/hidden have a used width of zero (checked above).
+		for _, token := range parseValues(shorthand) {
+			part := strings.ToLower(token.Text)
+			if token.Kind == "keyword" && part != "currentcolor" &&
+				!isBorderStyleKeyword(part) && !isBorderWidthKeyword(part) {
+				// Do not turn an invalid shorthand such as
+				// "solid wide" into a valid medium-width border.
+				return 0
+			}
+		}
+		return 3
 	}
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "thin":
@@ -190,6 +222,14 @@ func borderWidth(style ComputedStyle, side string) int {
 		return 0
 	}
 	return int(math.Min(4096, math.Round(n)))
+}
+
+func isBorderStyleKeyword(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset":
+		return true
+	}
+	return false
 }
 
 func isBorderWidthKeyword(value string) bool {

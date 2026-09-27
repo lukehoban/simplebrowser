@@ -588,7 +588,7 @@ func TestLayoutWrappedInlineBackgroundFragments(t *testing.T) {
 }
 
 func TestLayoutInlineImagesShareTextBaselineAndMargins(t *testing.T) {
-	doc := styledForLayout(t, `<p style="margin:0">A<img style="width:20px;height:20px;margin:2px 3px 4px 5px;padding:1px;border-width:1px">z</p>`)
+	doc := styledForLayout(t, `<p style="margin:0">A<img style="width:20px;height:20px;margin:2px 3px 4px 5px;padding:1px;border:1px solid">z</p>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))
 	if err != nil {
 		t.Fatal(err)
@@ -689,7 +689,7 @@ func TestLayoutTrimsTrailingCollapsibleWhitespacePerLine(t *testing.T) {
 }
 
 func TestLayoutClampsNarrowContentWidth(t *testing.T) {
-	doc := styledForLayout(t, `<div style="padding: 20px; border-width: 5px"><p style="margin:0">long word</p></div>`)
+	doc := styledForLayout(t, `<div style="padding: 20px; border: 5px solid"><p style="margin:0">long word</p></div>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 30, 200))
 	if err != nil {
 		t.Fatal(err)
