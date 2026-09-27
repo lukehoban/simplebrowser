@@ -16,10 +16,15 @@ remain future work.
 
 ![Current Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
 
-*Offline Hacker News snapshot rendered with the painter from
-[6c78247](https://github.com/lukehoban/simplebrowser/commit/6c782479b55259df391fbd0766ce684be6fd8380)
+*Offline Hacker News snapshot with link styling from
+[ff7ddad](https://github.com/lukehoban/simplebrowser/commit/ff7ddad40dd590d6cbf4b320e5450b36b2b5119f)
 (2026-09-26). The screenshot is a progress snapshot, not a pixel-accurate
 Hacker News reference.*
+
+**What's next**
+- [Paint decoded images (#11)](https://github.com/lukehoban/simplebrowser/issues/11).
+- [Fix trailing whitespace (#25)](https://github.com/lukehoban/simplebrowser/issues/25).
+- [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
@@ -35,11 +40,13 @@ make screenshot
 
 The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
 captured snapshot; rendering does not depend on live Hacker News availability.
-Links currently appear blue and underlined rather than matching HN's black
-titles and gray subtext; some underlines extend through trailing whitespace.
-Images are now fetched, decoded, and laid out, but the painter does not draw
-them yet, so the logo and vote arrows still appear as empty space pending
-[image support (#11)](https://github.com/lukehoban/simplebrowser/issues/11).
+HN's black titles and gray subtext now use the page's link styles. Remaining
+gaps include [trailing whitespace (#25)](https://github.com/lukehoban/simplebrowser/issues/25)
+and [typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
+Images are fetched, decoded, and laid out but [not yet painted (#11)](https://github.com/lukehoban/simplebrowser/issues/11);
+the missing logo and vote arrows also need
+[SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31) and
+[CSS background images (#32)](https://github.com/lukehoban/simplebrowser/issues/32).
 
 ## Architecture
 
@@ -129,7 +136,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [CSS parser and user-agent stylesheet (#6)](https://github.com/lukehoban/simplebrowser/issues/6) — implemented; review pending
 - [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7) — implemented
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
-- [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented; review pending
+- [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
 - [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, and layout implemented; painting and SVG pending
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture, checked-in screenshot, and render artifact in CI; visual fidelity in progress
