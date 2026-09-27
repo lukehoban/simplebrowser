@@ -452,6 +452,11 @@ func childFlowKind(child *StyledNode) flowKind {
 		// has no children to lay out.
 		return flowReplaced
 	}
+	if child.Node.Type == ElementNode && isInlineTableNode(child) {
+		// display:inline-table generates an atomic inline box that sits on a
+		// line with its siblings; its interior still uses table layout.
+		return flowInline
+	}
 	if child.Node.Type == ElementNode && isTableNode(child) {
 		return flowTable
 	}
@@ -480,7 +485,9 @@ func splitInlineBlocks(children []*StyledNode) []*StyledNode {
 	var result []*StyledNode
 	var hasBlock func(*StyledNode) bool
 	hasBlock = func(n *StyledNode) bool {
-		if childFlowKind(n) == flowSkip {
+		if childFlowKind(n) == flowSkip || isInlineTableNode(n) {
+			// An inline table is an atomic inline box: its internal table
+			// boxes never escape into the surrounding inline flow.
 			return false
 		}
 		for _, c := range n.Children {
@@ -526,10 +533,8 @@ func emptyInline(n *StyledNode) bool {
 	case "img", "br":
 		return false
 	}
-	if isAtomicInline(n) {
-		// An empty inline-block is still an atomic inline box: it generates a
-		// line box (and paints its background and borders) even with no
-		// content of its own.
+	if isInlineTableNode(n) || isAtomicInline(n) {
+		// Atomic inline boxes generate a line box even without content.
 		return false
 	}
 	for _, c := range n.Children {
@@ -1032,11 +1037,31 @@ type inlinePart struct {
 	// rather than as replaced content.
 	isBox       bool
 	backgrounds []*Node
+	// table holds a fully laid out inline-table fragment positioned at the
+	// origin. Placement translates it onto the line.
+	table         *Box
+	tableW        int
+	tableH        int
+	tableBaseline int // distance from the fragment's top margin edge
+	isTable       bool
 }
 
-// atomic reports whether a part is laid out as one unbreakable unit with an
-// explicit box size rather than as shaped text.
-func (p inlinePart) atomic() bool { return p.isImage || p.isBox }
+// atomic reports whether a part is laid out as an unbreakable unit.
+func (p inlinePart) atomic() bool { return p.isImage || p.isBox || p.isTable }
+
+func (p inlinePart) outerWidth() int {
+	if p.isTable {
+		return p.tableW
+	}
+	return p.outerImageWidth()
+}
+
+func (p inlinePart) outerHeight() int {
+	if p.isTable {
+		return p.tableH
+	}
+	return p.outerImageHeight()
+}
 
 // Inline descendants are flattened in document order, without manufacturing
 // whitespace between element boundaries. Text ownership survives flattening.
@@ -1050,6 +1075,10 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 			}
 			if n.Node.Name == "br" {
 				parts = append(parts, inlinePart{node: n.Node, style: n.Style, br: true})
+				return
+			}
+			if isInlineTableNode(n) {
+				parts = append(parts, inlineTablePart(n, width, faces))
 				return
 			}
 			if strings.EqualFold(n.Node.Name, "img") {
@@ -1110,8 +1139,8 @@ func inlineInnerEdges(n *StyledNode, width int) [4]int {
 	return edges
 }
 
-func (p inlinePart) outerWidth() int  { return p.imageW + p.imageEdges[1] + p.imageEdges[3] }
-func (p inlinePart) outerHeight() int { return p.imageH + p.imageEdges[0] + p.imageEdges[2] }
+func (p inlinePart) outerImageWidth() int  { return p.imageW + p.imageEdges[1] + p.imageEdges[3] }
+func (p inlinePart) outerImageHeight() int { return p.imageH + p.imageEdges[0] + p.imageEdges[2] }
 
 // borderBox returns the part's border box given the top-left of its margin
 // box, so backgrounds and borders paint inside the reserved margins.
@@ -1163,6 +1192,13 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			line.ascent, line.descent = faces.metrics(nodes[0].Style).lineMetrics()
 		}
 		for _, p := range line.parts {
+			if p.isTable {
+				// An inline table sits on the line with the baseline of its
+				// first row; content below that baseline hangs beneath it.
+				line.ascent = max(line.ascent, p.tableBaseline)
+				line.descent = max(line.descent, max(0, p.tableH-p.tableBaseline))
+				continue
+			}
 			if !p.atomic() {
 				continue
 			}
@@ -1282,6 +1318,14 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		penX := fixed.I(xpos) + (startPenX - fixed.I(x))
 		backgroundFragments := make(map[*Node]int)
 		for _, p := range l.parts {
+			if p.isTable {
+				outerY := baseline - p.tableBaseline
+				translateBox(p.table, penX.Round(), outerY)
+				box.Children = append(box.Children, p.table)
+				xpos = penX.Round() + p.tableW
+				penX = fixed.I(xpos)
+				continue
+			}
 			if p.atomic() {
 				outerHeight := p.outerHeight()
 				outerY := baseline - outerHeight
