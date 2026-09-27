@@ -5,18 +5,25 @@ milestone: a deterministic, static, above-the-fold render of the default-skin
 [Moon](https://en.wikipedia.org/wiki/Moon) article. Fixture, provenance and
 licenses: [`testdata/wikipedia-moon/`](../testdata/wikipedia-moon/README.md).
 
-![Chrome reference (left) vs current simplebrowser baseline (right)](screenshots/wikipedia-moon/comparison.png)
+- **Chrome reference:**
 
-- **Reference (left):** [`chrome-reference.png`](screenshots/wikipedia-moon/chrome-reference.png).
+  ![Chrome reference for the offline Moon fixture](screenshots/wikipedia-moon/chrome-reference.png)
+
+  [`chrome-reference.png`](screenshots/wikipedia-moon/chrome-reference.png)
   Headless Chrome 154 on macOS renders the same offline fixture served over
   local HTTP at 800×600, device scale 1. macOS font substitution:
   `sans-serif` → Helvetica, and `"Linux Libertine", Georgia, …` → Georgia.
   Only a 70×18 px header area, where live JavaScript adds a reading-list icon,
   differs from a live capture of the page.
-- **Baseline (right):** [`baseline.png`](screenshots/wikipedia-moon/baseline.png)
+- **Current simplebrowser baseline:**
+
+  ![Current simplebrowser diagnostic baseline for the offline Moon fixture](screenshots/wikipedia-moon/baseline.png)
+
+  [`baseline.png`](screenshots/wikipedia-moon/baseline.png)
   is today's output. It is a **non-blocking record, not a golden**: CI renders
   it as a `render` job artifact but never compares it. Refresh it with
-  `make moon-baseline` when the renderer changes.
+  `make moon-baseline` when the renderer changes. `make baselines` refreshes
+  this diagnostic together with the GitHub diagnostic and blocking HN golden.
 
 Reproduce offline from a clean checkout:
 

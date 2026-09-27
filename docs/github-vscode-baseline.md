@@ -7,17 +7,22 @@ is an authored, script-free stand-in assembled from a read-only public page
 inspection; it provides representative repository header, tabs, file list,
 and About landmarks while making the current renderer's limitations visible.
 
-![Chrome reference (left) vs current simplebrowser baseline (right)](screenshots/github-vscode/comparison.png)
+- **Chrome reference:**
 
-- **Reference (left):**
+  ![Chrome reference for the offline GitHub repository-page stand-in](screenshots/github-vscode/chrome-reference.png)
+
   [`chrome-reference.png`](screenshots/github-vscode/chrome-reference.png) is
   headless Google Chrome 154.0.8037.58 on macOS rendering the same offline
   fixture over local HTTP at 800×600, device scale 1.
-- **Baseline (right):**
+- **Current simplebrowser baseline:**
+
+  ![Current simplebrowser diagnostic baseline for the offline GitHub repository-page stand-in](screenshots/github-vscode/baseline.png)
+
   [`baseline.png`](screenshots/github-vscode/baseline.png) is today's
   simplebrowser output. It is a **diagnostic record, not a golden**: no CI job
   compares it. Refresh it with `make github-vscode-baseline` when the renderer
-  changes.
+  changes. `make baselines` refreshes this diagnostic together with the Moon
+  diagnostic and blocking HN golden.
 
 ## Reproduce
 
@@ -53,10 +58,9 @@ produce different pixels):
 ```
 
 The command is intentionally documented rather than made a portable Make
-target: a browser executable and its path are host-specific. The comparison
-is a labeled 1600×640 composition of the two 800×600 PNGs: the reference
-starts at (0, 40) and the baseline at (800, 40), below a 40-pixel label strip.
-Both panes are unscaled, pixel-exact copies of their source images.
+target: a browser executable and its path are host-specific. Documentation
+shows the pinned reference and current baseline separately so only the current
+renderer output needs refreshing.
 
 The reference is pinned to the original capture in PR #264, with SHA-256
 `08d37263f4de629f6d9968590a51210b29b9a7ca89438e9fea3c1a80e2747b9e`.
@@ -65,8 +69,7 @@ evaluation) left the GitHub baseline byte-identical across two regenerations
 and unchanged from the original PR: this stand-in contains no media queries.
 Integrating main `e3917f8d08751dc91aefc3167d7481303104859d` (overflow
 clipping) also left the baseline byte-identical in a fresh render. Both
-800×600 comparison panes still match their PNG sources pixel-for-pixel. The
-original reference and labeled comparison therefore remain intact.
+the Chrome reference and current baseline remain individual 800×600 images.
 
 ## Source, scope, and asset notes
 
