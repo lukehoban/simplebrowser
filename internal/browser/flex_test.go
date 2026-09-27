@@ -582,6 +582,48 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 48, 20), "a": image.Rect(0, 0, 20, 20), "b": image.Rect(28, 0, 48, 20)},
 		pixels: map[image.Point]color.RGBA{{5, 5}: red, {40, 5}: blue},
 	}, {
+		name:   "shrink-to-fit row uses an inflexible flex basis (#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:0 0 80px;width:20px;height:20px;background:red"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 80, 20), "a": image.Rect(0, 0, 80, 20), "n": image.Rect(80, 0, 90, 10)},
+		pixels: map[image.Point]color.RGBA{{75, 5}: red, {85, 5}: blue},
+	}, {
+		name:   "unitless flex shorthand implies an indefinite 0% basis (#291)",
+		source: `<div id="c" style="float:left;display:flex;height:10px;background:red"><div id="a" style="flex:0;width:40px;height:10px"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 40, 10), "n": image.Rect(40, 0, 50, 10)},
+		pixels: map[image.Point]color.RGBA{{35, 5}: {255, 0, 0, 255}, {45, 5}: {0, 0, 255, 255}},
+	}, {
+		name:   "two-number flex shorthand implies an indefinite 0% basis (#291)",
+		source: `<div id="c" style="float:left;display:flex;height:10px;background:red"><div id="a" style="flex:0 0;width:40px;height:10px"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 40, 10), "n": image.Rect(40, 0, 50, 10)},
+		pixels: map[image.Point]color.RGBA{{35, 5}: {255, 0, 0, 255}, {45, 5}: {0, 0, 255, 255}},
+	}, {
+		name:   "explicit zero-length flex basis stays definite (#291)",
+		source: `<div id="c" style="float:left;display:flex;height:10px;background:red"><div id="a" style="flex:0 0 0px;width:40px;height:10px"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 0, 10), "a": image.Rect(0, 0, 0, 10), "n": image.Rect(0, 0, 10, 10)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: {0, 0, 255, 255}},
+	}, {
+		name:   "mixed percentage calc basis is indefinite for floated intrinsic width (#282/#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex-grow:0;flex-shrink:0;flex-basis:calc(50% + 10px);width:40px;height:10px;background:red"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 40, 10), "a": image.Rect(0, 0, 30, 10)},
+	}, {
+		name:   "mixed percentage calc basis resolves in a definite row (#282/#291)",
+		source: `<div id="c" style="display:flex;width:100px"><div id="a" style="flex-grow:0;flex-shrink:0;flex-basis:calc(50% + 10px);width:40px;height:10px;background:red"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 100, 10), "a": image.Rect(0, 0, 60, 10)},
+	}, {
+		name:   "shrink-to-fit wrapping row uses inflexible flex bases (#291)",
+		source: `<div id="c" style="float:left;display:flex;flex-wrap:wrap;column-gap:8px"><div id="a" style="flex:0 0 50px;width:20px;height:20px;background:red"></div><div id="b" style="flex:0 0 30px;width:40px;padding-left:2px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 90, 20), "a": image.Rect(0, 0, 50, 20), "b": image.Rect(58, 0, 90, 20)},
+		pixels: map[image.Point]color.RGBA{{45, 5}: red, {85, 5}: blue},
+	}, {
+		name:   "flexible basis keeps the content contribution (#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:1;width:40px;height:10px"></div><div id="b" style="flex:0 1 80px;width:30px;height:10px"></div><div id="d" style="flex:1 0 5px;width:25px;height:10px"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 95, 10)},
+	}, {
+		name:   "min-width and max-width clamp a flex-basis contribution (#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:0 0 80px;min-width:100px;width:20px;height:10px"></div></div><div id="d" style="clear:left;float:left;display:flex"><div id="b" style="flex:0 0 80px;max-width:50px;height:10px"></div></div>`,
+		want: map[string]image.Rectangle{"c": image.Rect(0, 0, 100, 10), "a": image.Rect(0, 0, 100, 10),
+			"d": image.Rect(0, 10, 50, 20), "b": image.Rect(0, 10, 50, 20)},
+	}, {
 		name:   "nowrap keeps shrinking on one line",
 		source: `<div style="display:flex;width:100px"><div id="a" style="width:60px;height:10px"></div><div id="b" style="width:60px;height:10px"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 50, 10), "b": image.Rect(50, 0, 100, 10)},

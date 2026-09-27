@@ -408,6 +408,9 @@ func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 	children, _ := flexChildren(n)
 	for _, child := range children {
 		childMin, childMax := intrinsicWidths(child, faces)
+		if !column {
+			childMin, childMax = flexClampContribution(child, childMin), flexClampContribution(child, childMax)
+		}
 		switch {
 		case column:
 			minWidth, maxWidth = max(minWidth, childMin), max(maxWidth, childMax)
@@ -427,6 +430,72 @@ func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 		}
 	}
 	return minWidth, max(minWidth, maxWidth)
+}
+
+// flexClampContribution applies css-flexbox §9.9.3 to a row item's outer
+// intrinsic contribution: a definite flex base size caps it when the item
+// cannot grow and floors it when the item cannot shrink, then min-width and
+// max-width clamp it. Percentage sizes are indefinite while the container's
+// own width is being measured, so they are ignored here.
+func flexClampContribution(child *StyledNode, contribution int) int {
+	if child.Node.Parent == nil || child.Node.Type != ElementNode {
+		return contribution
+	}
+	margin := boxEdges(child, "margin", 0)
+	inner := inlineInnerEdges(child, 0)
+	edges := margin[1] + margin[3] + inner[1] + inner[3]
+	// Intrinsic measurement has no definite main size: a percentage (including
+	// a mixed calc()) must not resolve against the placeholder zero width.
+	if grow, shrink, basis, ok := flexFactors(child.Style, 0, false); ok && flexBasisIsLength(child.Style) {
+		outer := int(math.Round(basis)) + edges
+		if grow == 0 && contribution > outer {
+			contribution = outer
+		}
+		if shrink == 0 && contribution < outer {
+			contribution = outer
+		}
+	}
+	lengthOf := func(property string) (int, bool) {
+		value := strings.TrimSpace(child.Style[property])
+		if kind := classifyValue(value).Kind; kind != "length" && kind != "number" {
+			return 0, false
+		}
+		return max(0, int(math.Round(px(value, 0, 0)))) + edges, true
+	}
+	if maximum, ok := lengthOf("max-width"); ok && contribution > maximum {
+		contribution = maximum
+	}
+	if minimum, ok := lengthOf("min-width"); ok && contribution < minimum {
+		contribution = minimum
+	}
+	return contribution
+}
+
+// flexBasisIsLength reports whether the basis flexFactors resolved came from
+// an explicit length (flex-basis, or the flex shorthand's basis component)
+// rather than a percentage or other value that is indefinite during intrinsic
+// sizing. `flex:<number>` and `flex:<number> <number>` omit the basis
+// component, which per css-flexbox §7.1.1 means `0%`: a percentage, so it is
+// indefinite while the container's own width is being measured and the item
+// keeps its content contribution. An explicit `flex:0 0 0px` stays definite.
+func flexBasisIsLength(style ComputedStyle) bool {
+	value := strings.TrimSpace(style["flex-basis"])
+	if value == "" || strings.EqualFold(value, "auto") {
+		value = ""
+		switch fields := strings.Fields(style["flex"]); {
+		case len(fields) > 2:
+			value = fields[2]
+		case len(fields) == 2:
+			if _, err := strconv.ParseFloat(fields[1], 64); err != nil {
+				value = fields[1]
+			}
+		}
+		if value == "" {
+			return false
+		}
+	}
+	kind := classifyValue(value).Kind
+	return kind == "length" || kind == "number"
 }
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
