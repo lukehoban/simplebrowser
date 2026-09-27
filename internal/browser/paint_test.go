@@ -441,6 +441,13 @@ func TestPaintZIndexAutoAndZeroUseTreeOrder(t *testing.T) {
 	pixel(t, img, 10, 10, zGreen)
 }
 
+func TestPaintLaterAutoWidthPositionedSiblingCoversReference(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="position:relative"><div style="position:absolute;left:0;top:0;width:60px;height:60px;border:5px solid red"></div><div style="position:absolute;left:0;top:0;border:5px solid green"><div style="width:30px;height:30px;margin:10px;border:5px solid green"></div></div></div></body>`, image.Rect(0, 0, 100, 100))
+	for _, point := range []image.Point{{2, 2}, {67, 2}, {2, 67}, {67, 67}} {
+		pixel(t, img, point.X, point.Y, zGreen)
+	}
+}
+
 func TestPaintZIndexIgnoredOnNonPositionedBoxes(t *testing.T) {
 	// The static block's z-index is ignored, so the positioned box (z-index
 	// auto) still paints above it; a negative z-index on a static box does
