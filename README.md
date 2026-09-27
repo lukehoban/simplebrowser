@@ -21,7 +21,7 @@ advanced CSS remain future work.
 
 ![Current centered Hacker News fixture render: orange header, painted story text, and gray SVG logo placeholder](docs/screenshots/hn-fixture.png)
 
-**Compatibility benchmark: [6/13 pinned WPT reftests passing](docs/compatibility.md)**
+**Compatibility benchmark: [7/13 pinned WPT reftests passing](docs/compatibility.md)**
 ([JSON](docs/compatibility.json)). Run `make compatibility` to regenerate the
 committed report and inspect failed test/reference/diff PNGs in `artifacts/wpt/`.
 

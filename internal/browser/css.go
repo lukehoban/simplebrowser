@@ -590,7 +590,13 @@ func ResolveCSSURL(base, reference string) (string, error) {
 		if ref.RawQuery != "" || ref.Fragment != "" {
 			return "", fmt.Errorf("local stylesheet URL cannot have query or fragment")
 		}
-		return filepath.Join(filepath.Dir(base), filepath.FromSlash(ref.Path)), nil
+		path := filepath.FromSlash(ref.Path)
+		if filepath.IsAbs(path) {
+			return filepath.Clean(path), nil
+		}
+		// Return a stable path even when the document was opened by a
+		// relative name: background URLs are resolved again when fetched.
+		return filepath.Abs(filepath.Join(filepath.Dir(base), path))
 	}
 	u, err := url.Parse(base)
 	if err != nil {

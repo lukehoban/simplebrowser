@@ -7,9 +7,57 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 )
+
+// A stylesheet resolves its relative URL to an absolute local file before
+// fetchImages resolves it again against the page. Exercise both passes with
+// the pinned WPT fixture, rather than only testing ResolveCSSURL in isolation.
+func TestWPTLocalBackgroundImageMatchesReference(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", "testdata", "wpt", "backgrounds"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	render := func(name string) image.Image {
+		t.Helper()
+		var out bytes.Buffer
+		if err := RenderWithFetcher(filepath.Join(root, name), &out, &Fetcher{}); err != nil {
+			t.Fatal(err)
+		}
+		img, err := png.Decode(&out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return img
+	}
+	want := render("background-001-ref.xht")
+	for _, path := range []string{
+		filepath.Join(root, "background-002.xht"),
+		filepath.Join("..", "..", "testdata", "wpt", "backgrounds", "background-002.xht"),
+	} {
+		// Absolute and relative document inputs must both load the tile.
+		var out bytes.Buffer
+		if err := RenderWithFetcher(path, &out, &Fetcher{}); err != nil {
+			t.Fatal(err)
+		}
+		got, err := png.Decode(&out)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Bounds() != want.Bounds() {
+			t.Fatalf("%s image bounds: %v, want %v", path, got.Bounds(), want.Bounds())
+		}
+		for y := got.Bounds().Min.Y; y < got.Bounds().Max.Y; y++ {
+			for x := got.Bounds().Min.X; x < got.Bounds().Max.X; x++ {
+				if color.NRGBAModel.Convert(got.At(x, y)) != color.NRGBAModel.Convert(want.At(x, y)) {
+					t.Fatalf("%s differs from WPT reference at (%d,%d)", path, x, y)
+				}
+			}
+		}
+	}
+}
 
 func TestBackgroundRasterPaintAndStylesheetBase(t *testing.T) {
 	data := encodedTestImage(t, "png", image.Rect(0, 0, 2, 2))

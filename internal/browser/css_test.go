@@ -120,6 +120,31 @@ func TestExtractStylesRelativeAndInline(t *testing.T) {
 	}
 }
 
+func TestResolveCSSURLLocalAbsoluteAndRelative(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(dir, "pages", "page.html")
+	absolute := filepath.Join(dir, "assets", "tile.png")
+	relativeWant, err := filepath.Abs(filepath.Join("assets", "tile.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		base, ref, want string
+	}{
+		{base, absolute, absolute},
+		{base, "../assets/tile.png", absolute},
+		{base, "tile.png", filepath.Join(dir, "pages", "tile.png")},
+		{filepath.Join("pages", "page.html"), "../assets/tile.png", relativeWant},
+		{"https://example.com/pages/page.html", "/assets/tile.png", "https://example.com/assets/tile.png"},
+		{"https://example.com/pages/page.html", "../assets/tile.png", "https://example.com/assets/tile.png"},
+	} {
+		got, err := ResolveCSSURL(tc.base, tc.ref)
+		if err != nil || got != tc.want {
+			t.Errorf("ResolveCSSURL(%q, %q) = %q, %v; want %q", tc.base, tc.ref, got, err, tc.want)
+		}
+	}
+}
+
 func TestCSSMalformedInputTerminates(t *testing.T) {
 	for _, input := range []string{
 		"/* unterminated", `p { content: "unterminated`, "p { color: red; broken: ; }",
