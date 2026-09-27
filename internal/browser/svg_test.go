@@ -1248,6 +1248,110 @@ func TestSVGFillRuleAntialiasedEdge(t *testing.T) {
 	}
 }
 
+// Equivalent simple geometry must take the same antialiasing path regardless
+// of fill-rule. This skewed edge differed by up to 19 alpha levels when
+// even-odd used the lower-resolution scanline filler.
+func TestSVGEquivalentFillRulesHaveSameAntialiasing(t *testing.T) {
+	const d = "M2 2.13L18 3.01L18 17L2 17Z"
+	nonzero, evenodd := renderSVGFillRulePair(t, d)
+	for y := 0; y < 20; y++ {
+		for x := 0; x < 20; x++ {
+			a, b := nonzero.RGBAAt(x, y).A, evenodd.RGBAAt(x, y).A
+			if a != b {
+				t.Fatalf("alpha at (%d,%d): nonzero=%d evenodd=%d", x, y, a, b)
+			}
+		}
+	}
+
+	if path := os.Getenv("SVG_FILL_AA_VISUAL_PATH"); path != "" {
+		writeSVGFillAACloseup(t, path, nonzero, evenodd)
+	}
+}
+
+// Complex paths still require parity rasterization. Its denser vertical
+// sampling keeps near-horizontal edge coverage within one alpha level of the
+// vector rasterizer. The off-canvas second subpath conservatively selects the
+// parity path without changing the visible geometry.
+func TestSVGFillRuleComplexPathAntialiasing(t *testing.T) {
+	const d = "M2 2.13L18 3.01L18 17L2 17Z M-10 -10L-9 -10L-9 -9Z"
+	nonzero, evenodd := renderSVGFillRulePair(t, d)
+	maxDelta := 0
+	for y := 0; y < 20; y++ {
+		for x := 0; x < 20; x++ {
+			delta := int(nonzero.RGBAAt(x, y).A) - int(evenodd.RGBAAt(x, y).A)
+			if delta < 0 {
+				delta = -delta
+			}
+			if delta > maxDelta {
+				maxDelta = delta
+			}
+		}
+	}
+	if maxDelta > 1 {
+		t.Errorf("maximum alpha difference = %d, want <= 1", maxDelta)
+	}
+}
+
+func renderSVGFillRulePair(t *testing.T, d string) (*svgImage, *svgImage) {
+	t.Helper()
+	var images [2]*svgImage
+	for i, rule := range []string{"nonzero", "evenodd"} {
+		src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="black" fill-rule="` + rule + `" d="` + d + `"/></svg>`
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", rule, err)
+		}
+		images[i] = img
+	}
+	return images[0], images[1]
+}
+
+// writeSVGFillAACloseup enlarges source pixels without smoothing. The panels
+// are non-zero, even-odd, and an amplified red alpha-difference map.
+func writeSVGFillAACloseup(t *testing.T, path string, nonzero, evenodd *svgImage) {
+	t.Helper()
+	const scale, gap = 12, 8
+	panel := 20 * scale
+	out := image.NewRGBA(image.Rect(0, 0, panel*3+gap*2, panel))
+	drawPanel := func(offset int, pixel func(x, y int) color.RGBA) {
+		for y := 0; y < 20; y++ {
+			for x := 0; x < 20; x++ {
+				c := pixel(x, y)
+				for yy := 0; yy < scale; yy++ {
+					for xx := 0; xx < scale; xx++ {
+						out.SetRGBA(offset+x*scale+xx, y*scale+yy, c)
+					}
+				}
+			}
+		}
+	}
+	onWhite := func(img *svgImage) func(int, int) color.RGBA {
+		return func(x, y int) color.RGBA {
+			alpha := img.RGBAAt(x, y).A
+			return color.RGBA{255 - alpha, 255 - alpha, 255 - alpha, 255}
+		}
+	}
+	drawPanel(0, onWhite(nonzero))
+	drawPanel(panel+gap, onWhite(evenodd))
+	drawPanel((panel+gap)*2, func(x, y int) color.RGBA {
+		delta := int(nonzero.RGBAAt(x, y).A) - int(evenodd.RGBAAt(x, y).A)
+		if delta < 0 {
+			delta = -delta
+		}
+		amplified := min(255, delta*12)
+		return color.RGBA{255, uint8(255 - amplified), uint8(255 - amplified), 255}
+	})
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = png.Encode(f, out)
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		t.Fatalf("write fill antialiasing close-up: %v, %v", err, closeErr)
+	}
+}
+
 // Even-odd fill respects fill-opacity and composites once, not twice, where
 // subpaths meet.
 func TestSVGFillRuleOpacity(t *testing.T) {

@@ -949,43 +949,51 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			x, y := m.apply(p[0], p[1])
 			return float32(x), float32(y)
 		}
-		if shape.fill.A != 0 && shape.fillRule == "evenodd" {
-			if mask := svgEvenOddMask(flattenSVGShape(shape, m), w, h); mask != nil {
-				draw.DrawMask(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{}, mask, image.Point{}, draw.Over)
+		if shape.fill.A != 0 {
+			var paths []svgSubpath
+			useParityRasterizer := false
+			if shape.fillRule == "evenodd" {
+				paths = flattenSVGShape(shape, m)
+				useParityRasterizer = !svgFillRulesEquivalent(paths)
 			}
-		} else if shape.fill.A != 0 {
-			r.Reset(w, h)
-			drawn := false
-			for _, seg := range shape.segments {
-				switch seg.op {
-				case 'M':
-					x, y := pt(seg.pts[0])
-					if drawn {
+			if useParityRasterizer {
+				if mask := svgEvenOddMask(paths, w, h); mask != nil {
+					draw.DrawMask(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{}, mask, image.Point{}, draw.Over)
+				}
+			} else {
+				r.Reset(w, h)
+				drawn := false
+				for _, seg := range shape.segments {
+					switch seg.op {
+					case 'M':
+						x, y := pt(seg.pts[0])
+						if drawn {
+							r.ClosePath()
+						}
+						r.MoveTo(x, y)
+					case 'L':
+						x, y := pt(seg.pts[0])
+						r.LineTo(x, y)
+						drawn = true
+					case 'Q':
+						x1, y1 := pt(seg.pts[0])
+						x, y := pt(seg.pts[1])
+						r.QuadTo(x1, y1, x, y)
+						drawn = true
+					case 'C':
+						x1, y1 := pt(seg.pts[0])
+						x2, y2 := pt(seg.pts[1])
+						x, y := pt(seg.pts[2])
+						r.CubeTo(x1, y1, x2, y2, x, y)
+						drawn = true
+					case 'Z':
 						r.ClosePath()
 					}
-					r.MoveTo(x, y)
-				case 'L':
-					x, y := pt(seg.pts[0])
-					r.LineTo(x, y)
-					drawn = true
-				case 'Q':
-					x1, y1 := pt(seg.pts[0])
-					x, y := pt(seg.pts[1])
-					r.QuadTo(x1, y1, x, y)
-					drawn = true
-				case 'C':
-					x1, y1 := pt(seg.pts[0])
-					x2, y2 := pt(seg.pts[1])
-					x, y := pt(seg.pts[2])
-					r.CubeTo(x1, y1, x2, y2, x, y)
-					drawn = true
-				case 'Z':
-					r.ClosePath()
 				}
-			}
-			if drawn {
-				r.ClosePath()
-				r.Draw(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{})
+				if drawn {
+					r.ClosePath()
+					r.Draw(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{})
+				}
 			}
 		}
 		if shape.stroke.A != 0 && shape.width > 0 {
