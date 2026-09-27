@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="96" viewBox="0 0 180 96">
+  <rect width="180" height="96" fill="#fff"/>
+  <g fill="none" stroke-width="4" stroke-linecap="round">
+    <path stroke="#1766aa" stroke-dasharray="8 5" d="M10 18H170"/>
+    <path stroke="#ee5511" stroke-dasharray="10 4 2 4" stroke-dashoffset="5" d="M10 40H75V65H150"/>
+    <path stroke="#228855" stroke-dasharray="7 4" stroke-dashoffset="2" d="M22 80H54V68H78V80H110"/>
+  </g>
+  <rect x="130" y="58" width="32" height="28" fill="none" stroke="#663399" stroke-width="3" stroke-dasharray="9 5" stroke-dashoffset="3"/>
+</svg>
