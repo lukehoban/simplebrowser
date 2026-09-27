@@ -1,7 +1,7 @@
 # Color keyword token regression
 
 Issue [#181](https://github.com/lukehoban/simplebrowser/issues/181) fixes the
-pinned WPT `colors/colors-007.xht` without changing the benchmark manifest.
+pinned WPT `colors/colors-007.xht`, now part of the 38-test benchmark manifest.
 The fixture and its reference are unmodified upstream files at the revision
 documented in [`testdata/wpt/README.md`](../testdata/wpt/README.md).
 
