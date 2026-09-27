@@ -11,20 +11,24 @@ tracks progress toward a recognizable Hacker News page.
 *Current render of the checked-in, offline [Hacker News fixture](testdata/hn/news.html);
 not a pixel-perfect browser reference.*
 
-**Compatibility:** [12/13 pinned WPT reftests passing](docs/compatibility.md)
+**Compatibility benchmark: [13/13 pinned WPT reftests passing](docs/compatibility.md)**
 ([JSON results](docs/compatibility.json)). The 800×600 exact-pixel subset covers
 colors, backgrounds, normal flow, and tables. This is a small, pinned test set,
-not a general web-platform conformance score.
+not a general web-platform conformance score. Run `make compatibility` to
+regenerate the committed report and inspect failure diagnostics in
+`artifacts/wpt/`.
 
 **What works:** HTTP(S) and local-file loading; HTML parsing; CSS cascade; block,
 inline, and table layout; PNG painting of text, borders, images, and a subset of
 SVG. Raster CSS backgrounds paint in layers, and local SVG `<defs>`/`<use>`
-references are supported. The offline HN fixture is rendered in CI, with the
-result available as a [workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
+references are supported. Bounded two-color CSS `linear-gradient()` backgrounds
+support directions, angles, and percentage stops. The offline HN fixture is
+rendered in CI, with the result available as a
+[workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
 
 **What's next:** Improve [HN fidelity (#12)](https://github.com/lukehoban/simplebrowser/issues/12),
-including the [remaining WPT pixel mismatch (#71)](https://github.com/lukehoban/simplebrowser/issues/71),
-[CSS gradients (#41)](https://github.com/lukehoban/simplebrowser/issues/41), and
+including broader CSS gradient syntax such as
+[color hints (#127)](https://github.com/lukehoban/simplebrowser/issues/127), and
 [SVG gradients and opacity (#84)](https://github.com/lukehoban/simplebrowser/issues/84).
 See [epic #2](https://github.com/lukehoban/simplebrowser/issues/2) for the live
 checklist and further scope.

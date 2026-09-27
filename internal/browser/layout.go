@@ -43,6 +43,10 @@ type TextRun struct {
 	Style ComputedStyle
 	Text  string
 	Rect  image.Rectangle
+	// PenX retains the 26.6 CSS-pixel text origin. Rect stays pixel-aligned
+	// for clipping and diagnostics; the font drawer uses PenX so separately
+	// laid-out inline/table fragments keep the same glyph phase as one run.
+	PenX fixed.Int26_6
 }
 
 type metrics struct {
@@ -503,6 +507,8 @@ func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
 type containingBlock struct {
 	x, y, width, height int
 	viewport            image.Rectangle
+	inlinePenX          fixed.Int26_6
+	hasInlinePenX       bool
 }
 
 func positioned(n *StyledNode) bool {
@@ -538,7 +544,11 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		if len(inline) == 0 {
 			return
 		}
-		if b, h := layoutInline(parent.Node, parent.Style, inline, x, cursor+pending.value(), width, faces); b != nil {
+		inlineX := fixed.I(x)
+		if cb.hasInlinePenX {
+			inlineX = cb.inlinePenX
+		}
+		if b, h := layoutInlineAt(parent.Node, parent.Style, inline, x, cursor+pending.value(), width, inlineX, faces); b != nil {
 			cursor += pending.value()
 			pending = collapsedMargin{}
 			boxes = append(boxes, b)
@@ -720,6 +730,7 @@ func translatePositionedBox(box *Box, dx, dy int) *Box {
 	box.Content = box.Content.Add(image.Pt(dx, dy))
 	for i := range box.Text {
 		box.Text[i].Rect = box.Text[i].Rect.Add(image.Pt(dx, dy))
+		box.Text[i].PenX += fixed.I(dx)
 	}
 	for i := range box.Images {
 		box.Images[i].Rect = box.Images[i].Rect.Add(image.Pt(dx, dy))
@@ -820,6 +831,10 @@ type inlineLine struct {
 }
 
 func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+	return layoutInlineAt(parent, parentStyle, nodes, x, y, width, fixed.I(x), faces)
+}
+
+func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, startPenX fixed.Int26_6, faces *faceSet) (*Box, int) {
 	width = max(0, width)
 	var lines []inlineLine
 	line := inlineLine{}
@@ -961,6 +976,7 @@ func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, 
 			xpos += max(0, (width-int((l.width+63)/64))/2)
 		}
 		baseline := cursor + l.ascent
+		penX := fixed.I(xpos) + (startPenX - fixed.I(x))
 		for _, p := range l.parts {
 			if p.isImage {
 				outerHeight := p.outerImageHeight()
@@ -974,14 +990,17 @@ func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, 
 					xHalf := int(math.Ceil(faces.metrics(p.style).size / 4))
 					outerY = baseline - xHalf - outerHeight/2
 				}
-				contentX := xpos + p.imageEdges[3]
+				contentX := penX.Round() + p.imageEdges[3]
 				contentY := outerY + p.imageEdges[0]
 				box.Images = append(box.Images, ImageBox{Image: p.image,
 					Rect: image.Rect(contentX, contentY, contentX+p.imageW, contentY+p.imageH)})
-				xpos += p.outerImageWidth()
+				xpos = penX.Round() + p.outerImageWidth()
+				penX = fixed.I(xpos)
 				continue
 			}
-			w := faces.metrics(p.style).width(p.text)
+			advance := faces.metrics(p.style).advance(p.text)
+			left := penX.Floor()
+			right := (penX + advance).Ceil()
 			textAscent, textDescent := faces.metrics(p.style).lineMetrics()
 			textY := baseline - textAscent
 			if len(box.Text) != 0 {
@@ -991,14 +1010,16 @@ func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, 
 					// widths rounds up once per word and space, which made
 					// runs (and their underlines) overshoot the drawn glyphs.
 					last.Text += p.text
-					last.Rect.Max.X = last.Rect.Min.X + faces.metrics(p.style).width(last.Text)
-					xpos = last.Rect.Max.X
+					last.Rect.Max.X = max(last.Rect.Max.X, right)
+					penX += advance
+					xpos = penX.Round()
 					continue
 				}
 			}
 			box.Text = append(box.Text, TextRun{Node: p.node, Style: p.style, Text: p.text,
-				Rect: image.Rect(xpos, textY, xpos+w, textY+textAscent+textDescent)})
-			xpos += w
+				Rect: image.Rect(left, textY, right, textY+textAscent+textDescent), PenX: penX})
+			penX += advance
+			xpos = penX.Round()
 		}
 		cursor += l.height
 	}
