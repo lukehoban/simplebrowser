@@ -88,11 +88,11 @@ type winningDeclaration struct {
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
 	inline []Declaration, viewport image.Point) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
-		"font-size": "16px", "font-style": "normal", "font-weight": "normal",
+		"font-size": "16px", "font-style": "normal", "font-variant": "normal", "font-weight": "normal",
 		"line-height": "normal", "text-align": "start"}
 	// border-spacing is inherited (CSS 2.1 §17.6.1); the UA table rule sets 2px.
 	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
-		"font-style", "font-weight", "line-height", "text-align"} {
+		"font-style", "font-variant", "font-weight", "line-height", "text-align"} {
 		if parent != nil {
 			values[p] = parent[p]
 		}
@@ -101,6 +101,13 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	order := 0
 	add := func(d Declaration, spec [3]int, origin int, isInline bool) {
 		for _, expanded := range expandDeclaration(d) {
+			if expanded.Property == "font-variant" {
+				switch strings.ToLower(strings.TrimSpace(expanded.Value)) {
+				case "normal", "small-caps", "inherit":
+				default:
+					continue
+				}
+			}
 			order++
 			candidate := winningDeclaration{expanded, d.Important, isInline, origin, order, spec}
 			old, ok := winners[expanded.Property]
@@ -532,14 +539,14 @@ var systemFontSizes = map[string]string{
 // malformed shorthand from partially changing style.
 func expandFont(d Declaration) []Declaration {
 	if size, ok := systemFontSizes[strings.ToLower(strings.TrimSpace(d.Value))]; ok {
-		return fontDeclarations(d, "normal", "normal", size, "normal", "sans-serif")
+		return fontDeclarations(d, "normal", "normal", "normal", size, "normal", "sans-serif")
 	}
 	tokens, ok := tokenizeFont(d.Value)
 	if !ok || len(tokens) < 2 {
 		return nil
 	}
 
-	style, weight := "normal", "normal"
+	style, variant, weight := "normal", "normal", "normal"
 	seenStyle, seenVariant, seenWeight, optionalCount := false, false, false, 0
 	sizeIndex := -1
 	for i, token := range tokens {
@@ -565,7 +572,7 @@ func expandFont(d Declaration) []Declaration {
 			if seenVariant {
 				return nil
 			}
-			seenVariant = true
+			variant, seenVariant = lower, true
 		case validFontWeight(lower):
 			if seenWeight {
 				return nil
@@ -598,15 +605,16 @@ func expandFont(d Declaration) []Declaration {
 	}
 	family := joinFontFamily(tokens[index:])
 
-	return fontDeclarations(d, style, weight, size, lineHeight, family)
+	return fontDeclarations(d, style, variant, weight, size, lineHeight, family)
 }
 
-func fontDeclarations(d Declaration, style, weight, size, lineHeight, family string) []Declaration {
+func fontDeclarations(d Declaration, style, variant, weight, size, lineHeight, family string) []Declaration {
 	property := func(name, value string) Declaration {
 		return Declaration{Property: name, Value: value, Values: parseValues(value), Important: d.Important}
 	}
 	return []Declaration{
 		property("font-style", style),
+		property("font-variant", variant),
 		property("font-weight", weight),
 		property("font-size", size),
 		property("line-height", lineHeight),
