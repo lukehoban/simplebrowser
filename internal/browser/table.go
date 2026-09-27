@@ -1324,6 +1324,14 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 }
 
 func translateBox(b *Box, dx, dy int) {
+	if b != nil {
+		if b.externalPositionX {
+			dx = 0
+		}
+		if b.externalPositionY {
+			dy = 0
+		}
+	}
 	if b == nil || (dx == 0 && dy == 0) {
 		return
 	}
