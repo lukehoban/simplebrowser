@@ -97,3 +97,67 @@ func TestCompoundBackgroundPixels(t *testing.T) {
 	pixel(t, fontImg, 29, 29, color.RGBA{255, 0, 0, 255})
 	pixel(t, fontImg, 30, 29, color.RGBA{0, 128, 0, 255})
 }
+
+func TestCalcLengthDeclarationsGeometryAndPixels(t *testing.T) {
+	doc := styledForLayout(t, `<html style="font-size:20px"><body style="margin:0">
+		<div id="wrap" style="width:400px">
+			<div id="fixed" style="width:calc(250px * 1.1);height:20px;background:green"></div>
+			<div id="percent" style="width:calc(100% - 20px);height:20px;background:blue"></div>
+			<div id="half" style="width:calc(100% * .5)"></div>
+			<div id="units" style="font-size:10px;width:calc(10em + 10vw);height:calc(10vh / 2)"></div>
+			<div id="variable" style="--size:250px;width:calc(var(--size) * 1.1)"></div>
+			<div id="fallback" style="width:99px;width:calc(1px + 2)"></div>
+			<div id="divide" style="width:98px;width:calc(10px / 0)"></div>
+		</div></body></html>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id            string
+		width, height int
+	}{
+		{"fixed", 275, 20},
+		{"percent", 380, 20},
+		{"half", 200, 0},
+		{"units", 180, 30},
+		{"variable", 275, 0},
+		{"fallback", 99, 0},
+		{"divide", 98, 0},
+	} {
+		box := boxesByID(got.Root, tc.id)[tc.id]
+		if box == nil {
+			t.Fatalf("missing #%s box", tc.id)
+		}
+		if box.Rect.Dx() != tc.width || tc.height != 0 && box.Rect.Dy() != tc.height {
+			t.Errorf("#%s rect = %v, want width %d height %d", tc.id, box.Rect, tc.width, tc.height)
+		}
+	}
+	img := painted(t, `<body style="margin:0"><div style="width:400px">
+		<div style="width:calc(250px * 1.1);height:20px;background:green"></div>
+		<div style="width:calc(100% - 20px);height:20px;background:blue"></div>
+		</div></body>`, image.Rect(0, 0, 800, 600))
+	pixel(t, img, 274, 5, color.RGBA{0, 128, 0, 255})
+	pixel(t, img, 275, 5, color.RGBA{255, 255, 255, 255})
+	pixel(t, img, 379, 25, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 380, 25, color.RGBA{255, 255, 255, 255})
+}
+
+func TestCalcInvalidVariableUsesUnsetAndValidSupports(t *testing.T) {
+	doc := styledForLayout(t, `<style>
+		#supported { width:calc(100% - 20px) }
+		#invalid { width:40px }
+		</style><div id="supported" style="width:calc(100% - 20px)"></div>
+		<div id="invalid" style="--bad:1; width:calc(var(--bad) + 2px)"></div>`)
+	supported := styledElementByID(doc.StyleRoot, "supported")
+	if !featureSupported("width", "calc(100% - 20px)") {
+		t.Error("@supports rejected a supported calc() length")
+	}
+	if got := supported.Style["width"]; got != "calc(100% - 20px)" {
+		t.Errorf("computed width before layout = %q", got)
+	}
+	invalid := styledElementByID(doc.StyleRoot, "invalid")
+	if invalid.Style["width"] == "calc(var(--bad) + 2px)" || invalid.Style["width"] == "40px" {
+		t.Errorf("invalid substituted width should behave as unset, got %q", invalid.Style["width"])
+	}
+}

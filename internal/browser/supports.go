@@ -261,6 +261,9 @@ func featureSupported(property, value string) bool {
 	case "inherit":
 		return true // resolved generically by the cascade
 	}
+	if calcLengthProperty(property) && strings.Contains(strings.ToLower(value), "calc(") {
+		return validCalcDeclaration(property, value)
+	}
 	return valid(strings.TrimSpace(value))
 }
 
@@ -286,8 +289,9 @@ func supportsOr(validators ...func(string) bool) func(string) bool {
 	}
 }
 
-// Math functions (calc, round, min, ...) are functions, not lengths, so they
-// are rejected here; classifyValue does not evaluate them.
+// Math functions are evaluated by the computed-value pipeline for the
+// supported ordinary length properties. Other function-valued lengths remain
+// outside this compact validator.
 func lengthOrPercentage(v string) bool {
 	c := classifyValue(v)
 	return c.Kind == "length" || c.Kind == "percentage" || c.Kind == "number" && c.Number == 0

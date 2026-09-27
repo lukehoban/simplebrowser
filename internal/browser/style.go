@@ -148,6 +148,16 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 		for _, expanded := range expandedDeclarations {
 			invalid := expanded.Value == invalidVariable
+			if !invalid && !validCalcDeclaration(expanded.Property, expanded.Value) {
+				if candidate.validateAfterSubstitution {
+					expanded.Value = invalidVariable
+					invalid = true
+				} else {
+					// A malformed calc() is invalid at parse time, so it does
+					// not displace a lower-priority valid declaration.
+					continue
+				}
+			}
 			if candidate.validateAfterSubstitution && !invalid &&
 				!validSubstitutedDeclaration(expanded.Property, expanded.Value) {
 				expanded.Value = invalidVariable
@@ -284,6 +294,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		rootFontSize = computedFontSize(values)
 	}
 	resolveFontRelativeValues(values, rootFontSize)
+	normalizeCalcValues(values, viewport.X, viewport.Y, rootFontSize)
 	return values
 }
 
@@ -294,6 +305,9 @@ func validSubstitutedDeclaration(property, value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "inherit", "initial", "unset":
 		return true
+	}
+	if calcLengthProperty(property) && strings.Contains(strings.ToLower(value), "calc(") {
+		return validCalcDeclaration(property, value)
 	}
 	if validate, ok := supportValidators[property]; ok {
 		return validate(strings.TrimSpace(value))
