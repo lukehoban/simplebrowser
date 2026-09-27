@@ -534,11 +534,23 @@ func shrink(widths []int, available int) {
 }
 
 // layoutTable lays out a table element at x, y inside width pixels and returns
-// its box plus the vertical space it consumes, including margins.
-func layoutTable(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+// its box plus the vertical space it consumes, including margins. parentTextAlign
+// is kept separate from the table's inherited text-align so centering the table
+// does not change alignment of its inline descendants.
+func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *faceSet) (*Box, int) {
 	width = max(0, width)
 	margin := boxEdges(n, "margin", float64(width))
 	border := boxEdges(n, "border-width", float64(width))
+	autoLeft := strings.EqualFold(strings.TrimSpace(n.Style["margin-left"]), "auto")
+	autoRight := strings.EqualFold(strings.TrimSpace(n.Style["margin-right"]), "auto")
+	specifiedWidth := strings.TrimSpace(n.Style["width"])
+	if !autoLeft && !autoRight && specifiedWidth != "" &&
+		!strings.EqualFold(specifiedWidth, "auto") &&
+		strings.EqualFold(strings.TrimSpace(parentTextAlign), "center") {
+		// Legacy <center> applies text-align:center to its children. Browsers
+		// also center explicitly sized descendant tables as block boxes.
+		autoLeft, autoRight = true, true
+	}
 	available := max(0, width-margin[1]-margin[3]-border[1]-border[3])
 
 	grid := buildTableGrid(n)
@@ -546,7 +558,7 @@ func layoutTable(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
 	sizes := grid.columnSizes()
 
 	contentWidth := available
-	if value := strings.TrimSpace(n.Style["width"]); value != "" && !strings.EqualFold(value, "auto") {
+	if value := specifiedWidth; value != "" && !strings.EqualFold(value, "auto") {
 		contentWidth = min(available, max(0, int(math.Round(px(value, float64(available), float64(available))))))
 	} else {
 		intrinsic := grid.spacing * (grid.columns + 1)
@@ -562,6 +574,17 @@ func layoutTable(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
 	}
 	spacingTotal := grid.spacing * (grid.columns + 1)
 	columnWidths := resolveColumns(sizes, contentWidth-spacingTotal)
+
+	free := max(0, width-margin[1]-margin[3]-border[1]-border[3]-contentWidth)
+	switch {
+	case autoLeft && autoRight:
+		margin[3] += free / 2
+		margin[1] += free - free/2
+	case autoLeft:
+		margin[3] += free
+	case autoRight:
+		margin[1] += free
+	}
 
 	originX := x + margin[3] + border[3]
 	originY := y + margin[0] + border[0]
