@@ -104,6 +104,50 @@ func TestLayoutSharedInlineFlowAndStyleIdentity(t *testing.T) {
 	}
 }
 
+func TestLayoutBlockInsideInlineSplitsLinesWithoutAligningBlock(t *testing.T) {
+	doc := styledForLayout(t, `<section style="width:200px;text-align:right"><span><b style="color:red">before<div style="width:40px">block</div>after</b></span><i>tail</i></section>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := got.Root.Children[0]
+	if len(section.Children) != 3 {
+		t.Fatalf("expected inline fragment, block, inline fragment: %#v", section.Children)
+	}
+	before, block, after := section.Children[0], section.Children[1], section.Children[2]
+	if len(before.Text) != 1 || before.Text[0].Text != "before" ||
+		len(block.Children) != 1 || block.Children[0].Text[0].Text != "block" ||
+		len(after.Text) != 2 || after.Text[0].Text != "after" || after.Text[1].Text != "tail" {
+		t.Fatalf("split lost ordered inline content: %#v", section.Children)
+	}
+	if before.Text[0].Style["color"] != "red" || after.Text[0].Style["color"] != "red" {
+		t.Fatal("inline descendants lost their inherited style")
+	}
+	if before.Text[0].Rect.Max.X != section.Content.Max.X ||
+		after.Text[1].Rect.Max.X != section.Content.Max.X {
+		t.Fatalf("text-align:right did not align fragments: %#v", section.Children)
+	}
+	if block.Rect.Min.X != section.Content.Min.X || block.Rect.Dx() != 40 {
+		t.Fatalf("block wrongly aligned by text-align: %v", block.Rect)
+	}
+	if before.Rect.Max.Y != block.Rect.Min.Y || block.Rect.Max.Y != after.Rect.Min.Y {
+		t.Fatalf("block did not split the inline lines: %#v", section.Children)
+	}
+}
+
+func TestLayoutBlockInsideInlineWithEmptySides(t *testing.T) {
+	doc := styledForLayout(t, `<div><span><div>one</div><span style="display:none">hidden</span><div>two</div></span></div>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := got.Root.Children[0].Children
+	if len(children) != 2 || children[0].Children[0].Text[0].Text != "one" ||
+		children[1].Children[0].Text[0].Text != "two" {
+		t.Fatalf("empty inline fragments should not create line boxes: %#v", children)
+	}
+}
+
 func TestLayoutInlineWrappingAcrossNodeBoundaries(t *testing.T) {
 	doc := styledForLayout(t, `<p style="margin:0">abc<b>def</b> ghi</p>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 75, 200))

@@ -2,8 +2,8 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "total": 13,
-  "pass": 10,
-  "fail": 3,
+  "pass": 11,
+  "fail": 2,
   "error": 0,
   "results": [
     {
@@ -80,8 +80,8 @@
       "test": "normal-flow/block-in-inline-align-001.html",
       "reference": "normal-flow/block-in-inline-align-001-ref.html",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 2678
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "tables/anonymous-table-box-width-001.xht",

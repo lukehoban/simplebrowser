@@ -278,6 +278,43 @@ func childFlowKind(child *StyledNode) flowKind {
 	return flowBlock
 }
 
+// A block descendant of an inline element participates in the enclosing
+// block formatting context, not in its inline line box. Split the inline
+// wrapper into before/after fragments, retaining the original styled leaves
+// (and hence their inherited font/color) on either side of the block.
+func splitInlineBlocks(children []*StyledNode) []*StyledNode {
+	var result []*StyledNode
+	var hasBlock func(*StyledNode) bool
+	hasBlock = func(n *StyledNode) bool {
+		if childFlowKind(n) == flowSkip {
+			return false
+		}
+		for _, c := range n.Children {
+			if childFlowKind(c) != flowInline || hasBlock(c) {
+				return true
+			}
+		}
+		return false
+	}
+	var appendChild func(*StyledNode)
+	appendChild = func(n *StyledNode) {
+		if childFlowKind(n) == flowSkip {
+			return
+		}
+		if childFlowKind(n) != flowInline || !hasBlock(n) {
+			result = append(result, n)
+			return
+		}
+		for _, c := range n.Children {
+			appendChild(c)
+		}
+	}
+	for _, child := range children {
+		appendChild(child)
+	}
+	return result
+}
+
 // emptyInline reports whether inline content would produce no line box:
 // whitespace-only text and elements containing nothing else. Such content
 // does not separate adjoining vertical margins.
@@ -421,7 +458,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		if len(inline) == 0 {
 			return
 		}
-		if b, h := layoutInline(parent.Node, inline, x, cursor+pending.value(), width, faces); b != nil {
+		if b, h := layoutInline(parent.Node, parent.Style, inline, x, cursor+pending.value(), width, faces); b != nil {
 			cursor += pending.value()
 			pending = collapsedMargin{}
 			boxes = append(boxes, b)
@@ -429,7 +466,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		}
 		inline = nil
 	}
-	for _, child := range parent.Children {
+	for _, child := range splitInlineBlocks(parent.Children) {
 		kind := childFlowKind(child)
 		switch kind {
 		case flowSkip:
@@ -590,7 +627,7 @@ type inlineLine struct {
 	height  int
 }
 
-func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
 	width = max(0, width)
 	var lines []inlineLine
 	line := inlineLine{}
@@ -725,6 +762,12 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	cursor := y
 	for _, l := range lines {
 		xpos := x
+		switch strings.ToLower(strings.TrimSpace(parentStyle["text-align"])) {
+		case "right", "end":
+			xpos += max(0, width-int((l.width+63)/64))
+		case "center":
+			xpos += max(0, (width-int((l.width+63)/64))/2)
+		}
 		baseline := cursor + l.ascent
 		for _, p := range l.parts {
 			if p.isImage {
