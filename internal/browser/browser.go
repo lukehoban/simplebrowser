@@ -54,6 +54,7 @@ type StyledNode struct {
 type Layout struct {
 	Document StyledDocument
 	Viewport image.Rectangle
+	Root     *Box
 }
 
 // Render runs source through each browser stage and writes a PNG to output.
@@ -97,11 +98,7 @@ func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error 
 }
 
 func layout(document StyledDocument) (Layout, error) {
-	// Issues #8 and #9 will create block, inline, and table layout boxes.
-	return Layout{
-		Document: document,
-		Viewport: image.Rect(0, 0, placeholderWidth, placeholderHeight),
-	}, nil
+	return LayoutWithViewport(document, image.Rect(0, 0, placeholderWidth, placeholderHeight))
 }
 
 func paint(layout Layout, output io.Writer) error {

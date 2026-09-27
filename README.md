@@ -4,10 +4,10 @@
 to turn a URL or HTML file into a PNG, with enough web-platform support to
 render [Hacker News](https://news.ycombinator.com/) recognizably.
 
-The project is at the **style computation stage**. The CLI fetches HTTP(S) pages,
-builds a DOM, loads CSS, and computes selector matches, the cascade, inheritance,
-and useful presentational HTML defaults. Painting still emits a deterministic
-placeholder image; layout and page rendering are not implemented yet.
+The project has a working fetch, parse, cascade, and initial block/inline layout
+pipeline. The CLI fetches HTTP(S) pages, builds a DOM, loads CSS, and computes
+deterministic box geometry and wrapped text runs. Painting still emits a
+deterministic placeholder image.
 
 ## Architecture
 
@@ -30,7 +30,9 @@ not a complete HTML5 parsing algorithm.
 `ExtractStyles` collects author stylesheets in DOM order (using `Document.BaseURL`
 for linked resources) and inline declarations by node. `UserAgentStylesheet`
 provides defaults separately. CSS parsing supports common selectors, values,
-and `!important`; computed styles retain CSS text for the layout stage to convert.
+and `!important`; computed styles retain CSS text for layout to convert. Layout
+exposes boxes and text runs through `Layout.Root`, with configurable viewport
+geometry and basic embedded Go font metrics.
 
 ## Usage
 
@@ -40,7 +42,8 @@ Go 1.24 or later is required.
 go run ./cmd/simplebrowser -o out.png https://example.com/
 ```
 
-The output is currently an 800×600 placeholder PNG. HTTP(S) resources are
+The output is currently an 800×600 placeholder PNG while painting is developed.
+HTTP(S) resources are
 fetched with bounded HTTP/1.1 responses, redirects, and gzip support. Local
 paths and `file://` URLs read the supplied file.
 
@@ -63,7 +66,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [HTML tokenizer, parser, and DOM (#5)](https://github.com/lukehoban/simplebrowser/issues/5) — implemented; review pending
 - [CSS parser and user-agent stylesheet (#6)](https://github.com/lukehoban/simplebrowser/issues/6) — implemented; review pending
 - [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7) — implemented
-- [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8)
+- [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented; review pending
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9)
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10)
 - [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11)
