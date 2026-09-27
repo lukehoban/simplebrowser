@@ -20,12 +20,13 @@ const maxDataURLHeaderBytes = 4 << 10
 // fetchImages loads visible img resources once per render. Individual failures
 // are deliberately non-fatal: layout still reserves the dimensions requested
 // by HTML/CSS and can display a broken-image placeholder in a later painter.
-func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*Node]image.Image, map[*Node][]image.Image) {
+func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*Node]image.Image, map[*Node][]image.Image, map[*Node][]image.Image) {
 	if fetcher == nil {
 		fetcher = &Fetcher{}
 	}
 	images := make(map[*Node]image.Image)
 	backgrounds := make(map[*Node][]image.Image)
+	masks := make(map[*Node][]image.Image)
 	cache := make(map[string]image.Image)
 	visited := make(map[string]bool)
 	load := func(base, source string) image.Image {
@@ -75,12 +76,21 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 				}
 			}
 		}
+		if n.Node.Type == ElementNode && hasMask(n.Style) {
+			for _, layer := range backgroundLayers(n.Style["mask-image"]) {
+				var decoded image.Image
+				if source := backgroundURL(layer); source != "" {
+					decoded = load(document.BaseURL, source)
+				}
+				masks[n.Node] = append(masks[n.Node], decoded)
+			}
+		}
 		for _, child := range n.Children {
 			visit(child)
 		}
 	}
 	visit(root)
-	return images, backgrounds
+	return images, backgrounds, masks
 }
 
 // decodeDataImageURL decodes supported image data URLs without network access.

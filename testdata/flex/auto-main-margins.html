@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- Isolated repro for #315: main-axis `margin:auto` absorbing free space. -->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Flex main-axis auto margins</title>
+<style>
+  body { margin: 0; font: 16px monospace; background: #fff; color: #111; }
+  .row { display: flex; width: 380px; height: 28px; margin: 6px; background: #eef2f7; }
+  .row div { background: #d0d7de; height: 20px; margin-top: 4px; }
+  .row .push { margin-left: auto; background: #2da44e; color: #fff; }
+  .row .both { margin-left: auto; margin-right: auto; background: #0969da; color: #fff; }
+  .justified { justify-content: space-between; }
+  .reversed { flex-direction: row-reverse; }
+  .wrapped { flex-wrap: wrap; height: 60px; }
+  .wrapped div { width: 150px; }
+  .column { display: flex; flex-direction: column; width: 120px; height: 120px;
+            margin: 6px; background: #eef2f7; float: left; }
+  .column div { background: #d0d7de; }
+  .column .bottom { margin-top: auto; background: #2da44e; color: #fff; }
+  .column .centered { margin-top: auto; margin-bottom: auto; background: #0969da; color: #fff; }
+</style>
+</head>
+<body>
+  <div class="row"><div>left</div><div class="push">right</div></div>
+  <div class="row"><div>a</div><div class="both">center</div><div>b</div></div>
+  <div class="row justified"><div>a</div><div class="push">pushed</div><div>b</div></div>
+  <div class="row reversed"><div>first</div><div class="push">auto</div></div>
+  <div class="row wrapped"><div>one</div><div>two</div><div class="push">three</div></div>
+  <div class="column"><div>top</div><div class="bottom">bottom</div></div>
+  <div class="column"><div>top</div><div class="centered">middle</div><div>end</div></div>
+</body>
+</html>
