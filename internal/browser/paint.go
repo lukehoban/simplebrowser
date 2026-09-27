@@ -66,7 +66,10 @@ func fill(dst *image.RGBA, rect image.Rectangle, c color.RGBA) {
 
 func borderWidth(style ComputedStyle, side string) int {
 	shorthand := style["border-"+side]
-	value := style["border-"+side+"-width"]
+	value := style["border-width-"+side]
+	if value == "" {
+		value = style["border-"+side+"-width"]
+	}
 	if value == "" && (strings.EqualFold(style["border-"+side+"-style"], "none") ||
 		strings.EqualFold(style["border-"+side+"-style"], "hidden")) {
 		return 0
@@ -104,7 +107,10 @@ func borderWidth(style ComputedStyle, side string) int {
 }
 
 func borderColor(style ComputedStyle, side string) color.RGBA {
-	value := style["border-"+side+"-color"]
+	value := style["border-color-"+side]
+	if value == "" {
+		value = style["border-"+side+"-color"]
+	}
 	if value == "" {
 		for _, part := range strings.Fields(style["border-"+side]) {
 			if _, ok := parseColor(strings.ToLower(part)); ok {
