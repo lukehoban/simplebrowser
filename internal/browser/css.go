@@ -24,18 +24,32 @@ type CSSRule struct {
 }
 
 // A selector is stored left-to-right. The first part has no combinator;
-// later parts use " " (descendant) or ">" (child).
+// later parts use " " (descendant), ">" (child), "+" (adjacent sibling),
+// or "~" (general sibling).
 type Selector struct{ Parts []SelectorPart }
 type SelectorPart struct {
 	Combinator string
 	Tag        string
 	ID         string
 	Classes    []string
+	Attributes []AttributeSelector
 	// PseudoClasses holds lower-cased pseudo-class names such as "link".
-	// Functional pseudo-classes keep their name with a trailing "(" (for
-	// example "not("); pseudo-elements are stored with a leading ":".
+	// Unsupported functions keep their name with a trailing "(";
+	// pseudo-elements are stored with a leading ":".
 	// Only supported names can match; see matchesPseudoClass.
 	PseudoClasses []string
+	// Each :not() contributes one unforgiving selector list. Its specificity
+	// is the maximum argument specificity, not an extra pseudo-class unit.
+	Negations [][]Selector
+}
+
+// AttributeSelector is the deliberately bounded attribute-selector grammar
+// supported by the renderer: [name] and [name=value]. Other operators and
+// modifiers are rejected with the containing rule rather than approximated.
+type AttributeSelector struct {
+	Name     string
+	Value    string
+	HasValue bool
 }
 
 type Declaration struct {
@@ -187,6 +201,16 @@ func ParseCSS(input string) Stylesheet {
 }
 
 func parseSelectorGroup(s string) ([]Selector, bool) {
+	return parseSelectorGroupDepth(s, 0)
+}
+
+// Bound recursive :not() parsing (and thus matching/specificity recursion).
+const maxNegationDepth = 16
+
+func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
+	if depth > maxNegationDepth {
+		return nil, false
+	}
 	var result []Selector
 	for _, group := range splitSelectorList(s) {
 		p := cssScanner{s: group}
@@ -198,8 +222,8 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 			}
 			part := SelectorPart{}
 			if len(selector.Parts) > 0 {
-				if p.s[p.i] == '>' {
-					part.Combinator = ">"
+				if strings.ContainsRune(">+~", rune(p.s[p.i])) {
+					part.Combinator = p.s[p.i : p.i+1]
 					p.i++
 					p.skip()
 				} else if space {
@@ -207,6 +231,11 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 				} else {
 					return nil, false
 				}
+				if p.i < len(p.s) && strings.ContainsRune(">+~", rune(p.s[p.i])) {
+					return nil, false
+				}
+			} else if strings.ContainsRune(">+~", rune(p.s[p.i])) {
+				return nil, false
 			}
 			if p.i >= len(p.s) {
 				return nil, false
@@ -218,13 +247,29 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 			} else if isLetter(p.s[p.i]) {
 				part.Tag = strings.ToLower(p.ident())
 			}
-			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':') {
+			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':' || p.s[p.i] == '[') {
 				kind := p.s[p.i]
 				p.i++
-				if kind == ':' {
-					pseudo, ok := parsePseudo(&p)
+				if kind == '[' {
+					attribute, ok := parseAttributeSelector(&p)
 					if !ok {
 						return nil, false
+					}
+					part.Attributes = append(part.Attributes, attribute)
+					continue
+				}
+				if kind == ':' {
+					pseudo, args, ok := parsePseudo(&p)
+					if !ok {
+						return nil, false
+					}
+					if pseudo == "not(" {
+						negated, valid := parseSelectorGroupDepth(args, depth+1)
+						if !valid || !validNegationArguments(negated) {
+							return nil, false
+						}
+						part.Negations = append(part.Negations, negated)
+						continue
 					}
 					part.PseudoClasses = append(part.PseudoClasses, pseudo)
 					continue
@@ -255,6 +300,88 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 	return result, len(result) > 0
 }
 
+func parseAttributeSelector(p *cssScanner) (AttributeSelector, bool) {
+	p.skip()
+	name := strings.ToLower(p.ident())
+	if name == "" {
+		return AttributeSelector{}, false
+	}
+	p.skip()
+	if p.i >= len(p.s) {
+		return AttributeSelector{}, false
+	}
+	if p.s[p.i] == ']' {
+		p.i++
+		return AttributeSelector{Name: name}, true
+	}
+	// Reject every operator other than exact equality. In particular, do not
+	// accidentally treat ~=, |=, ^=, $=, or *= as equality.
+	if p.s[p.i] != '=' {
+		return AttributeSelector{}, false
+	}
+	p.i++
+	p.skip()
+	if p.i >= len(p.s) {
+		return AttributeSelector{}, false
+	}
+	var value string
+	if p.s[p.i] == '"' || p.s[p.i] == '\'' {
+		quote := p.s[p.i]
+		p.i++
+		var b strings.Builder
+		closed := false
+		for p.i < len(p.s) {
+			if p.s[p.i] == quote {
+				p.i++
+				closed = true
+				break
+			}
+			if p.s[p.i] == '\\' {
+				p.i++
+				if p.i >= len(p.s) {
+					return AttributeSelector{}, false
+				}
+			}
+			b.WriteByte(p.s[p.i])
+			p.i++
+		}
+		if !closed {
+			return AttributeSelector{}, false
+		}
+		value = b.String()
+	} else {
+		value = p.ident()
+		if value == "" {
+			return AttributeSelector{}, false
+		}
+	}
+	p.skip()
+	if p.i >= len(p.s) || p.s[p.i] != ']' {
+		return AttributeSelector{}, false
+	}
+	p.i++
+	return AttributeSelector{Name: name, Value: value, HasValue: true}, true
+}
+
+// Unknown pseudo-classes and pseudo-elements normally never match. Inside
+// negation that would turn unsupported syntax into a match-all selector;
+// reject the whole rule instead. Dynamic states are known, but always false
+// in this static renderer, just as they are outside :not().
+func validNegationArguments(selectors []Selector) bool {
+	for _, selector := range selectors {
+		for _, part := range selector.Parts {
+			for _, pseudo := range part.PseudoClasses {
+				switch pseudo {
+				case "link", "any-link", "visited", "hover", "active", "focus", "last-child":
+				default:
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 // splitSelectorList splits a selector list on top-level commas, so commas
 // inside functional pseudo-classes such as :not(a, b) stay in one selector.
 func splitSelectorList(s string) []string {
@@ -279,9 +406,9 @@ func splitSelectorList(s string) []string {
 }
 
 // parsePseudo reads a pseudo-class or pseudo-element after its first ':'.
-// Functional arguments are skipped because no functional pseudo-class is
-// supported yet; such selectors are kept but never match.
-func parsePseudo(p *cssScanner) (string, bool) {
+// Functional arguments are returned for :not() parsing. Other functions are
+// kept as unsupported names and never match.
+func parsePseudo(p *cssScanner) (string, string, bool) {
 	prefix := ""
 	if p.i < len(p.s) && p.s[p.i] == ':' {
 		prefix = ":"
@@ -289,9 +416,10 @@ func parsePseudo(p *cssScanner) (string, bool) {
 	}
 	name := strings.ToLower(p.ident())
 	if name == "" {
-		return "", false
+		return "", "", false
 	}
 	if p.i < len(p.s) && p.s[p.i] == '(' {
+		start := p.i + 1
 		depth := 0
 		for ; p.i < len(p.s); p.i++ {
 			if p.s[p.i] == '(' {
@@ -299,14 +427,15 @@ func parsePseudo(p *cssScanner) (string, bool) {
 			} else if p.s[p.i] == ')' {
 				depth--
 				if depth == 0 {
+					args := p.s[start:p.i]
 					p.i++
-					return prefix + name + "(", true
+					return prefix + name + "(", args, true
 				}
 			}
 		}
-		return "", false
+		return "", "", false
 	}
-	return prefix + name, true
+	return prefix + name, "", true
 }
 
 // ParseDeclarations also handles inline style attributes.

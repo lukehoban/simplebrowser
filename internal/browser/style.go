@@ -404,21 +404,21 @@ func resolveLengthTokens(property, text string, resolve func(CSSValue) (string, 
 }
 
 func beats(a, b winningDeclaration) bool {
-	// Important author declarations outrank all normal declarations. Inline is
-	// only a specificity tie breaker, as it is in the author origin.
+	// Importance and origin come first. Within an origin, inline declarations
+	// outrank every selector specificity, not just a single ID selector.
 	if a.important != b.important {
 		return a.important
 	}
 	if a.origin != b.origin {
 		return a.origin > b.origin
 	}
+	if a.inline != b.inline {
+		return a.inline
+	}
 	for i := range a.spec {
 		if a.spec[i] != b.spec[i] {
 			return a.spec[i] > b.spec[i]
 		}
-	}
-	if a.inline != b.inline {
-		return a.inline
 	}
 	return a.order > b.order
 }
@@ -430,11 +430,30 @@ func specificity(s Selector) [3]int {
 			result[0]++
 		}
 		result[1] += len(p.Classes)
+		result[1] += len(p.Attributes)
 		for _, pseudo := range p.PseudoClasses {
 			if strings.HasPrefix(pseudo, ":") {
 				result[2]++ // pseudo-elements count like type selectors
 			} else {
 				result[1]++
+			}
+		}
+		for _, negation := range p.Negations {
+			var maximum [3]int
+			for _, argument := range negation {
+				spec := specificity(argument)
+				for i := range spec {
+					if spec[i] > maximum[i] {
+						maximum = spec
+						break
+					}
+					if spec[i] < maximum[i] {
+						break
+					}
+				}
+			}
+			for i := range result {
+				result[i] += maximum[i]
 			}
 		}
 		if p.Tag != "" && p.Tag != "*" {
@@ -450,14 +469,38 @@ func matchesSelector(n *Node, s Selector) bool {
 	}
 	var match func(*Node, int) bool
 	match = func(node *Node, index int) bool {
-		if node == nil || !matchesPart(node, s.Parts[index]) {
+		if node == nil || node.Type != ElementNode || !matchesPart(node, s.Parts[index]) {
 			return false
 		}
 		if index == 0 {
 			return true
 		}
-		if s.Parts[index].Combinator == ">" {
+		switch s.Parts[index].Combinator {
+		case ">":
 			return match(node.Parent, index-1)
+		case "+", "~":
+			if node.Parent == nil {
+				return false
+			}
+			for i := len(node.Parent.Children) - 1; i >= 0; i-- {
+				if node.Parent.Children[i] != node {
+					continue
+				}
+				for j := i - 1; j >= 0; j-- {
+					sibling := node.Parent.Children[j]
+					if sibling.Type != ElementNode {
+						continue
+					}
+					if match(sibling, index-1) {
+						return true
+					}
+					if s.Parts[index].Combinator == "+" {
+						return false
+					}
+				}
+				return false
+			}
+			return false
 		}
 		for parent := node.Parent; parent != nil; parent = parent.Parent {
 			if match(parent, index-1) {
@@ -470,6 +513,9 @@ func matchesSelector(n *Node, s Selector) bool {
 }
 
 func matchesPart(n *Node, p SelectorPart) bool {
+	if n == nil || n.Type != ElementNode {
+		return false
+	}
 	if p.Tag != "" && p.Tag != "*" && n.Name != p.Tag {
 		return false
 	}
@@ -489,21 +535,47 @@ func matchesPart(n *Node, p SelectorPart) bool {
 			return false
 		}
 	}
+	for _, selector := range p.Attributes {
+		attr, ok := n.Attribute(selector.Name)
+		if !ok || selector.HasValue && attr.Value != selector.Value {
+			return false
+		}
+	}
 	for _, pseudo := range p.PseudoClasses {
 		if !matchesPseudoClass(n, pseudo) {
 			return false
 		}
 	}
+	for _, negation := range p.Negations {
+		for _, argument := range negation {
+			if matchesSelector(n, argument) {
+				return false
+			}
+		}
+	}
 	return true
 }
 
-// matchesPseudoClass supports the static link pseudo-classes. Every link is
+// matchesPseudoClass supports last-child and static link pseudo-classes. Every link is
 // treated as unvisited, and there is no user interaction, so :visited and
 // dynamic pseudo-classes (:hover, :active, :focus, ...) never match. Unknown
 // pseudo-classes and pseudo-elements also never match, so an unsupported
 // selector can only style fewer elements, never more.
 func matchesPseudoClass(n *Node, pseudo string) bool {
 	switch pseudo {
+	case "last-child":
+		if n.Type != ElementNode {
+			return false
+		}
+		if n.Parent == nil {
+			return true // Selectors 4 does not require a parent.
+		}
+		for i := len(n.Parent.Children) - 1; i >= 0; i-- {
+			if sibling := n.Parent.Children[i]; sibling.Type == ElementNode {
+				return sibling == n
+			}
+		}
+		return false
 	case "link", "any-link":
 		if n.Name != "a" && n.Name != "area" {
 			return false

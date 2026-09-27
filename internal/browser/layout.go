@@ -20,15 +20,30 @@ import (
 // the border box. Text is kept as runs so the painter does not need to walk
 // the DOM again.
 type Box struct {
-	Node     *Node
-	Rect     image.Rectangle
-	Content  image.Rectangle
-	Children []*Box
-	Text     []TextRun
-	Images   []ImageBox
+	Node              *Node
+	Rect              image.Rectangle
+	Content           image.Rectangle
+	Children          []*Box
+	Text              []TextRun
+	Images            []ImageBox
+	InlineBackgrounds []InlineBackground
+	// AtomicInline boxes paint their background in the inline-content phase,
+	// above ancestor inline backgrounds rather than with block backgrounds.
+	AtomicInline bool
 	// BorderWidths overrides the widths from the node's computed style when
 	// table border collapsing allocates a shared edge to another box.
 	BorderWidths *[4]int // top, right, bottom, left
+	// BorderOnly marks a paint-only fragment of another box's collapsed
+	// border: it paints no background and has no content of its own.
+	BorderOnly bool
+}
+
+// InlineBackground is one painted fragment of a text-bearing inline element.
+// Wrapped inline elements have one fragment per line so their backgrounds do
+// not fill the unused space between the end and start of adjacent lines.
+type InlineBackground struct {
+	Node *Node
+	Rect image.Rectangle
 }
 
 // ImageBox exposes a decoded replaced image and its used rectangle to the
@@ -364,14 +379,18 @@ func displayBlock(n *StyledNode) bool {
 		return false
 	}
 	switch n.Node.Name {
-	case "html", "body", "address", "article", "aside", "blockquote", "div", "dl",
+	case "html", "body", "address", "article", "aside", "blockquote", "caption", "div", "dl",
 		"dt", "dd", "fieldset", "figcaption", "figure", "footer", "form", "h1",
 		"h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav",
 		"ol", "p", "pre", "section", "table", "tbody", "td", "tfoot", "th",
 		"thead", "tr", "ul":
 		return true
 	}
-	return strings.EqualFold(n.Style["display"], "block") || strings.EqualFold(n.Style["display"], "list-item")
+	// A table caption is a block container (CSS 2.1 §17.4), so it keeps its
+	// margins when laid out inside the table wrapper's caption row.
+	display := n.Style["display"]
+	return strings.EqualFold(display, "block") || strings.EqualFold(display, "list-item") ||
+		strings.EqualFold(display, "table-caption")
 }
 
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
@@ -442,6 +461,11 @@ func childFlowKind(child *StyledNode) flowKind {
 		// flattened into the inline flow.
 		return flowBlock
 	}
+	if child.Node.Type == ElementNode && isAtomicInline(child) {
+		// An empty inline-block is inline-level even on an element whose tag
+		// otherwise defaults to block (for example a div).
+		return flowInline
+	}
 	if child.Node.Type == TextNode || !displayBlock(child) {
 		return flowInline
 	}
@@ -502,12 +526,58 @@ func emptyInline(n *StyledNode) bool {
 	case "img", "br":
 		return false
 	}
+	if isAtomicInline(n) {
+		// An empty inline-block is still an atomic inline box: it generates a
+		// line box (and paints its background and borders) even with no
+		// content of its own.
+		return false
+	}
 	for _, c := range n.Children {
 		if !emptyInline(c) {
 			return false
 		}
 	}
 	return true
+}
+
+// isAtomicInline reports whether an element is laid out as a single opaque
+// unit on a line. Only inline-blocks with no rendered content qualify today;
+// inline-blocks with content are still flattened into the surrounding inline
+// flow, so their own width, height and borders are ignored.
+func isAtomicInline(n *StyledNode) bool {
+	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
+		return false
+	}
+	if strings.EqualFold(n.Node.Name, "img") || strings.EqualFold(n.Node.Name, "br") {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(n.Style["display"]), "inline-block") {
+		return false
+	}
+	for _, c := range n.Children {
+		if !emptyInline(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// atomicInlineSize resolves the used content size of an atomic inline box.
+// An empty inline-block shrinks to fit, so an auto width or height is zero;
+// percentage heights have no definite basis here and also resolve to zero.
+func atomicInlineSize(n *StyledNode, width int) (int, int) {
+	size := func(property string, basis int) int {
+		value := strings.TrimSpace(n.Style[property])
+		if value == "" || strings.EqualFold(value, "auto") {
+			return 0
+		}
+		v := px(value, float64(basis), 0)
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			return 0
+		}
+		return int(math.Round(v))
+	}
+	return size("width", width), size("height", 0)
 }
 
 // collapsedMargin accumulates adjoining vertical margins. Per CSS 2.1 §8.3.1
@@ -591,7 +661,9 @@ func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
 		return m
 	}
 	inner := blockContentWidth(n, width)
-	for _, child := range n.Children {
+	// Match layoutFlow's children: an anonymous table, like any table, keeps
+	// its first cell's or caption's margins from collapsing through.
+	for _, child := range wrapAnonymousTables(n, n.Children) {
 		switch k := childFlowKind(child); k {
 		case flowSkip:
 			continue
@@ -673,7 +745,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		}
 		inline = nil
 	}
-	for _, child := range splitInlineBlocks(parent.Children) {
+	for _, child := range wrapAnonymousTables(parent, splitInlineBlocks(parent.Children)) {
 		kind := childFlowKind(child)
 		switch kind {
 		case flowSkip:
@@ -704,6 +776,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		first = false
 		var b *Box
 		var bottom collapsedMargin
+		flowEnd := 0
 		switch kind {
 		case flowReplaced:
 			// Positive margins are applied inside; offset so the border box
@@ -711,13 +784,19 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			b, _ = layoutReplacedBlock(child, x, top-boxEdges(child, "margin", float64(width))[0], width, faces)
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		case flowTable:
-			b, _ = layoutTable(child, x, top-boxEdges(child, "margin", float64(width))[0], width, parent.Style["text-align"], faces)
+			margin := boxEdges(child, "margin", float64(width))
+			var height int
+			b, height = layoutTable(child, x, top-margin[0], width, parent.Style["text-align"], faces)
+			flowEnd = top - margin[0] + height - margin[2]
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		default:
 			b, bottom = layoutBlock(child, x, top, width, faces, cb)
 		}
 		boxes = append(boxes, b)
 		cursor = b.Rect.Max.Y
+		if kind == flowTable {
+			cursor = flowEnd // captions live outside the table's border box
+		}
 		pending = bottom
 	}
 	flush()
@@ -909,6 +988,9 @@ func translatePositionedBox(box *Box, dx, dy int) *Box {
 	for i := range box.Images {
 		box.Images[i].Rect = box.Images[i].Rect.Add(image.Pt(dx, dy))
 	}
+	for i := range box.InlineBackgrounds {
+		box.InlineBackgrounds[i].Rect = box.InlineBackgrounds[i].Rect.Add(image.Pt(dx, dy))
+	}
 	for _, child := range box.Children {
 		translatePositionedBox(child, dx, dy)
 	}
@@ -943,15 +1025,25 @@ type inlinePart struct {
 	imageW     int
 	imageH     int
 	imageEdges [4]int // margin, border, and padding around replaced content
+	innerEdges [4]int // border and padding alone, the inner part of imageEdges
 	isImage    bool
+	// isBox marks a non-replaced atomic inline box (an empty inline-block).
+	// It occupies imageW by imageH of content, and paints as a child box
+	// rather than as replaced content.
+	isBox       bool
+	backgrounds []*Node
 }
+
+// atomic reports whether a part is laid out as one unbreakable unit with an
+// explicit box size rather than as shaped text.
+func (p inlinePart) atomic() bool { return p.isImage || p.isBox }
 
 // Inline descendants are flattened in document order, without manufacturing
 // whitespace between element boundaries. Text ownership survives flattening.
 func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 	var parts []inlinePart
-	var visit func(*StyledNode)
-	visit = func(n *StyledNode) {
+	var visit func(*StyledNode, []*Node)
+	visit = func(n *StyledNode, backgrounds []*Node) {
 		if n.Node.Type == ElementNode {
 			if strings.EqualFold(n.Style["display"], "none") {
 				return
@@ -968,16 +1060,29 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 					imageEdges: inlineImageEdges(n, width), isImage: true})
 				return
 			}
+			if isAtomicInline(n) {
+				w, h := atomicInlineSize(n, width)
+				parts = append(parts, inlinePart{node: n.Node, style: n.Style,
+					imageW: w, imageH: h, imageEdges: inlineImageEdges(n, width),
+					innerEdges: inlineInnerEdges(n, width), isBox: true})
+				return
+			}
+			if _, ok := backgroundColor(n.Style); ok ||
+				(strings.TrimSpace(n.Style["background-image"]) != "" &&
+					!strings.EqualFold(strings.TrimSpace(n.Style["background-image"]), "none")) {
+				backgrounds = append(append([]*Node(nil), backgrounds...), n.Node)
+			}
 		}
 		if n.Node.Type == TextNode {
-			parts = append(parts, inlinePart{node: n.Node, style: n.Style, text: n.Node.Data})
+			parts = append(parts, inlinePart{node: n.Node, style: n.Style, text: n.Node.Data,
+				backgrounds: backgrounds})
 		}
 		for _, child := range n.Children {
-			visit(child)
+			visit(child, backgrounds)
 		}
 	}
 	for _, n := range nodes {
-		visit(n)
+		visit(n, nil)
 	}
 	return parts
 }
@@ -993,8 +1098,30 @@ func inlineImageEdges(n *StyledNode, width int) [4]int {
 	return edges
 }
 
-func (p inlinePart) outerImageWidth() int  { return p.imageW + p.imageEdges[1] + p.imageEdges[3] }
-func (p inlinePart) outerImageHeight() int { return p.imageH + p.imageEdges[0] + p.imageEdges[2] }
+// inlineInnerEdges returns the border and padding edges of an inline-level
+// box, i.e. inlineImageEdges without the margins.
+func inlineInnerEdges(n *StyledNode, width int) [4]int {
+	padding := boxEdges(n, "padding", float64(width))
+	border := boxEdges(n, "border-width", float64(width))
+	var edges [4]int
+	for i := range edges {
+		edges[i] = padding[i] + border[i]
+	}
+	return edges
+}
+
+func (p inlinePart) outerWidth() int  { return p.imageW + p.imageEdges[1] + p.imageEdges[3] }
+func (p inlinePart) outerHeight() int { return p.imageH + p.imageEdges[0] + p.imageEdges[2] }
+
+// borderBox returns the part's border box given the top-left of its margin
+// box, so backgrounds and borders paint inside the reserved margins.
+func (p inlinePart) borderBox(outerX, outerY int) image.Rectangle {
+	x := outerX + p.imageEdges[3] - p.innerEdges[3]
+	y := outerY + p.imageEdges[0] - p.innerEdges[0]
+	return image.Rect(x, y,
+		x+p.imageW+p.innerEdges[1]+p.innerEdges[3],
+		y+p.imageH+p.innerEdges[0]+p.innerEdges[2])
+}
 
 type inlineLine struct {
 	parts   []inlinePart
@@ -1016,9 +1143,9 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 	var space *inlinePart
 	forced := false
 	add := func(p inlinePart) {
-		if p.isImage {
+		if p.atomic() {
 			line.parts = append(line.parts, p)
-			line.width += fixed.I(p.outerImageWidth())
+			line.width += fixed.I(p.outerWidth())
 			return
 		}
 		m := faces.metrics(p.style)
@@ -1036,10 +1163,10 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			line.ascent, line.descent = faces.metrics(nodes[0].Style).lineMetrics()
 		}
 		for _, p := range line.parts {
-			if !p.isImage {
+			if !p.atomic() {
 				continue
 			}
-			h := p.outerImageHeight()
+			h := p.outerHeight()
 			switch strings.ToLower(strings.TrimSpace(p.style["vertical-align"])) {
 			case "middle":
 				// The midpoint aligns with the baseline plus half the
@@ -1095,13 +1222,13 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			forced = true
 			continue
 		}
-		if part.isImage {
+		if part.atomic() {
 			flushWord()
 			var gap fixed.Int26_6
 			if space != nil && len(line.parts) != 0 {
 				gap = faces.metrics(space.style).advance(" ")
 			}
-			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerImageWidth()) > fixed.I(width) {
+			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(width) {
 				finalize(&line)
 				lines = append(lines, line)
 				line = inlineLine{}
@@ -1119,7 +1246,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if unicode.IsSpace(r) && r != '\u00a0' {
 				flushWord()
 				if space == nil {
-					p := inlinePart{node: part.node, style: part.style, text: " "}
+					p := inlinePart{node: part.node, style: part.style, text: " ",
+						backgrounds: part.backgrounds}
 					space = &p
 				}
 				continue
@@ -1127,7 +1255,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if len(word) != 0 && word[len(word)-1].node == part.node {
 				word[len(word)-1].text += string(r)
 			} else {
-				word = append(word, inlinePart{node: part.node, style: part.style, text: string(r)})
+				word = append(word, inlinePart{node: part.node, style: part.style, text: string(r),
+					backgrounds: part.backgrounds})
 			}
 		}
 	}
@@ -1151,9 +1280,10 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		}
 		baseline := cursor + l.ascent
 		penX := fixed.I(xpos) + (startPenX - fixed.I(x))
+		backgroundFragments := make(map[*Node]int)
 		for _, p := range l.parts {
-			if p.isImage {
-				outerHeight := p.outerImageHeight()
+			if p.atomic() {
+				outerHeight := p.outerHeight()
 				outerY := baseline - outerHeight
 				switch strings.ToLower(strings.TrimSpace(p.style["vertical-align"])) {
 				case "top":
@@ -1166,9 +1296,17 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 				}
 				contentX := penX.Round() + p.imageEdges[3]
 				contentY := outerY + p.imageEdges[0]
-				box.Images = append(box.Images, ImageBox{Image: p.image,
-					Rect: image.Rect(contentX, contentY, contentX+p.imageW, contentY+p.imageH)})
-				xpos = penX.Round() + p.outerImageWidth()
+				content := image.Rect(contentX, contentY, contentX+p.imageW, contentY+p.imageH)
+				if p.isBox {
+					// An atomic inline box paints like any other box: its
+					// background and borders come from its own child box.
+					border := p.borderBox(penX.Round(), outerY)
+					box.Children = append(box.Children,
+						&Box{Node: p.node, Rect: border, Content: content, AtomicInline: true})
+				} else {
+					box.Images = append(box.Images, ImageBox{Image: p.image, Rect: content})
+				}
+				xpos = penX.Round() + p.outerWidth()
 				penX = fixed.I(xpos)
 				continue
 			}
@@ -1177,6 +1315,17 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			right := (penX + advance).Ceil()
 			textAscent, textDescent := faces.metrics(p.style).lineMetrics()
 			textY := baseline - textAscent
+			textRect := image.Rect(left, textY, right, textY+textAscent+textDescent)
+			for _, node := range p.backgrounds {
+				if index, ok := backgroundFragments[node]; ok {
+					box.InlineBackgrounds[index].Rect =
+						box.InlineBackgrounds[index].Rect.Union(textRect)
+					continue
+				}
+				backgroundFragments[node] = len(box.InlineBackgrounds)
+				box.InlineBackgrounds = append(box.InlineBackgrounds,
+					InlineBackground{Node: node, Rect: textRect})
+			}
 			if len(box.Text) != 0 {
 				last := &box.Text[len(box.Text)-1]
 				if last.Node == p.node && last.Rect.Min.Y == textY {
@@ -1191,7 +1340,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 				}
 			}
 			box.Text = append(box.Text, TextRun{Node: p.node, Style: p.style, Text: p.text,
-				Rect: image.Rect(left, textY, right, textY+textAscent+textDescent), PenX: penX})
+				Rect: textRect, PenX: penX})
 			penX += advance
 			xpos = penX.Round()
 		}

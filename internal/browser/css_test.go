@@ -13,7 +13,7 @@ import (
 
 func TestCSSSelectorsAndRecovery(t *testing.T) {
 	s := ParseCSS(`/* initial */ div.card#main.hot > a.link, * .item { color: #f60; broken; margin: 2px 0 ! important; }
-	[unsupported] { color: red } h1, h2 { font-size: 1.5rem } p { color: blue; }`)
+	[unsupported~=value] { color: red } h1, h2 { font-size: 1.5rem } p { color: blue; }`)
 	if len(s.Rules) != 3 {
 		t.Fatalf("rules: %+v", s.Rules)
 	}
@@ -101,6 +101,28 @@ func TestFontShorthandExpansionParsing(t *testing.T) {
 	for _, declaration := range got {
 		if declaration.Value != want[declaration.Property] || !declaration.Important {
 			t.Errorf("expanded declaration = %+v, want value %q and important", declaration, want[declaration.Property])
+		}
+	}
+}
+
+func TestBorderShorthandExpansionRetainsWidthKeywords(t *testing.T) {
+	for _, value := range []string{
+		`black solid thin`,
+		`medium solid black`,
+		`solid thick black`,
+	} {
+		declarations := ParseDeclarations(`border: ` + value + ` !important`)
+		if len(declarations) != 1 {
+			t.Fatalf("border %q declarations = %+v", value, declarations)
+		}
+		got := expandDeclaration(declarations[0])
+		if len(got) != 4 {
+			t.Fatalf("border %q expanded declarations = %+v", value, got)
+		}
+		for i, side := range []string{"top", "right", "bottom", "left"} {
+			if got[i].Property != "border-"+side || got[i].Value != value || !got[i].Important {
+				t.Errorf("border %q side %s = %+v", value, side, got[i])
+			}
 		}
 	}
 }
