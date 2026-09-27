@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="60" viewBox="0 0 160 60">
+  <style>
+    rect { fill: #d3264a }
+    .card { x: 8px; y: 10px; width: 40px; height: 40px; rx: 8px }
+    circle { cx: 80px; cy: 30px; r: 20px; fill: #229955 }
+    .pill { cx: 132px; cy: 30px; rx: 20px; ry: 12px; fill: #3366cc }
+  </style>
+  <rect class="card"/>
+  <circle/>
+  <ellipse class="pill"/>
+</svg>
