@@ -34,9 +34,9 @@ Render `testdata/selectors/not-last-child.html` to reproduce:
 | ![Before](screenshots/not-last-child-before.png) | ![After](screenshots/not-last-child-after.png) |
 
 The first span now gets red text, non-final rows get red borders, and the final
-row gets a lime background. The final span's computed background is lime too,
-but text-bearing inline backgrounds are an independent painting limitation
-tracked in [#197](https://github.com/lukehoban/simplebrowser/issues/197).
+row gets a lime background. The final span's background is painted now that
+the independent inline painting fix [#197](https://github.com/lukehoban/simplebrowser/issues/197)
+has landed; the earlier visual above records the selector-specific change.
 
 Render `testdata/css/sibling-combinators.html` for the sibling regression:
 
