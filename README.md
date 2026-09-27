@@ -8,13 +8,15 @@ The project has a working fetch, parse, cascade, and layout pipeline covering
 block, inline, and table formatting. The CLI fetches HTTP(S) pages, builds a
 DOM, loads CSS and GIF/PNG/JPEG images, and computes deterministic box geometry
 and wrapped text runs, including replaced image boxes and the nested tables
-Hacker News uses for its page structure. Painting now rasterizes backgrounds,
-borders, and embedded-font text. Drawing decoded images, SVG, and advanced CSS
-remain future work.
+Hacker News uses for its page structure. Explicitly sized tables honor auto
+side margins and legacy centered containers, so the 85%-wide HN page is
+centered in the viewport. Painting now rasterizes backgrounds, borders, and
+embedded-font text. Drawing decoded images, SVG, and advanced CSS remain future
+work.
 
 ## Rendering progress
 
-![Current Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
+![Current centered Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
 
 *Offline Hacker News snapshot generated from the repository's current source
 (2026-09-26). The screenshot is a progress snapshot, not a pixel-accurate

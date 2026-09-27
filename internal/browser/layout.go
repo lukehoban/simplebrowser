@@ -237,7 +237,7 @@ func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet) ([]*Box
 		}
 		if child.Node.Type == ElementNode && isTableNode(child) {
 			flush()
-			b, h := layoutTable(child, x, cursor, width, faces)
+			b, h := layoutTable(child, x, cursor, width, parent.Style["text-align"], faces)
 			boxes = append(boxes, b)
 			cursor += h
 			continue

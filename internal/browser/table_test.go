@@ -192,6 +192,9 @@ func TestTableNestedHackerNewsLikeStructure(t *testing.T) {
 	if outer.Rect.Dx() != 680 {
 		t.Fatalf("outer table width = %d, want 85%% of 800", outer.Rect.Dx())
 	}
+	if outer.Rect.Min.X != 60 || outer.Rect.Max.X != 740 {
+		t.Fatalf("outer table should be centered by <center>: %v", outer.Rect)
+	}
 	header := tables[1]
 	if !header.Rect.In(outer.Rect) {
 		t.Fatalf("nested header table escapes its parent: %v not in %v", header.Rect, outer.Rect)
@@ -213,6 +216,67 @@ func TestTableNestedHackerNewsLikeStructure(t *testing.T) {
 	}
 	if text := boxText(stories); !strings.Contains(text, "A story title") || !strings.Contains(text, "1.") {
 		t.Fatalf("story cell text = %q", text)
+	}
+}
+
+func TestTableHorizontalAlignment(t *testing.T) {
+	tests := []struct {
+		name      string
+		source    string
+		wantX     int
+		wantWidth int
+	}{
+		{
+			name:      "parent text align centers explicit width",
+			source:    `<div style="text-align:center"><table width="80"><tr><td>x</td></tr></table></div>`,
+			wantX:     60,
+			wantWidth: 80,
+		},
+		{
+			name:      "auto width is not centered by parent text align",
+			source:    `<div style="text-align:center"><table><tr><td>x</td></tr></table></div>`,
+			wantX:     0,
+			wantWidth: 12,
+		},
+		{
+			name:      "two auto margins center",
+			source:    `<table style="width:80px;margin-left:auto;margin-right:auto"><tr><td>x</td></tr></table>`,
+			wantX:     60,
+			wantWidth: 80,
+		},
+		{
+			name:      "left auto margin right aligns",
+			source:    `<table style="width:80px;margin-left:auto;margin-right:10px"><tr><td>x</td></tr></table>`,
+			wantX:     110,
+			wantWidth: 80,
+		},
+		{
+			name:      "right auto margin leaves table left aligned",
+			source:    `<table style="width:80px;margin-left:10px;margin-right:auto"><tr><td>x</td></tr></table>`,
+			wantX:     10,
+			wantWidth: 80,
+		},
+		{
+			name:      "table align attribute centers",
+			source:    `<table width="80" align="center"><tr><td>x</td></tr></table>`,
+			wantX:     60,
+			wantWidth: 80,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := LayoutWithViewport(styledForLayout(t, tc.source), image.Rect(0, 0, 200, 100))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tables := collectBoxes(got.Root, "table")
+			if len(tables) != 1 {
+				t.Fatalf("tables = %d, want 1", len(tables))
+			}
+			if tables[0].Rect.Min.X != tc.wantX || tables[0].Rect.Dx() != tc.wantWidth {
+				t.Fatalf("table geometry = %v, want x=%d width=%d", tables[0].Rect, tc.wantX, tc.wantWidth)
+			}
+		})
 	}
 }
 
