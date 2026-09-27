@@ -13,28 +13,28 @@ side margins and legacy centered containers, so the 85%-wide HN page is
 centered in the viewport. Adjoining vertical block margins collapse (between
 siblings and through parents' first/last children). Inline text uses font ascents and descents to share
 a baseline with replaced images (including `vertical-align: top`, `middle`,
-and `bottom`). Painting rasterizes colors, raster CSS backgrounds
-(GIF/PNG/JPEG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
-elements, and neutral placeholders for unsupported `<img>` elements. SVG and
-advanced CSS remain future work.
+and `bottom`). Painting rasterizes colors, CSS background images
+(GIF/PNG/JPEG/SVG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
+elements, and neutral placeholders for unsupported `<img>` elements. A minimal
+in-repo SVG subset (`<svg>` sizing and `viewBox`, `<g>`, `<path>`, `<rect>`,
+solid fills, transforms) renders at the used size for both `<img>` and CSS
+backgrounds. Strokes, other SVG shapes, and advanced CSS remain future work.
 
 ## Rendering progress
 
-![Current centered Hacker News fixture render: orange header, painted story text, and gray SVG logo placeholder](docs/screenshots/hn-fixture.png)
+![Current centered Hacker News fixture render: orange header, painted story text, and SVG logo and vote arrows](docs/screenshots/hn-fixture.png)
 
 **Compatibility benchmark: [11/13 pinned WPT reftests passing](docs/compatibility.md)**
 ([JSON](docs/compatibility.json)). Run `make compatibility` to regenerate the
 committed report and inspect failed test/reference/diff PNGs in `artifacts/wpt/`.
 
 *Offline Hacker News snapshot generated from the repository's current source
-(2026-09-26), with image painting and fixed-point line wrapping. The SVG logo
-is a neutral placeholder; the fixture's vote arrows are CSS backgrounds, not
-`<img>` elements. This is a progress snapshot, not a pixel-accurate HN
-reference.*
+(2026-09-26), with image painting, fixed-point line wrapping, and the SVG
+logo and vote-arrow backgrounds. This is a progress snapshot, not a
+pixel-accurate HN reference.*
 
 **What's next**
 - [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
-- [Render the SVG logo and vote arrows (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
 - [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
 
 Every pull request and push to `main` renders the fixture and uploads the
@@ -53,8 +53,9 @@ The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
 captured snapshot; rendering does not depend on live Hacker News availability.
 HN's black titles and gray subtext use the page's link styles; GIF/PNG/JPEG
 images paint at their used size, while failed or unsupported images get a
-neutral placeholder. Raster CSS backgrounds paint, but the missing SVG logo
-and vote arrows still need [SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
+neutral placeholder. The SVG logo (`y18.svg`) and vote-arrow backgrounds
+(`triangle.svg`) render through the minimal SVG subset from
+[#31](https://github.com/lukehoban/simplebrowser/issues/31).
 
 ## Architecture
 
@@ -82,11 +83,12 @@ exposes boxes, text runs, and image boxes through `Layout.Root`, with
 configurable viewport geometry and basic embedded Go font metrics.
 
 `img` elements are fetched once per render (deduplicated by resolved URL) and
-decoded with the standard library's GIF, PNG, and JPEG decoders, subject to the
+decoded with the standard library's GIF, PNG, and JPEG decoders or the
+minimal SVG subset in `internal/browser/svg.go`, subject to the
 fetcher's response-size limit and a decoded-pixel cap. Used dimensions come from
 CSS or HTML `width`/`height`, preserving the intrinsic aspect ratio when only
 one is given, and fall back to intrinsic size. Failed, oversized, and
-unsupported resources (including SVG) keep a sized placeholder box with no
+unsupported resources (including malformed SVG) keep a sized placeholder box with no
 decoded image so layout stays stable; `Box.Images` carries the rectangles and
 decoded images to the painter, which scales and clips them to the viewport.
 
@@ -119,10 +121,10 @@ Replaced-element layout can be inspected separately from the final image render:
 make image-boxes
 ```
 
-![Hacker News fixture with laid-out image boxes outlined; the 18x18 logo placeholder is outlined in gray at the top left](docs/screenshots/hn-image-boxes.png)
+![Hacker News fixture with laid-out image boxes outlined; the decoded 18x18 SVG logo is outlined in magenta at the top left](docs/screenshots/hn-image-boxes.png)
 
-*Gray outlines are placeholders (missing, broken, or SVG resources); magenta
-outlines are decoded GIF/PNG/JPEG images.*
+*Gray outlines are placeholders (missing, broken, or unsupported resources);
+magenta outlines are decoded GIF/PNG/JPEG/SVG images.*
 
 Run the project checks locally with:
 
@@ -146,7 +148,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
-- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, layout, and painting implemented; SVG tracked in [#31](https://github.com/lukehoban/simplebrowser/issues/31)
+- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, layout, and painting implemented; minimal SVG subset from [#31](https://github.com/lukehoban/simplebrowser/issues/31)
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture, checked-in screenshot, and render artifact in CI; visual fidelity in progress
 
 See the linked issues for current status and implementation scope.
