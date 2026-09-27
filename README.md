@@ -10,7 +10,9 @@ DOM, loads CSS and GIF/PNG/JPEG images, and computes deterministic box geometry
 and wrapped text runs, including replaced image boxes and the nested tables
 Hacker News uses for its page structure. Explicitly sized tables honor auto
 side margins and legacy centered containers, so the 85%-wide HN page is
-centered in the viewport. Painting rasterizes colors, raster CSS backgrounds
+centered in the viewport. Inline text uses font ascents and descents to share
+a baseline with replaced images (including `vertical-align: top`, `middle`,
+and `bottom`). Painting rasterizes colors, raster CSS backgrounds
 (GIF/PNG/JPEG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
 elements, and neutral placeholders for unsupported `<img>` elements. SVG and
 advanced CSS remain future work.
