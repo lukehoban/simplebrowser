@@ -1,0 +1,14 @@
+<!doctype html>
+<style>
+  body { margin: 16px; font: 20px sans-serif; }
+  .x:not(:last-child) { color: red; }
+  .x:last-child { background: lime; }
+  .rows { margin-top: 24px; width: 240px; }
+  .rows p { margin: 0; padding: 8px; }
+  .rows p:not(:last-child) { border-bottom: 4px solid red; }
+  .rows p:last-child { background: lime; }
+</style>
+<p><span class=x>first</span><span class=x>last</span></p>
+<div class=rows><p>first row</p><p>middle row</p><p>last row</p>
+  <!-- Text and comments are not element siblings. -->
+</div>
