@@ -421,7 +421,8 @@ func LayoutWithViewport(document StyledDocument, viewport image.Rectangle) (Layo
 	root := &Box{Node: document.Document.Root, Rect: viewport, Content: viewport}
 	if document.StyleRoot != nil {
 		root.Children, _ = layoutChildren(document.StyleRoot, viewport.Min.X, viewport.Min.Y, viewport.Dx(), faces,
-			containingBlock{x: viewport.Min.X, y: viewport.Min.Y, width: viewport.Dx(), height: viewport.Dy(), viewport: viewport})
+			containingBlock{x: viewport.Min.X, y: viewport.Min.Y, width: viewport.Dx(), height: viewport.Dy(), viewport: viewport,
+				flowHeight: viewport.Dy(), flowHeightDefinite: true})
 	}
 	return Layout{Document: document, Viewport: viewport, Root: root}, nil
 }
@@ -639,10 +640,9 @@ func collapsesThroughTop(n *StyledNode, width int) bool {
 
 // collapsesThroughBottom reports whether a block's bottom margin adjoins its
 // last in-flow child's bottom margin.
-func collapsesThroughBottom(n *StyledNode, width int) bool {
-	h := strings.TrimSpace(n.Style["height"])
+func collapsesThroughBottom(n *StyledNode, width int, heightAuto bool) bool {
 	return !establishesContext(n) && borderWidth(n.Style, "bottom") == 0 &&
-		boxEdges(n, "padding", float64(width))[2] == 0 && (h == "" || strings.EqualFold(h, "auto"))
+		boxEdges(n, "padding", float64(width))[2] == 0 && heightAuto
 }
 
 // blockContentWidth mirrors layoutBlock's content width so that margin
@@ -689,6 +689,46 @@ type containingBlock struct {
 	viewport            image.Rectangle
 	inlinePenX          fixed.Int26_6
 	hasInlinePenX       bool
+	// flowHeight is the content height of the nearest block container, the
+	// basis for in-flow percentage heights (CSS 2.1 §10.5). It is only used
+	// when flowHeightDefinite is set; otherwise such percentages act as auto.
+	flowHeight         int
+	flowHeightDefinite bool
+}
+
+// specifiedHeight resolves a block's CSS height against a percentage basis.
+// It reports false when the height is auto, including a percentage whose
+// containing block height is not definite.
+func specifiedHeight(n *StyledNode, basis int, definite bool) (int, bool) {
+	h := strings.TrimSpace(n.Style["height"])
+	if h == "" || strings.EqualFold(h, "auto") {
+		return 0, false
+	}
+	v := classifyValue(h)
+	switch v.Kind {
+	case "percentage":
+		if !definite {
+			return 0, false
+		}
+	case "length", "number":
+	default:
+		return 0, false
+	}
+	used := px(h, float64(basis), math.NaN())
+	if math.IsNaN(used) || math.IsInf(used, 0) {
+		return 0, false
+	}
+	return int(math.Max(0, used)), true
+}
+
+// percentageHeightBasis returns the basis for n's percentage height: the
+// containing block's padding-box height for absolutely positioned boxes,
+// otherwise the parent's definite content height, if any.
+func percentageHeightBasis(n *StyledNode, cb containingBlock) (int, bool) {
+	if positioned(n) {
+		return cb.height, true
+	}
+	return cb.flowHeight, cb.flowHeightDefinite
 }
 
 func positioned(n *StyledNode) bool {
@@ -824,7 +864,9 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	outerWidth := contentWidth + edges
 	contentX := x + margin[3] + border[3] + padding[3]
 	contentY := y + border[0] + padding[0]
-	collapseBottom := collapsesThroughBottom(n, width)
+	basis, basisDefinite := percentageHeightBasis(n, cb)
+	usedHeight, definite := specifiedHeight(n, basis, basisDefinite)
+	collapseBottom := collapsesThroughBottom(n, width, !definite)
 	childCB := cb
 	if strings.EqualFold(strings.TrimSpace(n.Style["position"]), "relative") || positioned(n) {
 		childCB = containingBlock{
@@ -834,17 +876,16 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 			height:   cb.height,
 			viewport: cb.viewport,
 		}
-		if h := strings.TrimSpace(n.Style["height"]); h != "" && !strings.EqualFold(h, "auto") {
-			childCB.height = int(math.Max(0, px(h, float64(width), float64(cb.height)))) +
-				padding[0] + padding[2]
+		if definite {
+			childCB.height = usedHeight + padding[0] + padding[2]
 		}
 	}
+	childCB.flowHeight, childCB.flowHeightDefinite = usedHeight, definite
 	children, childBottom, trailing := layoutFlow(n, contentX, contentY, contentWidth, faces,
 		collapsesThroughTop(n, width), collapseBottom, childCB)
-	childHeight := childBottom - contentY
-	height := childHeight
-	if h := n.Style["height"]; h != "" && h != "auto" {
-		height = int(math.Max(0, px(h, float64(childHeight), float64(height))))
+	height := childBottom - contentY
+	if definite {
+		height = usedHeight
 	}
 
 	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+height)

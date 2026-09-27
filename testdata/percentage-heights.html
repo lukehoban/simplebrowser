@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<style>
+body { margin: 0; font: 14px sans-serif; }
+.label { height: 20px; }
+.indef { height: 50%; background: #c33; }
+.indef div { height: 60px; width: 60px; background: #fc6; }
+.def { height: 200px; margin: 8px; background: #ddf; }
+.def .half { height: 50%; width: 50%; background: #36c; }
+.def .half .quarter { height: 50%; width: 50%; background: #9e9; }
+.pos { position: relative; height: 100px; margin: 8px; background: #efe; }
+.pos .abs { position: absolute; left: 10px; top: 10px; width: 100px; height: 50%; background: #939; }
+</style>
+</head>
+<body>
+<div class="label">Auto-height parent: 50% height behaves as auto (60px tall red box)</div>
+<div class="indef"><div></div></div>
+<div class="label">200px parent: 50% (blue, 100px) containing 50% (green, 50px)</div>
+<div class="def"><div class="half"><div class="quarter"></div></div></div>
+<div class="label">Positioned 100px parent: absolute 50% (purple, 50px)</div>
+<div class="pos"><div class="abs"></div></div>
+</body>
+</html>
