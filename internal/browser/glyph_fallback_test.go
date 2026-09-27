@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
@@ -65,7 +66,9 @@ func assertPaintMatches(t *testing.T, html, text string, m metrics, parts []face
 }
 
 func TestGlyphFallbackPrecondition(t *testing.T) {
-	for name, data := range map[string][]byte{"Go Sans": goregular.TTF, "DejaVu Sans": dejavu.Regular} {
+	for name, data := range map[string][]byte{
+		"Go Sans": goregular.TTF, "Go Mono": gomono.TTF, "DejaVu Sans": dejavu.Regular,
+	} {
 		f, err := opentype.Parse(data)
 		if err != nil {
 			t.Fatal(err)
@@ -100,6 +103,32 @@ func TestGlyphFallbackPlainText(t *testing.T) {
 		t.Fatal("advance still uses the Go Sans missing-glyph box")
 	}
 	assertPaintMatches(t, `<p style="margin:0;font:30px sans-serif">`+text+`</p>`, text, m, want)
+}
+
+func TestGlyphFallbackMonospaceAdvance(t *testing.T) {
+	const text = "AʼʼA"
+	faces := newFaceSet()
+	defer faces.close()
+	m := faces.metrics(ComputedStyle{"font-size": "30px", "font-family": "monospace"})
+	ch, ok := m.face.GlyphAdvance('0')
+	if !ok {
+		t.Fatal("Go Mono has no zero glyph")
+	}
+	parts := segmentsOf(m, text)
+	if len(parts) != 3 || parts[0] != (facePart{m.face, "A"}) ||
+		parts[1].text != "ʼʼ" || parts[2] != (facePart{m.face, "A"}) {
+		t.Fatalf("segments = %+v, want Go Mono / fallback / Go Mono", parts)
+	}
+	if _, ok := parts[1].face.(monospaceFallbackFace); !ok {
+		t.Fatalf("fallback face = %T, want monospaceFallbackFace", parts[1].face)
+	}
+	if got, want := font.MeasureString(parts[1].face, "ʼʼ"), 2*ch; got != want {
+		t.Fatalf("two fallback glyphs advance = %v, want two 1ch columns (%v)", got, want)
+	}
+	if got, want := m.advance(text), 4*ch; got != want {
+		t.Fatalf("mixed normal/fallback advance = %v, want four 1ch columns (%v)", got, want)
+	}
+	assertPaintMatches(t, `<p style="margin:0;font:30px monospace">`+text+`</p>`, text, m, parts)
 }
 
 func TestGlyphFallbackSmallCapsExpansion(t *testing.T) {
