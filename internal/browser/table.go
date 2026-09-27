@@ -25,14 +25,19 @@ import (
 //     their own. The table box itself has no padding.
 //   - Malformed markup is repaired with anonymous boxes: cells outside a row
 //     get an anonymous row, and non-cell content inside a row (or directly
-//     inside a table) gets an anonymous cell.
+//     inside a table) gets an anonymous cell. Runs of misparented
+//     table-internal boxes in block flow are wrapped in an anonymous table.
+//   - Each caption occupies a full row of the wrapper: `caption-side: top`
+//     captions precede the grid and `bottom` captions follow it. Captions
+//     do not yet span multiple columns.
 //   - Cell content is top aligned; `valign` and vertical centering are not
 //     implemented yet.
 //   - `border-collapse: collapse` is partial: border-spacing is dropped,
 //     outer cell borders contribute their trailing half-width when aligning
 //     the anonymous wrapper with a caption, and row-group top/bottom borders
-//     collapse (wider wins) into gaps between rows. Conflicts between cell,
-//     row and table borders still use the separated model.
+//     collapse (wider wins) into gaps between rows. Rows without cells are
+//     bridged by the outer halves of the adjacent cells' borders. Conflicts
+//     between cell, row and table borders still use the separated model.
 //   - The first header group renders first and the first footer group last.
 //   - `rowspan` is honored for geometry: a spanning cell covers its rows and
 //     any extra height it needs is added to the last row it spans.
@@ -77,6 +82,7 @@ type tableGroupBox struct {
 type tableGrid struct {
 	rows     []*tableRowBox
 	groups   []*tableGroupBox
+	cols     []*StyledNode // expanded <col>/<colgroup> definitions, in grid order
 	columns  int
 	hspacing int    // horizontal border-spacing between/around columns
 	vspacing int    // vertical border-spacing between/around rows
@@ -142,6 +148,14 @@ func isCellNode(n *StyledNode) bool {
 		return !displayIs(n, "none")
 	}
 	return false
+}
+
+func isColumnNode(n *StyledNode) bool {
+	return displayIs(n, "table-column") || strings.EqualFold(nodeName(n), "col")
+}
+
+func isColumnGroupNode(n *StyledNode) bool {
+	return displayIs(n, "table-column-group") || strings.EqualFold(nodeName(n), "colgroup")
 }
 
 // containsTable reports whether a subtree holds a visible table element.
@@ -234,6 +248,36 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 	}
 	grid.padding = boxEdges(table, "padding", 0)
 
+	// Column boxes describe the grid but never generate rows or cells. Expand
+	// spans here so fixed layout can address declarations by column index.
+	appendColumns := func(column *StyledNode) {
+		for range spanAttribute(column, "span") {
+			if len(grid.cols) >= maxTableCols {
+				break
+			}
+			grid.cols = append(grid.cols, column)
+		}
+	}
+	for _, child := range table.Children {
+		switch {
+		case hiddenNode(child):
+		case isColumnNode(child):
+			appendColumns(child)
+		case isColumnGroupNode(child):
+			found := false
+			for _, column := range child.Children {
+				if hiddenNode(column) || !isColumnNode(column) {
+					continue
+				}
+				found = true
+				appendColumns(column)
+			}
+			if !found {
+				appendColumns(child)
+			}
+		}
+	}
+
 	var pending []*StyledNode // cells or content awaiting an anonymous row
 	flushPending := func() {
 		if len(pending) == 0 {
@@ -274,8 +318,13 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 
 	for _, child := range orderedTableChildren(table.Children) {
 		switch {
-		case hiddenNode(child) || blankText(child):
+		case hiddenNode(child) || blankText(child) || isColumnNode(child) || isColumnGroupNode(child):
 			continue
+		case isTableCaptionNode(child):
+			// Each caption occupies its own anonymous-wrapper row, placed
+			// above or below the grid by orderedTableChildren.
+			flushPending()
+			grid.addRow(nil, []*StyledNode{child}, nil)
 		case isRowNode(child):
 			flushPending()
 			grid.addRow(child, child.Children, nil)
@@ -290,6 +339,7 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 	}
 	flushPending()
 	grid.assignColumns()
+	grid.columns = max(grid.columns, len(grid.cols))
 	return grid
 }
 
@@ -315,10 +365,117 @@ func tableCaptionMinWidth(n *StyledNode, faces *faceSet) int {
 	return width
 }
 
-// orderedTableChildren moves the first header group to the top and the first
-// footer group to the bottom of the table, as CSS 2.1 §17.2 requires,
-// regardless of their source order.
+// anonymousCellKey marks the computed style of an anonymous grid cell. The
+// space makes it impossible for a CSS declaration to set.
+const anonymousCellKey = " anonymous-cell"
+
+// isTableInternalNode reports whether a box is a proper table child or cell
+// by its display value (CSS 2.1 §17.2.1). Floated and absolutely positioned
+// boxes are blockified and so never table-internal.
+func isTableInternalNode(n *StyledNode) bool {
+	if !displayIs(n, "table-cell", "table-row", "table-row-group", "table-header-group",
+		"table-footer-group", "table-caption", "table-column", "table-column-group") {
+		return false
+	}
+	if f := strings.ToLower(strings.TrimSpace(n.Style["float"])); f != "" && f != "none" {
+		return false
+	}
+	return !positioned(n)
+}
+
+// wrapAnonymousTables wraps each run of consecutive misparented
+// table-internal children of a block container in an anonymous table box
+// (CSS 2.1 §17.2.1 rules 2–3). Whitespace between table-internal siblings is
+// dropped. A run holding only captions is left as ordinary blocks: the
+// anonymous table would contribute nothing but the caption, and a caption
+// is itself laid out as the child of an anonymous grid cell.
+func wrapAnonymousTables(parent *StyledNode, children []*StyledNode) []*StyledNode {
+	// An anonymous grid cell already holds its table's misparented children;
+	// wrapping them again would recurse without end.
+	if parent == nil || parent.Style[anonymousCellKey] != "" ||
+		isTableNode(parent) || isRowNode(parent) || isRowGroupNode(parent) {
+		return children
+	}
+	var result, run []*StyledNode
+	var trailing []*StyledNode // whitespace held until the run continues
+	flush := func() {
+		wrap := false
+		for _, n := range run {
+			wrap = wrap || !isTableCaptionNode(n)
+		}
+		if wrap {
+			result = append(result, anonymousTable(parent, run))
+		} else {
+			result = append(result, run...)
+		}
+		result = append(result, trailing...)
+		run, trailing = nil, nil
+	}
+	for _, child := range children {
+		switch {
+		case isTableInternalNode(child):
+			trailing = nil
+			run = append(run, child)
+		case len(run) > 0 && blankText(child):
+			trailing = append(trailing, child)
+		default:
+			if len(run) > 0 {
+				flush()
+			}
+			result = append(result, child)
+		}
+	}
+	if len(run) > 0 {
+		flush()
+	}
+	return result
+}
+
+// anonymousTable returns an anonymous display:table box for run, inheriting
+// the parent's inherited properties.
+func anonymousTable(parent *StyledNode, run []*StyledNode) *StyledNode {
+	style := ComputedStyle{"display": "table"}
+	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
+		"font-style", "font-variant", "font-weight", "lang", "line-height", "text-align"} {
+		if v, ok := parent.Style[p]; ok {
+			style[p] = v
+		}
+	}
+	node := &Node{Type: ElementNode, Parent: parent.nodeOrNil()}
+	return &StyledNode{Node: node, Style: style, Children: run}
+}
+
+// captionSideBottom reports whether a caption is placed below the table grid.
+func captionSideBottom(n *StyledNode) bool {
+	return strings.EqualFold(strings.TrimSpace(n.Style["caption-side"]), "bottom")
+}
+
+// orderedTableChildren places captions in the table wrapper and orders row
+// groups, regardless of source order: top captions precede the grid and
+// bottom captions follow it (CSS 2.1 §17.4), while the first header group
+// renders first and the first footer group last within the grid (§17.2).
 func orderedTableChildren(children []*StyledNode) []*StyledNode {
+	var top, grid, bottom []*StyledNode
+	for _, child := range children {
+		switch {
+		case hiddenNode(child) || !isTableCaptionNode(child):
+			grid = append(grid, child)
+		case captionSideBottom(child):
+			bottom = append(bottom, child)
+		default:
+			top = append(top, child)
+		}
+	}
+	if len(top) == 0 && len(bottom) == 0 {
+		return orderedTableGroups(children)
+	}
+	ordered := append(top, orderedTableGroups(grid)...)
+	return append(ordered, bottom...)
+}
+
+// orderedTableGroups moves the first header group to the top and the first
+// footer group to the bottom of the table grid.
+func orderedTableGroups(children []*StyledNode) []*StyledNode {
 	header, footer := -1, -1
 	for i, child := range children {
 		if hiddenNode(child) || !isRowGroupNode(child) {
@@ -384,7 +541,7 @@ func (g *tableGrid) addRow(node *StyledNode, children []*StyledNode, group *tabl
 		if len(loose) == 0 {
 			return
 		}
-		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{}, Children: loose}
+		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{anonymousCellKey: "1"}, Children: loose}
 		caption := len(loose) == 1 && isTableCaptionNode(loose[0])
 		g.caption = g.caption || caption
 		row.cells = append(row.cells, &tableCellBox{node: anonymous, colspan: 1, rowspan: 1, caption: caption})
@@ -707,6 +864,108 @@ func resolveColumns(sizes columnSizes, available int) []int {
 	return widths
 }
 
+// resolveFixedColumns implements the width-selection portion of CSS fixed
+// table layout. Column declarations win, then widths from the first
+// non-caption row, and any remaining room is shared by unspecified columns.
+// A <col> width is the used width of the column itself: cell padding and
+// borders fit inside it rather than being added to it.
+func (g *tableGrid) resolveFixedColumns(available int) []int {
+	widths := make([]int, g.columns)
+	specified := make([]bool, g.columns)
+	available = max(0, available)
+
+	for col, node := range g.cols {
+		if col >= g.columns {
+			break
+		}
+		value := strings.TrimSpace(node.Style["width"])
+		if value == "" || strings.EqualFold(value, "auto") {
+			continue
+		}
+		widths[col] = max(0, int(math.Round(px(value, float64(available), float64(available)))))
+		specified[col] = true
+	}
+
+	for _, row := range g.rows {
+		firstDataRow := false
+		for _, cell := range row.cells {
+			if !cell.caption {
+				firstDataRow = true
+				break
+			}
+		}
+		if !firstDataRow {
+			continue
+		}
+		for _, cell := range row.cells {
+			if cell.caption || cell.col >= g.columns {
+				continue
+			}
+			target := -1
+			switch {
+			case cell.percent >= 0:
+				target = int(math.Round(float64(available) * cell.percent / 100))
+			case cell.fixed >= 0:
+				// measureCells includes the cell's padding and border in its
+				// fixed min width, as required for first-row cell widths.
+				target = cell.minWidth
+			}
+			if target < 0 {
+				continue
+			}
+			end := min(g.columns, cell.col+cell.colspan)
+			innerSpacing := g.hspacing * max(0, end-cell.col-1)
+			target = max(0, target-innerSpacing)
+			current, open := 0, make([]int, 0, end-cell.col)
+			for col := cell.col; col < end; col++ {
+				current += widths[col]
+				if !specified[col] {
+					open = append(open, col)
+				}
+			}
+			if target > current && len(open) > 0 {
+				distributeFixedExtra(widths, open, target-current)
+				for _, col := range open {
+					specified[col] = true
+				}
+			}
+		}
+		break
+	}
+
+	total := 0
+	var open []int
+	for col, width := range widths {
+		total += width
+		if !specified[col] {
+			open = append(open, col)
+		}
+	}
+	if remaining := available - total; remaining > 0 {
+		if len(open) == 0 {
+			open = make([]int, g.columns)
+			for i := range open {
+				open[i] = i
+			}
+		}
+		distributeFixedExtra(widths, open, remaining)
+	}
+	return widths
+}
+
+func distributeFixedExtra(widths, columns []int, extra int) {
+	if len(columns) == 0 || extra <= 0 {
+		return
+	}
+	share, remainder := extra/len(columns), extra%len(columns)
+	for i, column := range columns {
+		widths[column] += share
+		if i < remainder {
+			widths[column]++
+		}
+	}
+}
+
 // shrink scales widths down proportionally so their sum fits available.
 func shrink(widths []int, available int) {
 	total := 0
@@ -738,6 +997,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	autoLeft := strings.EqualFold(strings.TrimSpace(n.Style["margin-left"]), "auto")
 	autoRight := strings.EqualFold(strings.TrimSpace(n.Style["margin-right"]), "auto")
 	specifiedWidth := strings.TrimSpace(n.Style["width"])
+	fixedLayout := strings.EqualFold(strings.TrimSpace(n.Style["table-layout"]), "fixed") &&
+		specifiedWidth != "" && !strings.EqualFold(specifiedWidth, "auto")
 	if !autoLeft && !autoRight && specifiedWidth != "" &&
 		!strings.EqualFold(specifiedWidth, "auto") &&
 		strings.EqualFold(strings.TrimSpace(parentTextAlign), "center") {
@@ -753,7 +1014,13 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 
 	contentWidth := available
 	if value := specifiedWidth; value != "" && !strings.EqualFold(value, "auto") {
-		contentWidth = min(available, max(0, int(math.Round(px(value, float64(available), float64(available))))))
+		requested := max(0, int(math.Round(px(value, float64(available), float64(available)))))
+		// CSS fixed-table width measures the table including its borders; the
+		// grid resolved below occupies the inner distance between them.
+		if fixedLayout {
+			requested = max(0, requested-border[1]-border[3])
+		}
+		contentWidth = min(available, requested)
 	} else {
 		intrinsic := grid.hspacing * (grid.columns + 1)
 		for _, w := range sizes.max {
@@ -770,6 +1037,9 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	}
 	spacingTotal := grid.hspacing * (grid.columns + 1)
 	columnWidths := resolveColumns(sizes, contentWidth-spacingTotal)
+	if fixedLayout {
+		columnWidths = grid.resolveFixedColumns(contentWidth - spacingTotal)
+	}
 
 	free := max(0, width-margin[1]-margin[3]-border[1]-border[3]-contentWidth)
 	switch {
@@ -834,7 +1104,12 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			padding, cellBorder := grid.cellEdges(cell)
 			innerWidth := max(0, cellWidth-padding[1]-padding[3]-cellBorder[1]-cellBorder[3])
 			contentX := columnX[min(cell.col, grid.columns)] + padding[3] + cellBorder[3]
-			children, height := layoutChildren(cell.node, contentX, 0, innerWidth, faces,
+			// The cell box below owns the cell's background and border. Make
+			// its inline-content wrapper anonymous so those decorations are
+			// not painted a second time around the content width.
+			contentNode := *cell.node
+			contentNode.Node = nil
+			children, height := layoutChildren(&contentNode, contentX, 0, innerWidth, faces,
 				containingBlock{x: contentX, width: innerWidth,
 					inlinePenX: fixed.I(contentX) + columnPhase[min(cell.col, grid.columns)], hasInlinePenX: true})
 			if value := strings.TrimSpace(cell.node.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
@@ -859,6 +1134,39 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		for _, cell := range row.cells {
 			if cell.rowspan == 1 {
 				row.height = max(row.height, cell.height)
+			}
+		}
+	}
+	// In fixed layout, an explicit table height is a minimum for the row
+	// grid. Captions sit outside that grid, so they do not consume any of the
+	// height distributed to data rows.
+	if fixedLayout {
+		if value := strings.TrimSpace(n.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
+			target := max(0, int(math.Round(px(value, 0, 0))))
+			have := 0
+			var dataRows []int
+			for i, row := range grid.rows {
+				captionOnly := len(row.cells) > 0
+				for _, cell := range row.cells {
+					if !cell.caption {
+						captionOnly = false
+						break
+					}
+				}
+				if captionOnly {
+					continue
+				}
+				have += row.height
+				dataRows = append(dataRows, i)
+			}
+			if deficit := target - have; deficit > 0 && len(dataRows) > 0 {
+				share, remainder := deficit/len(dataRows), deficit%len(dataRows)
+				for i, row := range dataRows {
+					grid.rows[row].height += share
+					if i < remainder {
+						grid.rows[row].height++
+					}
+				}
 			}
 		}
 	}
@@ -970,6 +1278,10 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		}
 	}
 
+	if grid.collapse {
+		grid.bridgeEmptyRows()
+	}
+
 	content := image.Rect(originX, originY, originX+tableWidth, originY+tableHeight)
 	rect := image.Rect(x+margin[3], y+margin[0], content.Max.X+border[1], content.Max.Y+border[2])
 	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: rowBoxes}
@@ -1048,7 +1360,7 @@ func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 		maxWidth = max(maxWidth, inlineMax)
 		inlineMin, inlineMax = 0, 0
 	}
-	for _, child := range n.Children {
+	for _, child := range wrapAnonymousTables(n, n.Children) {
 		if hiddenNode(child) {
 			continue
 		}
@@ -1145,4 +1457,88 @@ func firstTextBaseline(b *Box, faces *faceSet) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// bridgeEmptyRows paints the collapsed borders that span rows without cells.
+// In the collapsing model half of a cell's bottom (top) border lies outside
+// the cell, in the row below (above). When that row has no cells of its own,
+// nothing else paints there, so the partial model would otherwise leave a
+// background-colored gap across every column (WPT
+// tables/border-collapse-empty-row). Each run of consecutive empty rows gets
+// border-only bands: the upper half-border of the cell above hangs down from
+// the run's top edge and the lower half-border of the cell below rises from
+// its bottom edge, each clipped to the run. Rows taller than both halves keep
+// a gap in between, as they do with genuinely collapsed borders.
+func (g *tableGrid) bridgeEmptyRows() {
+	occupant := map[[2]int]*tableCellBox{}
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			for r := cell.row; r < min(len(g.rows), cell.row+cell.rowspan); r++ {
+				for c := cell.col; c < min(g.columns, cell.col+cell.colspan); c++ {
+					occupant[[2]int{r, c}] = cell
+				}
+			}
+		}
+	}
+	empty := func(r int) bool {
+		for c := 0; c < g.columns; c++ {
+			if occupant[[2]int{r, c}] != nil {
+				return false
+			}
+		}
+		return true
+	}
+	for first := 0; first < len(g.rows); first++ {
+		if !empty(first) {
+			continue
+		}
+		last := first
+		for last+1 < len(g.rows) && empty(last+1) {
+			last++
+		}
+		host := g.rows[first].box
+		top, bottom := g.rows[first].y, g.rows[last].y+g.rows[last].height
+		if first > 0 && last+1 < len(g.rows) && host != nil && bottom > top {
+			seen := map[*tableCellBox]bool{}
+			for c := 0; c < g.columns; c++ {
+				if above := occupant[[2]int{first - 1, c}]; above != nil && !seen[above] {
+					seen[above] = true
+					if band := collapsedBorderBand(above, "bottom", top, bottom, false); band != nil {
+						host.Children = append(host.Children, band)
+					}
+				}
+				if below := occupant[[2]int{last + 1, c}]; below != nil && !seen[below] {
+					seen[below] = true
+					if band := collapsedBorderBand(below, "top", top, bottom, true); band != nil {
+						host.Children = append(host.Children, band)
+					}
+				}
+			}
+		}
+		first = last
+	}
+}
+
+// collapsedBorderBand returns a border-only box covering the outer half of a
+// cell's collapsed top or bottom border within [top, bottom). fromBottom
+// anchors the band to bottom (a top border rising from the next cell).
+func collapsedBorderBand(cell *tableCellBox, side string, top, bottom int, fromBottom bool) *Box {
+	if cell == nil || cell.box == nil || cell.node == nil {
+		return nil
+	}
+	extent := min(bottom-top, borderWidth(cell.node.Style, side)/2)
+	if extent <= 0 {
+		return nil
+	}
+	rect := image.Rect(cell.box.Rect.Min.X, top, cell.box.Rect.Max.X, top+extent)
+	if fromBottom {
+		rect = image.Rect(cell.box.Rect.Min.X, bottom-extent, cell.box.Rect.Max.X, bottom)
+	}
+	widths := [4]int{}
+	if side == "top" {
+		widths[0] = extent
+	} else {
+		widths[2] = extent
+	}
+	return &Box{Node: cell.node.nodeOrNil(), Rect: rect, Content: rect, BorderWidths: &widths, BorderOnly: true}
 }
