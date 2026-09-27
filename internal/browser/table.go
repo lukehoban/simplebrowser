@@ -1388,6 +1388,13 @@ func intrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 			fixed := max(0, int(math.Round(px(value, 0, 0))))
 			minWidth, maxWidth = fixed, fixed
 		}
+		// An atomic inline contributes at least its used min-width (#285).
+		// Block-level min/max-width remain unimplemented.
+		if isAtomicInline(n) {
+			if floor, ok := minContentWidth(n, 0); ok {
+				minWidth, maxWidth = max(minWidth, floor), max(maxWidth, floor)
+			}
+		}
 		minWidth += extra
 		maxWidth += extra
 	}
