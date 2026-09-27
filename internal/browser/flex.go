@@ -31,6 +31,7 @@ type flexItem struct {
 	autoMargin    [4]bool
 	main, grow    float64
 	shrink        float64
+	automaticMin  float64
 	extra         int // margins, borders and padding on the main axis
 	explicitCross bool
 }
@@ -150,8 +151,22 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		if column {
 			extra = margin[0] + margin[2] + inner[0] + inner[2]
 		}
+		automaticMin := 0.0
+		if !column && !flexItemIsScrollContainer(child.Style) {
+			// A row flex item's automatic minimum main size is content-based.
+			// Without this floor, flex-shrink can reduce a label or its badge
+			// below its min-content width, so inline descendants paint over
+			// adjacent flex items (as GitHub's repository tabs demonstrate).
+			if strings.EqualFold(child.Node.Name, "img") {
+				minContent, _ := imageDimensions(child, faces.images[child.Node], width)
+				automaticMin = float64(minContent)
+			} else {
+				minContent, _ := contentIntrinsicWidths(child, faces)
+				automaticMin = float64(minContent)
+			}
+		}
 		items = append(items, flexItem{node: child, margin: margin, autoMargin: autoMarginEdges(child), main: main, grow: grow, shrink: shrink,
-			extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
+			automaticMin: automaticMin, extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
 	}
 
 	// Collect items into lines. A single-line container keeps every item on
@@ -439,17 +454,72 @@ func flexMinMax(item flexItem, column bool, mainSize int) (minimum, maximum floa
 	if column {
 		property = "height"
 	}
+	if !column {
+		minimum = item.automaticMin
+		// The content-based automatic minimum is capped by both the
+		// specified-size suggestion and the author's maximum size suggestion.
+		// These sizes are represented as content-box lengths here, including
+		// when box-sizing makes their CSS values border-box lengths.
+		if specified, ok := flexContentSizeSuggestion(item.node, property, mainSize); ok {
+			minimum = math.Min(minimum, specified)
+		}
+		if maxValue, ok := flexContentSizeSuggestion(item.node, "max-"+property, mainSize); ok {
+			minimum = math.Min(minimum, maxValue)
+		}
+	}
 	maximum = math.Inf(1)
 	if v := strings.TrimSpace(item.node.Style["min-"+property]); v != "" && v != "auto" {
+		// An explicit min-width, including zero, replaces the automatic
+		// content-based minimum.
 		minimum = math.Max(0, px(v, float64(mainSize), 0))
+		if !column {
+			minimum = flexContentSizeValue(item.node, v, mainSize)
+		}
 	}
 	if v := strings.TrimSpace(item.node.Style["max-"+property]); v != "" && v != "none" {
 		maximum = math.Max(0, px(v, float64(mainSize), 0))
+		if !column {
+			maximum = flexContentSizeValue(item.node, v, mainSize)
+		}
 	}
 	if maximum < minimum {
 		maximum = minimum
 	}
 	return
+}
+
+// flexContentSizeSuggestion resolves a definite preferred/min/max size into
+// the content-box coordinate system used by flexItem.main and automaticMin.
+func flexContentSizeSuggestion(node *StyledNode, property string, mainSize int) (float64, bool) {
+	value := strings.TrimSpace(node.Style[property])
+	if value == "" || strings.EqualFold(value, "auto") || strings.EqualFold(value, "none") {
+		return 0, false
+	}
+	return flexContentSizeValue(node, value, mainSize), true
+}
+
+func flexContentSizeValue(node *StyledNode, value string, mainSize int) float64 {
+	size := math.Max(0, px(value, float64(mainSize), 0))
+	if strings.EqualFold(strings.TrimSpace(node.Style["box-sizing"]), "border-box") {
+		inner := inlineInnerEdges(node, mainSize)
+		size -= float64(inner[1] + inner[3])
+	}
+	return math.Max(0, size)
+}
+
+func flexItemIsScrollContainer(style ComputedStyle) bool {
+	values := []string{style["overflow-x"], style["overflow-y"]}
+	shorthand := strings.Fields(strings.ToLower(strings.TrimSpace(style["overflow"])))
+	if len(shorthand) > 0 {
+		values = append(values, shorthand...)
+	}
+	for _, value := range values {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "auto", "scroll", "hidden":
+			return true
+		}
+	}
+	return false
 }
 
 // flexIntrinsicWidths measures a flex container's content. A row places every

@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px Arial, sans-serif; color: #1f2328; }
+    .tabs {
+      display: flex;
+      width: 240px;
+      overflow: hidden;
+      border-bottom: 1px solid #d1d9e0;
+      white-space: nowrap;
+    }
+    .tab {
+      display: flex;
+      align-items: center;
+      flex: 0 1 auto;
+      padding: 0 8px;
+      line-height: 30px;
+      color: inherit;
+      white-space: nowrap;
+    }
+    .count {
+      margin-left: 8px;
+      padding: 0 6px;
+      border: 1px solid #d1d9e0;
+      border-radius: 12px;
+      background: #eaeef2;
+      font-size: 12px;
+      line-height: 18px;
+    }
+  </style>
+</head>
+<body>
+  <nav class="tabs">
+    <a class="tab" id="issues">
+      <span id="issues-label">Issues</span>
+      <span class="count" id="issues-count">5k+</span>
+    </a>
+    <a class="tab" id="pulls">
+      <span id="pulls-label">Pull requests</span>
+      <span class="count" id="pulls-count">2.7k</span>
+    </a>
+    <a class="tab" id="security">
+      <span id="security-label">Security and quality</span>
+      <span class="count" id="security-count">54</span>
+    </a>
+    <a class="tab">Insights</a>
+  </nav>
+</body>
+</html>

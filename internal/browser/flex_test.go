@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"testing"
 )
 
@@ -45,6 +46,137 @@ func TestFlexImageUsesReplacedLayoutAndPaint(t *testing.T) {
 		t.Fatal(err)
 	}
 	pixel(t, rendered.(*image.RGBA), 2, 2, color.RGBA{255, 0, 0, 255})
+}
+
+func TestFlexTabCountStaysBesideLabelWhenTabsOverflow(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/github-vscode/repros/count-badge-overlap.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := LayoutWithViewport(styledForLayout(t, string(source)), image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root,
+		"issues", "issues-label", "issues-count",
+		"pulls", "pulls-label", "pulls-count",
+		"security", "security-label", "security-count")
+	for _, tab := range []string{"issues", "pulls", "security"} {
+		label, count := boxes[tab+"-label"], boxes[tab+"-count"]
+		if label.Rect.Max.X > count.Rect.Min.X {
+			t.Errorf("%s label box and count overlap: label=%v count=%v", tab, label.Rect, count.Rect)
+		}
+		for _, run := range flexBoxTextRuns(label) {
+			if overlap := run.Rect.Intersect(count.Rect); !overlap.Empty() {
+				t.Errorf("%s label text paints into its count badge: text=%q rect=%v count=%v overlap=%v",
+					tab, run.Text, run.Rect, count.Rect, overlap)
+			}
+		}
+	}
+}
+
+func flexBoxTextRuns(box *Box) []TextRun {
+	if box == nil {
+		return nil
+	}
+	runs := append([]TextRun(nil), box.Text...)
+	for _, child := range box.Children {
+		runs = append(runs, flexBoxTextRuns(child)...)
+	}
+	return runs
+}
+
+func TestFlexExplicitZeroMinWidthOverridesAutomaticMinimum(t *testing.T) {
+	const source = `<body style="margin:0"><div id="container" style="display:flex;width:50px">
+		<span id="item" style="min-width:0">unbreakableword</span>
+		<span id="fixed" style="flex:0 0 10px;width:10px;height:10px"></span>
+	</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 50, 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "item", "fixed")
+	if got := boxes["item"].Rect.Dx(); got != 40 {
+		t.Fatalf("min-width:0 item width = %d, want 40px after flex shrink; box=%v", got, boxes["item"].Rect)
+	}
+	if boxes["fixed"].Rect.Min.X != 40 {
+		t.Fatalf("fixed sibling starts at %d, want x=40 after the 40px shrinkable item", boxes["fixed"].Rect.Min.X)
+	}
+}
+
+func TestFlexAutomaticMinimumHonorsSpecifiedAndMaximumWidth(t *testing.T) {
+	const source = `<body style="margin:0">
+	<div id="specified" style="display:flex;width:100px"><div id="specified-item" style="width:10px">unbreakableword</div><div style="flex:none;width:90px"></div></div>
+	<div id="maximum" style="display:flex;width:100px"><div id="maximum-item" style="width:20px;max-width:20px">unbreakableword</div><div style="flex:none;width:80px"></div></div>
+	<div id="border-box" style="display:flex;width:100px"><div id="border-box-item" style="width:20px;max-width:20px;box-sizing:border-box;padding:0 5px;border:1px solid">unbreakableword</div><div style="flex:none;width:80px"></div></div>
+	</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 120, 60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "specified-item", "maximum-item", "border-box-item")
+	for id, want := range map[string]int{
+		"specified-item": 10,
+		"maximum-item":   20,
+		// The 20px border-box suggestion includes 12px of padding and border.
+		"border-box-item": 8,
+	} {
+		if got := boxes[id].Rect.Dx(); got != want {
+			t.Errorf("%s content width = %d, want %d (box=%v)", id, got, want, boxes[id].Rect)
+		}
+	}
+}
+
+func TestFlexAutomaticMinimumHonorsMaxWidthWithoutSpecifiedWidth(t *testing.T) {
+	const source = `<body style="margin:0"><div style="display:flex;width:100px">
+		<div id="item" style="max-width:20px">unbreakableword</div>
+		<div id="fixed" style="flex:none;width:80px"></div>
+	</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 120, 30))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "item", "fixed")
+	if got := boxes["item"].Rect.Dx(); got != 20 {
+		t.Fatalf("max-width-only item width = %d, want 20px (box=%v)", got, boxes["item"].Rect)
+	}
+	if got := boxes["fixed"].Rect.Min.X; got != 20 {
+		t.Fatalf("fixed sibling starts at %d, want x=20 after max-width cap", got)
+	}
+}
+
+func TestFlexAutomaticMinimumExemptsScrollContainersAndColumns(t *testing.T) {
+	const source = `<body style="margin:0"><div id="scroll-row" style="display:flex;width:20px"><div id="scroll-item" style="width:40px;overflow:auto">unbreakableword</div><div style="flex:none;width:10px"></div></div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 50, 50))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "scroll-item")
+	if got := boxes["scroll-item"].Rect.Dx(); got != 10 {
+		t.Errorf("scroll-container row item width = %d, want 10px after shrink; box=%v", got, boxes["scroll-item"].Rect)
+	}
+
+	columnDoc := styledForLayout(t, `<div style="display:flex;flex-direction:column"><div id="column-item" style="height:40px">unbreakableword</div></div>`)
+	var columnItem *StyledNode
+	var find func(*StyledNode)
+	find = func(node *StyledNode) {
+		if node.Node != nil {
+			if id, ok := node.Node.Attribute("id"); ok && id.Value == "column-item" {
+				columnItem = node
+			}
+		}
+		for _, child := range node.Children {
+			find(child)
+		}
+	}
+	find(columnDoc.StyleRoot)
+	if columnItem == nil {
+		t.Fatal("column flex item not found")
+	}
+	minimum, _ := flexMinMax(flexItem{node: columnItem, automaticMin: 40}, true, 20)
+	if minimum != 0 {
+		t.Errorf("column automatic main-axis minimum = %v, want 0", minimum)
+	}
 }
 
 func TestFlexAnonymousTextItemsRowAndColumn(t *testing.T) {
