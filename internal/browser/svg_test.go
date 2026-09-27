@@ -253,6 +253,135 @@ func TestSVGViewBoxScaling(t *testing.T) {
 	}
 }
 
+func TestSVGShapeLengthsResolveAgainstViewportAndFont(t *testing.T) {
+	for _, src := range []string{
+		`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><circle cx="50%" cy="50%" r="30%" fill="red"/><rect x="10%" y="10%" width="25%" height="20%" fill="blue"/></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 60 40"><circle cx="50%" cy="50%" r="30%" fill="red"/><rect x="10%" y="10%" width="25%" height="20%" fill="blue"/></svg>`,
+	} {
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct {
+			x, y int
+			want color.RGBA
+		}{
+			{60, 40, color.RGBA{255, 0, 0, 255}}, // center: r uses normalized diagonal
+			{13, 9, color.RGBA{0, 0, 255, 255}},  // rect x/width and y/height use their axes
+			{85, 40, color.RGBA{255, 0, 0, 255}}, // within 30% of normalized diagonal
+			{92, 40, color.RGBA{}},               // outside that radius
+		} {
+			if got := img.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+				t.Errorf("decodeSVG shape lengths pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+			}
+		}
+	}
+
+	units, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect x="1pt" y="1mm" width="2mm" height="2mm" fill="blue"/><g font-size="10"><circle cx="30" cy="30" r="1em" fill="red"/></g><circle cx="80" cy="30" r="1rem" fill="green"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{2, 4, color.RGBA{0, 0, 255, 255}},   // pt/mm conversions
+		{10, 4, color.RGBA{}},                // 2mm extent
+		{30, 30, color.RGBA{255, 0, 0, 255}}, // inherited em font size
+		{40, 30, color.RGBA{}},               // em radius is 10 user units
+		{80, 30, color.RGBA{0, 128, 0, 255}}, // rem uses the initial root size
+	} {
+		if got := units.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("absolute/font-relative pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+
+	lengths := svgLengthBasis{horizontal: 120, vertical: 80, diagonal: math.Hypot(120/math.Sqrt2, 80/math.Sqrt2), fontSize: 10, rootFontSize: 16}
+	for _, tc := range []struct {
+		value string
+		axis  svgAxis
+		want  float64
+	}{
+		{"50%", svgHorizontal, 60},
+		{"50%", svgVertical, 40},
+		{"50%", svgDiagonal, lengths.diagonal / 2},
+		{"1em", svgHorizontal, 10},
+		{"1rem", svgHorizontal, 16},
+	} {
+		if got, ok := lengths.length(tc.value, tc.axis); !ok || math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("resolve SVG length %q = %g, %v; want %g", tc.value, got, ok, tc.want)
+		}
+	}
+	if got, ok := svgFontSize("2rem", 10, 16); !ok || got != 32 {
+		t.Errorf("resolve SVG font-size rem = %g, %v; want 32, true", got, ok)
+	}
+	for _, tc := range []struct {
+		value string
+		want  float64
+	}{
+		{"1in", 96},
+		{"2.54cm", 96},
+		{"25.4mm", 96},
+		{"101.6Q", 96},
+		{"72pt", 96},
+		{"6pc", 96},
+	} {
+		if got, ok := svgLength(tc.value); !ok || math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("absolute SVG length %q = %g, %v; want %g", tc.value, got, ok, tc.want)
+		}
+	}
+	if _, ok := svgLength("1000000in"); ok {
+		t.Error("accepted an unbounded absolute SVG length")
+	}
+
+	rootRem, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" font-size="2rem"><circle cx="40" cy="40" r="1em" fill="red"/><circle cx="120" cy="40" r="1rem" fill="blue"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{40, 40, color.RGBA{255, 0, 0, 255}},
+		{70, 40, color.RGBA{255, 0, 0, 255}}, // root font-size 2rem computes to 32px
+		{73, 40, color.RGBA{}},
+		{120, 40, color.RGBA{0, 0, 255, 255}}, // 1rem sees the computed root size
+		{150, 40, color.RGBA{0, 0, 255, 255}},
+		{153, 40, color.RGBA{}},
+	} {
+		if got := rootRem.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("root-relative SVG font size pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
+// The paired fixture visual shows percentages, absolute units and inherited
+// font-relative units before and after shape-length resolution.
+func TestSVGShapeLengthsVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "shape-lengths-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("SVG_SHAPE_LENGTHS_VISUAL_DIR"); path != "" {
+		before := image.NewRGBA(after.Bounds())
+		for name, img := range map[string]image.Image{"svg-shape-lengths-before.png": before, "svg-shape-lengths-after.png": after.RGBA} {
+			f, err := os.Create(filepath.Join(path, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(f, img)
+			closeErr := f.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("write %s: %v, %v", name, err, closeErr)
+			}
+		}
+	}
+}
+
 func TestSVGRasterizesFills(t *testing.T) {
 	src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 40 20">
 		<title>ignored</title>
