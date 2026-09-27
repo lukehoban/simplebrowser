@@ -1422,6 +1422,18 @@ func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 			continue
 		}
 		childMin, childMax := intrinsicWidths(child, faces)
+		// Floats are blockified, but with unlimited width consecutive floats
+		// sit side by side with each other and the surrounding inline
+		// content, so their margin boxes add to the current line (#349). A
+		// clearing float starts a new line below the earlier floats.
+		if floatSide(child) != "" && !positioned(child) {
+			if clear := strings.ToLower(strings.TrimSpace(child.Style["clear"])); clear != "" && clear != "none" {
+				flush()
+			}
+			inlineMin = max(inlineMin, childMin)
+			inlineMax += childMax
+			continue
+		}
 		if child.Node != nil && child.Node.Type != TextNode && (displayBlock(child) || isTableNode(child)) {
 			flush()
 			minWidth = max(minWidth, childMin)

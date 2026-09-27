@@ -54,6 +54,10 @@ type StyledNode struct {
 	Node     *Node
 	Style    ComputedStyle
 	Children []*StyledNode
+	// flexItem marks a flex item being laid out. Flex items establish an
+	// independent formatting context (css-flexbox §4), so their floats
+	// neither escape into the container nor persist across re-layouts.
+	flexItem bool
 }
 
 // Layout is the output of the layout stage.

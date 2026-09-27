@@ -128,7 +128,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			} else {
 				// Auto-sized text (including anonymous items) has a natural
 				// line height on the column's main axis.
-				natural, _ := layoutBlock(child, 0, 0, width, faces, cb)
+				natural, _ := layoutBlock(asFlexItem(child), 0, 0, width, faces, cb)
 				main = float64(natural.Content.Dy())
 			}
 		} else {
@@ -561,8 +561,18 @@ func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containin
 		box, _ := layoutReplacedBlock(n, x, y, width, faces)
 		return box
 	}
-	box, _ := layoutBlock(n, x, y, width, faces, cb)
+	box, _ := layoutBlock(asFlexItem(n), x, y, width, faces, cb)
 	return box
+}
+
+// asFlexItem returns n marked as an independent formatting context root.
+func asFlexItem(n *StyledNode) *StyledNode {
+	if n.flexItem {
+		return n
+	}
+	item := *n
+	item.flexItem = true
+	return &item
 }
 
 // Resolve flexible lengths with min/max freezing. Free space is measured
