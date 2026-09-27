@@ -255,7 +255,13 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	if value, ok := a["fill"]; ok {
 		current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
 	}
-	if n, ok := svgFontSize(a["font-size"], parent.fontSize, s.img.rootFontSize); ok {
+	rootFontSize := s.img.rootFontSize
+	if node == s.root {
+		// On the root element, rem is relative to its initial value rather
+		// than to the root font size being computed here.
+		rootFontSize = 16
+	}
+	if n, ok := svgFontSize(a["font-size"], parent.fontSize, rootFontSize); ok {
 		current.fontSize = n
 	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {

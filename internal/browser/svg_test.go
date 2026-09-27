@@ -333,6 +333,26 @@ func TestSVGShapeLengthsResolveAgainstViewportAndFont(t *testing.T) {
 	if _, ok := svgLength("1000000in"); ok {
 		t.Error("accepted an unbounded absolute SVG length")
 	}
+
+	rootRem, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" font-size="2rem"><circle cx="40" cy="40" r="1em" fill="red"/><circle cx="120" cy="40" r="1rem" fill="blue"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{40, 40, color.RGBA{255, 0, 0, 255}},
+		{70, 40, color.RGBA{255, 0, 0, 255}}, // root font-size 2rem computes to 32px
+		{73, 40, color.RGBA{}},
+		{120, 40, color.RGBA{0, 0, 255, 255}}, // 1rem sees the computed root size
+		{150, 40, color.RGBA{0, 0, 255, 255}},
+		{153, 40, color.RGBA{}},
+	} {
+		if got := rootRem.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("root-relative SVG font size pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
 }
 
 // The paired fixture visual shows percentages, absolute units and inherited
