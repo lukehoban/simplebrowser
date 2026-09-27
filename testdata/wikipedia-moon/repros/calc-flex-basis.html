@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<!-- Mixed percentage+pixel calc() in flex-basis: in a 400px flex container
+     the green item must be 190px (50% - 10px), the blue item 200px (50%),
+     and the orange item 120px (100px + 20px). -->
+<style>
+  .row { display: flex; width: 400px; margin: 8px 0; background: #eee; }
+  .row div { flex-shrink: 0; height: 30px; }
+  .a { flex-basis: calc(50% - 10px); background: green; }
+  .b { flex-basis: 50%; background: blue; }
+  .c { flex-basis: calc(100px + 20px); background: orange; }
+</style>
+<div class="row"><div class="a"></div></div>
+<div class="row"><div class="b"></div></div>
+<div class="row"><div class="c"></div></div>

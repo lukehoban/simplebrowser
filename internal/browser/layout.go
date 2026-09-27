@@ -344,6 +344,12 @@ func isBold(weight string) bool {
 }
 
 func px(value string, basis, fallback float64) float64 {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(value)), "calc(") {
+		if result, ok := evaluateComputedCalc(strings.TrimSpace(value), basis); ok {
+			return result
+		}
+		return fallback
+	}
 	v := classifyValue(strings.TrimSpace(value))
 	switch v.Kind {
 	case "length", "number":
@@ -918,6 +924,16 @@ func specifiedHeight(n *StyledNode, basis int, definite bool) (int, bool) {
 	h := strings.TrimSpace(n.Style["height"])
 	if h == "" || strings.EqualFold(h, "auto") {
 		return 0, false
+	}
+	if strings.HasPrefix(strings.ToLower(h), "calc(") {
+		if !definite && computedCalcHasPercentage(h) {
+			return 0, false
+		}
+		used := px(h, float64(basis), math.NaN())
+		if math.IsNaN(used) || math.IsInf(used, 0) {
+			return 0, false
+		}
+		return int(math.Max(0, used)), true
 	}
 	v := classifyValue(h)
 	switch v.Kind {
