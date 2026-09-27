@@ -63,7 +63,8 @@ func cascade(n *Node, parent ComputedStyle, ua Stylesheet, sheets []Stylesheet,
 	inline []Declaration) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "medium", "font-weight": "normal", "text-align": "start"}
-	for _, p := range []string{"color", "font-family", "font-size", "font-weight", "text-align"} {
+	// border-spacing is inherited (CSS 2.1 §17.6.1); the UA table rule sets 2px.
+	for _, p := range []string{"border-spacing", "color", "font-family", "font-size", "font-weight", "text-align"} {
 		if parent != nil {
 			values[p] = parent[p]
 		}

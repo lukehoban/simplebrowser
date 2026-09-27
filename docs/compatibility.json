@@ -32,7 +32,7 @@
       "reference": "colors/color-applies-to-001-ref.xht",
       "relation": "match",
       "status": "fail",
-      "different_pixels": 1476
+      "different_pixels": 380
     },
     {
       "test": "backgrounds/background-001.xht",
