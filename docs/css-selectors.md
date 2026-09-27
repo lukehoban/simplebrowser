@@ -1,8 +1,9 @@
 # Structural selector subset
 
-The renderer supports `[name]` and `[name=value]`, `:last-child`, bounded
-`:not()` alongside type, universal, ID, class, descendant, child, adjacent
-(`+`), general sibling (`~`), and static link selectors.
+The renderer supports `[name]` and `[name=value]`, `:first-child`,
+`:last-child`, bounded `:not()` alongside type, universal, ID, class,
+descendant, child, adjacent (`+`), general sibling (`~`), and static link
+selectors.
 
 - `+` looks at the nearest preceding **element** sibling; `~` looks at all
   preceding element siblings under the same parent. Text and comment nodes
@@ -13,8 +14,9 @@ The renderer supports `[name]` and `[name=value]`, `:last-child`, bounded
   contribute class-level specificity and work inside `:not()`.
 - Other attribute operators and selector modifiers remain unsupported. They
   reject the containing selector list/rule rather than matching approximately.
-- `:last-child` counts **element siblings**, including `display:none` elements;
-  trailing text and comments do not matter. A parentless element also matches.
+- `:first-child` and `:last-child` count **element siblings**, including
+  `display:none` elements; surrounding text and comments do not matter. A
+  parentless element also matches either selector.
 - `:not()` accepts an unforgiving comma-separated list using the supported
   grammar, including nested negation up to **16 levels**.
 - Negation contributes the **lexicographically greatest argument specificity**,
@@ -58,7 +60,9 @@ with the collapsed-row painting fix [#178](https://github.com/lukehoban/simplebr
 
 ## Known gaps / follow-ups
 
-- Other functional pseudo-classes and pseudo-elements remain unsupported.
+- `::before`/`::after` generate boxes for string `content`; see
+  [generated content](generated-content.md). Other functional pseudo-classes
+  and other pseudo-elements remain unsupported.
 - The empty-row WPT pair also exercises independently deferred
   [empty inline-block sizes (#192)](https://github.com/lukehoban/simplebrowser/issues/192)
   and [inline-table flow (#193)](https://github.com/lukehoban/simplebrowser/issues/193);

@@ -417,9 +417,16 @@ func displayBlock(n *StyledNode) bool {
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
 	var e [4]int
 	for i, side := range []string{"top", "right", "bottom", "left"} {
-		if name == "border-width" {
+		switch {
+		case name == "border-width":
 			e[i] = borderWidth(n.Style, side)
-		} else {
+		case name == "margin" && (side == "left" || side == "right"):
+			// Horizontal margins may be negative (CSS 2.1 section 8.3): they
+			// pull a box toward its neighbour rather than adding space.
+			// Vertical margins keep the existing clamp here; block margin
+			// collapsing handles negative values through verticalMargin.
+			e[i] = int(math.Round(px(n.Style[name+"-"+side], basis, 0)))
+		default:
 			e[i] = int(math.Max(0, math.Round(px(n.Style[name+"-"+side], basis, 0))))
 		}
 	}
@@ -658,6 +665,11 @@ func inlineBlockPartFit(n *StyledNode, available, fit int, faces *faceSet, paren
 	if w := strings.TrimSpace(n.Style["width"]); w == "" || strings.EqualFold(w, "auto") {
 		minimum, preferred := contentIntrinsicWidths(n, faces)
 		contentWidth := min(max(minimum, contentAvailable), preferred)
+		// An atomic inline never shrinks below its used min-width (#285).
+		if floor, ok := minContentWidth(n, float64(available)); ok {
+			contentWidth = max(contentWidth, floor)
+			minimum = max(minimum, floor)
+		}
 		autoWidth, minOuter = true, minimum+margin[1]+margin[3]+inner[1]+inner[3]
 		style := cloneStyle(n.Style)
 		style["width"] = strconv.Itoa(max(0, contentWidth)) + "px"
@@ -1540,6 +1552,31 @@ func inlineImageEdges(n *StyledNode, width int) [4]int {
 
 // inlineInnerEdges returns the border and padding edges of an inline-level
 // box, i.e. inlineImageEdges without the margins.
+// minContentWidth returns the used min-width of n as a content-box length,
+// or false when min-width is absent or not a usable length. The property is
+// resolved against basis for percentages. `box-sizing: border-box` is honored
+// for this property by subtracting the node's horizontal padding and border;
+// the rest of the engine still treats widths as content-box sizes.
+func minContentWidth(n *StyledNode, basis float64) (int, bool) {
+	if n == nil {
+		return 0, false
+	}
+	value := strings.TrimSpace(n.Style["min-width"])
+	if value == "" || strings.EqualFold(value, "auto") || strings.EqualFold(value, "none") {
+		return 0, false
+	}
+	v := px(value, basis, math.NaN())
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return 0, false
+	}
+	width := int(math.Round(v))
+	if strings.EqualFold(strings.TrimSpace(n.Style["box-sizing"]), "border-box") {
+		inner := inlineInnerEdges(n, int(basis))
+		width -= inner[1] + inner[3]
+	}
+	return max(0, width), true
+}
+
 func inlineInnerEdges(n *StyledNode, width int) [4]int {
 	padding := boxEdges(n, "padding", float64(width))
 	border := boxEdges(n, "border-width", float64(width))

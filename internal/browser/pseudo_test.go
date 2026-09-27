@@ -51,6 +51,8 @@ func TestPseudoClassSpecificity(t *testing.T) {
 		":not(div > .a, span.x.y)": {0, 2, 1},
 		":not(:not(#a))":           {1, 0, 0},
 		":not(.a):not(.b)":         {0, 2, 0},
+		"td:first-child":           {0, 1, 1},
+		".x:not(:first-child)":     {0, 2, 0},
 		"p:last-child":             {0, 1, 1},
 	} {
 		sel := ParseCSS(css + "{}").Rules[0].Selectors[0]
@@ -142,7 +144,8 @@ func TestStructuralPseudoClassMatching(t *testing.T) {
 	doc := styledForLayout(t, `<div id=parent><span id=first class=x>first</span>
 			<span id=last class=x>last</span> trailing text <!-- comment --></div>
 			<p><b id=only></b></p>
-			<div><i id=visible></i><i id=hidden style="display:none"></i></div>`)
+			<div><i id=visible></i><i id=hidden style="display:none"></i></div>
+			<section><div><em id=nested-first></em><em id=nested-last></em></div></section>`)
 	nodes := map[string]*Node{}
 	var walk func(*Node)
 	walk = func(n *Node) {
@@ -158,6 +161,15 @@ func TestStructuralPseudoClassMatching(t *testing.T) {
 		selector, id string
 		want         bool
 	}{
+		{":first-child", "first", true},
+		{":first-child", "last", false},
+		{":FIRST-CHILD", "only", true},
+		{".x:not(:first-child)", "first", false},
+		{".x:not(:first-child)", "last", true},
+		{"#parent > span:first-child", "first", true},
+		{"section em:first-child", "nested-first", true},
+		{"section > em:first-child", "nested-first", false},
+		{"section em:first-child", "nested-last", false},
 		{":last-child", "first", false},
 		{":last-child", "last", true},
 		{":LAST-CHILD", "only", true},
@@ -176,6 +188,8 @@ func TestStructuralPseudoClassMatching(t *testing.T) {
 		{"div:not(.missing) > span:last-child", "last", true},
 		{":not(.missing):not(:last-child)", "first", true},
 		{":not(:hover)", "first", true},
+		{":first-child", "visible", true},
+		{":first-child", "hidden", false},
 		{":last-child", "visible", false},
 		{":last-child", "hidden", true},
 	} {
@@ -185,7 +199,7 @@ func TestStructuralPseudoClassMatching(t *testing.T) {
 		}
 	}
 	for _, n := range []*Node{{Type: TextNode}, {Type: CommentNode}, {Type: DocumentNode}} {
-		for _, selector := range []string{"*", ":last-child", ":not(.x)"} {
+		for _, selector := range []string{"*", ":first-child", ":last-child", ":not(.x)"} {
 			if matchesSelector(n, ParseCSS(selector + "{}").Rules[0].Selectors[0]) {
 				t.Errorf("%s matched non-element type %v", selector, n.Type)
 			}
@@ -193,6 +207,9 @@ func TestStructuralPseudoClassMatching(t *testing.T) {
 	}
 	if !matchesSelector(&Node{Type: ElementNode, Name: "span"}, ParseCSS(":last-child{}").Rules[0].Selectors[0]) {
 		t.Fatal("parentless element should be last-child under Selectors 4")
+	}
+	if !matchesSelector(&Node{Type: ElementNode, Name: "span"}, ParseCSS(":first-child{}").Rules[0].Selectors[0]) {
+		t.Fatal("parentless element should be first-child under Selectors 4")
 	}
 }
 
@@ -208,9 +225,11 @@ func TestNegationCascade(t *testing.T) {
 		{`:not(#absent) {color:red} .x {color:blue !important}`, "blue"},
 		{`:not(.absent) {color:red !important} #target {color:blue}`, "red"},
 		{`div {color:blue} p, :not(:unknown) {color:red}`, "blue"},
+		{`.x {color:blue} div:first-child {color:red}`, "red"},
+		{`div:first-child {color:red} #target {color:blue}`, "blue"},
 		{`div:last-child {color:red} .x {color:blue}`, "red"},
 	} {
-		doc := styledForLayout(t, "<style>"+c.css+"</style><div id=target class=x></div>")
+		doc := styledForLayout(t, "<style>"+c.css+"</style><section><div id=target class=x></div></section>")
 		var found bool
 		var walk func(*StyledNode)
 		walk = func(n *StyledNode) {
@@ -228,6 +247,21 @@ func TestNegationCascade(t *testing.T) {
 		if !found {
 			t.Fatal("missing target")
 		}
+	}
+}
+
+func TestFirstChildTableLayoutMatchesExplicitClasses(t *testing.T) {
+	const table = `<table><tr><td>A</td><td>B</td></tr><tr><td>C</td><td>D</td></tr></table>`
+	const common = `table{width:400px;border-spacing:0}td{height:20px}`
+	actual := painted(t, `<style>`+common+`td:first-child{width:42%}tr:first-child td{background:#ddeeff}</style>`+table, image.Rect(0, 0, 420, 80))
+
+	// Only each row's first cell and the table's first row receive the
+	// equivalent explicit classes.
+	const explicitTable = `<table><tr class="first-row"><td class="first-column">A</td><td>B</td></tr><tr><td class="first-column">C</td><td>D</td></tr></table>`
+	reference := painted(t, `<style>`+common+`.first-column{width:42%}.first-row td{background:#ddeeff}</style>`+explicitTable, actual.Bounds())
+
+	if !bytes.Equal(actual.Pix, reference.Pix) {
+		t.Fatal(":first-child table layout differs from equivalent explicit classes")
 	}
 }
 

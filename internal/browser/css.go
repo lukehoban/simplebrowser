@@ -341,7 +341,16 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 			} else if isLetter(p.s[p.i]) {
 				part.Tag = strings.ToLower(p.ident())
 			}
+			seenPseudoElement := false
 			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':' || p.s[p.i] == '[') {
+				// A pseudo-element must be the last simple selector in its
+				// compound. Reject the selector here, while source order is
+				// still available, rather than later stripping ::before or
+				// ::after and accidentally matching a trailing class or ID
+				// against the originating element.
+				if seenPseudoElement {
+					return nil, false
+				}
 				kind := p.s[p.i]
 				p.i++
 				if kind == '[' {
@@ -366,6 +375,7 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 						continue
 					}
 					part.PseudoClasses = append(part.PseudoClasses, pseudo)
+					seenPseudoElement = isPseudoElementName(pseudo)
 					continue
 				}
 				name := p.ident()
@@ -466,7 +476,7 @@ func validNegationArguments(selectors []Selector) bool {
 		for _, part := range selector.Parts {
 			for _, pseudo := range part.PseudoClasses {
 				switch pseudo {
-				case "link", "any-link", "visited", "hover", "active", "focus", "last-child":
+				case "link", "any-link", "visited", "hover", "active", "focus", "first-child", "last-child":
 				default:
 					return false
 				}
@@ -567,6 +577,11 @@ func ParseDeclarations(input string) []Declaration {
 			if lastBang >= 0 && strings.EqualFold(strings.TrimSpace(value[lastBang+1:]), "important") {
 				value = strings.TrimSpace(value[:lastBang])
 				important = true
+			}
+			if name == "content" && !validContentDeclaration(value) {
+				// An invalid declaration is dropped at parse time so that an
+				// earlier valid one still wins the cascade (CSS Syntax 3 §5.4.6).
+				value = ""
 			}
 			if value != "" || custom {
 				result = append(result, Declaration{Property: name, Value: value, Values: parseValues(value), Important: important})
@@ -917,9 +932,10 @@ const uaCSS = `
 html, body, div, p, pre, blockquote, ul, ol, li, table, tr, td, th,
 header, footer, section, article, main, h1, h2, h3, h4, h5, h6 { display: block; }
 head, meta, link, style, script, title { display: none; }
+[hidden] { display: none; }
 body { margin: 8px; }
 a { color: blue; text-decoration: underline; }
-b, strong, th { font-weight: bold; }
+b, strong, th, h1, h2, h3, h4, h5, h6 { font-weight: bold; }
 i, em { font-style: italic; }
 h1 { font-size: 2em; margin: .67em 0; }
 h2 { font-size: 1.5em; margin: .83em 0; }
@@ -930,6 +946,7 @@ table { display: table; border-spacing: 2px; }
 tr { display: table-row; }
 td, th { display: table-cell; text-align: start; }
 img { display: inline-block; }
+template { display: none; }
 `
 
 // UserAgentStylesheet returns fresh rules so callers may modify them safely.

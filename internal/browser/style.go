@@ -3,6 +3,7 @@ package browser
 import (
 	"image"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -24,7 +25,8 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 		for j := range sheets[i].Rules {
 			for k := range sheets[i].Rules[j].Declarations {
 				d := &sheets[i].Rules[j].Declarations[k]
-				if d.Property == "background" || d.Property == "background-image" {
+				if d.Property == "background" || d.Property == "background-image" ||
+					canonicalMaskProperty(d.Property) == "mask" || canonicalMaskProperty(d.Property) == "mask-image" {
 					d.Value = resolveBackgroundURL(d.Value, base)
 				} else if strings.HasPrefix(d.Property, "--") {
 					// A custom property retains the URL's declaration base when
@@ -37,7 +39,7 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 	}
 	styled := computeStyles(StyledDocument{Document: document, UserAgent: UserAgentStylesheet(),
 		Stylesheets: sheets, InlineStyles: inline}, image.Pt(placeholderWidth, placeholderHeight))
-	styled.Images, styled.BackgroundImages = fetchImages(document, styled.StyleRoot, fetcher)
+	styled.Images, styled.BackgroundImages, styled.MaskImages = fetchImages(document, styled.StyleRoot, fetcher)
 	return styled, nil
 }
 
@@ -46,6 +48,10 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 // inherited font sizes and hence em/rem/ex/ch throughout the document.
 func computeStyles(document StyledDocument, viewport image.Point) StyledDocument {
 	styles := make(map[*Node]ComputedStyle)
+	pseudoNodes := document.pseudoNodes
+	if pseudoNodes == nil {
+		pseudoNodes = map[pseudoKey]*Node{}
+	}
 	rootFontSize := 16.0
 	rootElementSeen := false
 	var makeTree func(*Node, ComputedStyle) *StyledNode
@@ -67,20 +73,31 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 		}
 		isRootElement := !rootElementSeen
 		computed := cascade(n, parent, rootFontSize, isRootElement, document.UserAgent,
-			document.Stylesheets, document.InlineStyles[n], viewport)
+			document.Stylesheets, document.InlineStyles[n], viewport, "")
 		if !rootElementSeen {
 			rootElementSeen = true
 			rootFontSize = computedFontSize(computed)
 		}
 		styles[n] = computed
 		result := &StyledNode{Node: n, Style: computed}
+		// A generated box is the originating element's first or last child
+		// (CSS Content 3 §2), inheriting from it like a real child element.
+		if before := pseudoStyledNode(n, "before", computed, rootFontSize, document, viewport, pseudoNodes); before != nil {
+			styles[before.Node] = before.Style
+			result.Children = append(result.Children, before)
+		}
 		for _, child := range n.Children {
 			result.Children = append(result.Children, makeTree(child, computed))
+		}
+		if after := pseudoStyledNode(n, "after", computed, rootFontSize, document, viewport, pseudoNodes); after != nil {
+			styles[after.Node] = after.Style
+			result.Children = append(result.Children, after)
 		}
 		return result
 	}
 	document.StyleRoot = makeTree(document.Document.Root, nil)
 	document.Styles = styles
+	document.pseudoNodes = pseudoNodes
 	document.styleViewport = viewport
 	return document
 }
@@ -93,8 +110,11 @@ type winningDeclaration struct {
 	spec                      [3]int
 }
 
+// cascade computes one element's values, or those of one of its generated
+// boxes when pseudo is "before" or "after". A generated box has no inline
+// style attribute and no presentational attributes of its own.
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
-	inline []Declaration, viewport image.Point) ComputedStyle {
+	inline []Declaration, viewport image.Point, pseudo string) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-variant": "normal", "font-weight": "normal",
 		"lang": language.Und.String(), "line-height": "normal", "text-align": "start", "visibility": "visible"}
@@ -129,10 +149,11 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		})
 	}
 	consider := func(candidate winningDeclaration) {
+		candidate.d.Property = canonicalMaskProperty(candidate.d.Property)
 		// Box shorthands are a single declaration: an invalid component must
 		// not apply its valid siblings to the cascade.
 		switch candidate.d.Property {
-		case "margin", "padding", "border-width":
+		case "margin", "padding", "border-width", "border-radius":
 			if cssWideKeyword(candidate.d.Value) == "" && candidate.d.Value != invalidVariable &&
 				!validSubstitutedDeclaration(candidate.d.Property, candidate.d.Value) {
 				if !candidate.validateAfterSubstitution {
@@ -144,6 +165,11 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		if candidate.validateAfterSubstitution && candidate.d.Property == "background" &&
 			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
 			!validBackground(candidate.d.Value) {
+			candidate.d.Value = invalidVariable
+		}
+		if candidate.validateAfterSubstitution && candidate.d.Property == "mask" &&
+			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
+			!validMask(candidate.d.Value) {
 			candidate.d.Value = invalidVariable
 		}
 		expandedDeclarations := []Declaration(nil)
@@ -162,6 +188,15 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 		for _, expanded := range expandedDeclarations {
 			invalid := expanded.Value == invalidVariable
+			if !invalid && strings.HasPrefix(expanded.Property, "border-") && strings.HasSuffix(expanded.Property, "-radius") &&
+				cssWideKeyword(expanded.Value) == "" && !validCornerRadius(expanded.Value) {
+				if candidate.validateAfterSubstitution {
+					expanded.Value = invalidVariable
+					invalid = true
+				} else {
+					continue
+				}
+			}
 			if !invalid && !validCalcDeclaration(expanded.Property, expanded.Value) {
 				if candidate.validateAfterSubstitution {
 					expanded.Value = invalidVariable
@@ -215,8 +250,17 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 				continue
 			}
 			for _, selector := range rule.Selectors {
+				which, supported := selectorPseudoElement(selector)
+				if !supported || which != pseudo {
+					continue
+				}
+				// The pseudo-element still counts toward specificity, so take
+				// it before stripping it for matching (Selectors 4 §17).
+				spec := specificity(selector)
+				if which != "" {
+					selector = selectorWithoutPseudoElement(selector)
+				}
 				if matchesSelector(n, selector) {
-					spec := specificity(selector)
 					for _, d := range rule.Declarations {
 						add(d, spec, origin, false)
 					}
@@ -225,12 +269,18 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 	}
 	applySheet(ua, 0)
-	addPresentational(n, add)
+	if pseudo == "" {
+		// Presentational hints and the style attribute belong to the element,
+		// not to its generated boxes.
+		addPresentational(n, add)
+	}
 	for _, sheet := range sheets {
 		applySheet(sheet, 1)
 	}
-	for _, d := range inline {
-		add(d, [3]int{1, 0, 0}, 1, true)
+	if pseudo == "" {
+		for _, d := range inline {
+			add(d, [3]int{1, 0, 0}, 1, true)
+		}
 	}
 	// Custom properties cascade first, but retain their raw token streams:
 	// a child may replace a variable referenced by an inherited declaration.
@@ -353,10 +403,16 @@ func expandCSSWideDeclaration(d Declaration, keyword string) []Declaration {
 		properties = []string{"font-style", "font-variant", "font-weight", "font-size", "line-height", "font-family"}
 	case "background":
 		properties = []string{"background-color", "background-image", "background-repeat", "background-position", "background-size"}
+	case "mask":
+		properties = maskLonghands
 	case "margin", "padding", "border-width", "border-color", "border-style":
 		properties = []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
 	case "border":
 		properties = []string{"border-top", "border-right", "border-bottom", "border-left"}
+	case "border-radius":
+		for _, corner := range radiusCorners {
+			properties = append(properties, "border-"+corner+"-radius")
+		}
 	default:
 		properties = []string{d.Property}
 	}
@@ -381,7 +437,8 @@ var initialComputedValues = map[string]string{
 	"font-style": "normal", "font-variant": "normal", "font-weight": "normal",
 	"line-height": "normal", "text-align": "start", "visibility": "visible", "background-color": "transparent",
 	"background-image": "none", "background-repeat": "repeat", "background-position": "0% 0%",
-	"background-size": "auto",
+	"background-size": "auto", "mask-image": "none", "mask-repeat": "repeat", "mask-position": "0% 0%",
+	"mask-size": "auto",
 }
 
 func setInitialComputedValue(values ComputedStyle, property string) {
@@ -470,11 +527,36 @@ func mediaQueryAlternativeMatches(query string, viewport image.Point) bool {
 	}
 	matches := true
 	for _, part := range parts {
-		part = strings.TrimSpace(strings.Trim(part, "()"))
+		// Trim exactly one level of parentheses: a feature value may contain
+		// its own, as in (max-width: calc(1120px - 1px)).
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "(") && strings.HasSuffix(part, ")") {
+			part = strings.TrimSpace(part[1 : len(part)-1])
+		}
 		colon := strings.IndexByte(part, ':')
 		if colon < 0 {
-			matches = false
-			break
+			// Media Queries Level 4 range syntax permits no spaces around
+			// the operator, e.g. (width<=1011.98px).
+			operator := strings.IndexAny(part, "<>=")
+			if operator < 0 || operator+1 >= len(part) ||
+				(part[operator:operator+2] != "<=" && part[operator:operator+2] != ">=") {
+				matches = false
+				break
+			}
+			name := strings.TrimSpace(part[:operator])
+			value := strings.TrimSpace(part[operator+2:])
+			length, ok := mediaRangeLength(value)
+			dimension := viewport.X
+			if name == "height" {
+				dimension = viewport.Y
+			} else if name != "width" {
+				ok = false
+			}
+			if !ok || (part[operator:operator+2] == "<=" && float64(dimension) > length) ||
+				(part[operator:operator+2] == ">=" && float64(dimension) < length) {
+				matches = false
+			}
+			continue
 		}
 		name, value := strings.TrimSpace(part[:colon]), strings.TrimSpace(part[colon+1:])
 		switch name {
@@ -497,6 +579,18 @@ func mediaQueryAlternativeMatches(query string, viewport image.Point) bool {
 	}
 	return matches
 }
+
+// Validate the entire comparison operand before using mediaLength's px/calc
+// evaluator; that evaluator alone can accept adjacent lengths without an
+// operator, which must not accidentally activate a malformed media rule.
+func mediaRangeLength(value string) (float64, bool) {
+	if !mediaRangeValuePattern.MatchString(value) {
+		return 0, false
+	}
+	return mediaLength(value)
+}
+
+var mediaRangeValuePattern = regexp.MustCompile(`(?i)^(?:[0-9]*\.?[0-9]+px|calc\(\s*[0-9]*\.?[0-9]+px(?:\s*[+-]\s*[0-9]*\.?[0-9]+px)*\s*\))$`)
 
 func splitMediaAnd(s string) []string {
 	var result []string
@@ -712,8 +806,10 @@ func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 // and CSS functions, whose internals must not be rewritten as free lengths).
 func compoundLengthProperty(property string) bool {
 	switch property {
-	case "border-spacing", "background-position", "background-size", "border",
-		"border-top", "border-right", "border-bottom", "border-left":
+	case "border-spacing", "background-position", "background-size", "mask-position", "mask-size", "border",
+		"border-top", "border-right", "border-bottom", "border-left",
+		"border-top-left-radius", "border-top-right-radius",
+		"border-bottom-right-radius", "border-bottom-left-radius":
 		return true
 	}
 	return false
@@ -810,8 +906,11 @@ func specificity(s Selector) [3]int {
 		result[1] += len(p.Classes)
 		result[1] += len(p.Attributes)
 		for _, pseudo := range p.PseudoClasses {
-			if strings.HasPrefix(pseudo, ":") {
-				result[2]++ // pseudo-elements count like type selectors
+			if isPseudoElementName(pseudo) {
+				// Pseudo-elements, including the legacy one-colon :before,
+				// :after, :first-line and :first-letter, count like type
+				// selectors.
+				result[2]++
 			} else {
 				result[1]++
 			}
@@ -934,15 +1033,29 @@ func matchesPart(n *Node, p SelectorPart) bool {
 	return true
 }
 
-// matchesPseudoClass supports last-child and static link pseudo-classes. Every link is
-// treated as unvisited, and there is no user interaction, so :visited and
-// dynamic pseudo-classes (:hover, :active, :focus, ...) never match. Unknown
-// pseudo-classes and pseudo-elements also never match, so an unsupported
-// selector can only style fewer elements, never more.
+// matchesPseudoClass supports first-child, last-child, and static link
+// pseudo-classes. Every link is treated as unvisited, and there is no user
+// interaction, so :visited and dynamic pseudo-classes (:hover, :active,
+// :focus, ...) never match. Unknown pseudo-classes and pseudo-elements also
+// never match, so an unsupported selector can only style fewer elements,
+// never more.
 func matchesPseudoClass(n *Node, pseudo string) bool {
 	switch pseudo {
 	case "root":
 		return n.Parent == nil || n.Parent.Type != ElementNode
+	case "first-child":
+		if n.Type != ElementNode {
+			return false
+		}
+		if n.Parent == nil {
+			return true // Selectors 4 does not require a parent.
+		}
+		for _, sibling := range n.Parent.Children {
+			if sibling.Type == ElementNode {
+				return sibling == n
+			}
+		}
+		return false
 	case "last-child":
 		if n.Type != ElementNode {
 			return false
@@ -969,18 +1082,28 @@ func matchesPseudoClass(n *Node, pseudo string) bool {
 func expandDeclaration(d Declaration) []Declaration {
 	if d.Value == invalidVariable {
 		switch d.Property {
+		case "border-radius":
+			return invalidLonghands(d, "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius")
 		case "margin", "padding":
 			return invalidLonghands(d, d.Property+"-top", d.Property+"-right", d.Property+"-bottom", d.Property+"-left")
 		case "border-width":
 			return invalidLonghands(d, "border-top-width", "border-right-width", "border-bottom-width", "border-left-width")
 		case "background":
 			return invalidLonghands(d, "background-color", "background-image", "background-repeat", "background-position", "background-size")
+		case "mask":
+			return invalidLonghands(d, maskLonghands...)
 		case "font":
 			return invalidLonghands(d, "font-size", "font-family", "font-style", "font-variant", "font-weight", "line-height")
 		}
 	}
 	if d.Property == "background" {
 		return expandBackground(d)
+	}
+	if d.Property == "border-radius" {
+		return expandRadius(d)
+	}
+	if d.Property == "mask" {
+		return expandMask(d)
 	}
 
 	if d.Property == "font" {

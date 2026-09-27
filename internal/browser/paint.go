@@ -438,24 +438,31 @@ func documentOrder(root *Node) map[*Node]int {
 
 // stacking reports whether box is positioned and, if so, its z-index. Only
 // positioned boxes with an integer z-index form a stacking context; z-index
-// on non-positioned boxes is ignored.
+// on non-positioned boxes is ignored. A masked element also forms a stacking
+// context and, when not positioned, paints in the z-index 0 layer (CSS
+// Masking §6 and CSS 2.1 Appendix E, as for opacity), so that it can be
+// composited through its mask as a unit.
 func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 	if box == nil || box.Node == nil || box.Node.Type != ElementNode {
 		return false, 0, false
 	}
 	style := p.document.Styles[box.Node]
+	masked := !box.Anonymous && hasMask(style)
 	switch strings.ToLower(strings.TrimSpace(style["position"])) {
 	case "relative", "absolute", "fixed", "sticky":
 	default:
+		if masked {
+			return true, 0, true
+		}
 		return false, 0, false
 	}
 	value := strings.TrimSpace(style["z-index"])
 	if value == "" || strings.EqualFold(value, "auto") {
-		return true, 0, false
+		return true, 0, masked
 	}
 	z, err := strconv.Atoi(value)
 	if err != nil {
-		return true, 0, false
+		return true, 0, masked
 	}
 	return true, z, true
 }
@@ -463,11 +470,16 @@ func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 // paintStackingContext paints ctx and every box it owns. includeSelf is false
 // for the anonymous viewport box, which has no background of its own.
 func (p *painter) paintStackingContext(ctx *Box, includeSelf bool) {
+	paint := func() { p.paintStackingContextContents(ctx, includeSelf) }
+	if includeSelf && ctx.Node != nil && !ctx.Anonymous && hasMask(p.document.Styles[ctx.Node]) {
+		contents := paint
+		paint = func() { p.paintMasked(ctx, contents) }
+	}
 	if clip, ok := p.legacyClip(ctx); ok {
-		p.withClip(clip, func() { p.paintStackingContextContents(ctx, includeSelf) })
+		p.withClip(clip, paint)
 		return
 	}
-	p.paintStackingContextContents(ctx, includeSelf)
+	paint()
 }
 
 func (p *painter) paintStackingContextContents(ctx *Box, includeSelf bool) {
@@ -625,38 +637,64 @@ func (p *painter) paintBackground(box *Box) {
 		}
 		if box.BorderOnly {
 			if box.BorderWidths != nil {
-				drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+				r := usedRadii(style, box.Rect)
+				if hasRadius(r) {
+					paintRoundedBox(p.canvas, box.Rect, style, *box.BorderWidths, r, func(*image.RGBA) {})
+				} else {
+					drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+				}
 			}
 			return
 		}
 		propagated := box.Node == p.canvasRoot || (p.bodyBackgroundPropagated && box.Node == p.canvasBody)
-		if !propagated {
-			if c, ok := backgroundColor(style); ok {
-				fill(p.canvas, box.Rect, c)
-			}
+		widths := [4]int{borderWidth(style, "top"), borderWidth(style, "right"),
+			borderWidth(style, "bottom"), borderWidth(style, "left")}
+		if box.BorderWidths != nil {
+			widths = *box.BorderWidths
 		}
-		layers := p.document.BackgroundImages[box.Node]
-		for i := len(layers) - 1; i >= 0; i-- {
-			src := layers[i]
-			if src == nil {
-				values := backgroundLayers(style["background-image"])
-				if i < len(values) {
-					area := box.Rect
-					area.Min.X += borderWidth(style, "left")
-					area.Min.Y += borderWidth(style, "top")
-					area.Max.X -= borderWidth(style, "right")
-					area.Max.Y -= borderWidth(style, "bottom")
-					if gradient := parseGradient(values[i], area.Dx(), area.Dy()); gradient != nil {
-						src = gradient
-					}
+		r := usedRadii(style, box.Rect)
+		canvas := p.canvas
+		rounded := hasRadius(r)
+		if rounded {
+			p.canvas = image.NewRGBA(box.Rect.Intersect(canvas.Bounds()))
+		}
+		backgroundLayer := p.canvas
+		func() {
+			if rounded {
+				defer func() { p.canvas = canvas }()
+			}
+			if !propagated {
+				if c, ok := backgroundColor(style); ok {
+					fill(p.canvas, box.Rect, c)
 				}
 			}
-			drawBackgroundImage(p.canvas, box, src, backgroundLayerStyle(style, i))
-		}
-		if box.BorderWidths != nil {
-			drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+			layers := p.document.BackgroundImages[box.Node]
+			for i := len(layers) - 1; i >= 0; i-- {
+				src := layers[i]
+				if src == nil {
+					values := backgroundLayers(style["background-image"])
+					if i < len(values) {
+						area := box.Rect
+						area.Min.X += borderWidth(style, "left")
+						area.Min.Y += borderWidth(style, "top")
+						area.Max.X -= borderWidth(style, "right")
+						area.Max.Y -= borderWidth(style, "bottom")
+						if gradient := parseGradient(values[i], area.Dx(), area.Dy()); gradient != nil {
+							src = gradient
+						}
+					}
+				}
+				drawBackgroundImage(p.canvas, box, src, backgroundLayerStyle(style, i))
+			}
+		}()
+		if rounded {
+			// Background layers were drawn to the temporary box canvas; the
+			// rounded compositor receives that canvas as its source.
+			paintRoundedBox(canvas, box.Rect, style, widths, r, func(dst *image.RGBA) {
+				draw.Draw(dst, dst.Bounds(), backgroundLayer, dst.Bounds().Min, draw.Src)
+			})
 		} else {
-			drawBorders(p.canvas, box.Rect, style)
+			drawBordersWithWidths(p.canvas, box.Rect, style, widths)
 		}
 	}
 }
