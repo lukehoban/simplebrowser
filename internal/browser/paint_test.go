@@ -67,6 +67,21 @@ func TestPaintTextInsideAbsoluteAndFixedBoxes(t *testing.T) {
 	}
 }
 
+func TestPaintAbsolutePositionedAutoVerticalMarginFixture(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/abspos-auto-vertical-margins.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := painted(t, string(source), image.Rect(0, 0, 300, 400))
+	blue := color.RGBA{0, 102, 204, 255}
+	gray := color.RGBA{238, 238, 238, 255}
+	// The 96px child begins 96px into the 288px containing block.
+	pixel(t, img, 30, 95, gray)
+	pixel(t, img, 30, 96, blue)
+	pixel(t, img, 30, 191, blue)
+	pixel(t, img, 30, 192, gray)
+}
+
 func TestPaintBackgroundsBordersAndOrder(t *testing.T) {
 	img := painted(t, `<div style="margin:0;width:50px;height:30px;background-color:#ff0000;border:3px solid #0000ff"><div style="margin:0;width:10px;height:8px;background-color:green"></div></div>`, image.Rect(0, 0, 80, 50))
 	pixel(t, img, 0, 0, color.RGBA{0, 0, 255, 255})
@@ -84,6 +99,27 @@ func TestPaintPerSideBordersAndTransparentBackground(t *testing.T) {
 	pixel(t, img, 17, 2, color.RGBA{0, 0, 255, 255})
 	pixel(t, img, 5, 7, color.RGBA{255, 255, 0, 255})
 	pixel(t, img, 5, 3, color.RGBA{0, 128, 0, 255})
+}
+
+func TestPaintBorderShorthandWidthKeywordsMatchPixels(t *testing.T) {
+	viewport := image.Rect(0, 0, 80, 50)
+	for _, tc := range []struct {
+		keyword, pixels string
+	}{
+		{"thin", "1px"},
+		{"medium", "3px"},
+		{"thick", "5px"},
+	} {
+		t.Run(tc.keyword, func(t *testing.T) {
+			render := func(width string) *image.RGBA {
+				return painted(t, `<body style="margin:0"><div style="width:40px;height:20px;border:solid `+
+					width+` #1769aa;background:#e8f0ff"></div></body>`, viewport)
+			}
+			if keyword, numeric := render(tc.keyword), render(tc.pixels); !bytes.Equal(keyword.Pix, numeric.Pix) {
+				t.Fatalf("%s shorthand pixels differ from %s", tc.keyword, tc.pixels)
+			}
+		})
+	}
 }
 
 func TestPaintFontShorthandMatchesLonghands(t *testing.T) {
@@ -291,6 +327,42 @@ func TestPaintConcurrentRenders(t *testing.T) {
 	wg.Wait()
 }
 
+func TestPaintInlineBackgroundsBelowTextInAncestorOrder(t *testing.T) {
+	const markup = `<style>.sheet { background:#00ff00 }</style>
+		<body style="margin:0"><p style="margin:0"><span id="outer" style="background:#ff0000">A<span id="inner" class="sheet">B</span>C</span></p></body>`
+	doc := styledForLayout(t, markup)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineBox := layout.Root.Children[0].Children[0].Children[0]
+	if len(lineBox.InlineBackgrounds) != 2 {
+		t.Fatalf("inline backgrounds = %#v, want outer and inner fragments", lineBox.InlineBackgrounds)
+	}
+	outer, inner := lineBox.InlineBackgrounds[0], lineBox.InlineBackgrounds[1]
+	if outer.Rect.Min.X >= inner.Rect.Min.X || outer.Rect.Max.X <= inner.Rect.Max.X {
+		t.Fatalf("nested fragment geometry = outer %v inner %v", outer.Rect, inner.Rect)
+	}
+
+	img := painted(t, markup, image.Rect(0, 0, 100, 40))
+	y := inner.Rect.Max.Y - 1 // below the glyph ink, but inside both backgrounds
+	pixel(t, img, outer.Rect.Min.X, y, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, inner.Rect.Min.X, y, color.RGBA{0, 255, 0, 255})
+
+	// Text must paint after both inline backgrounds.
+	foundInk := false
+	for py := inner.Rect.Min.Y; py < inner.Rect.Max.Y; py++ {
+		for px := inner.Rect.Min.X; px < inner.Rect.Max.X; px++ {
+			if img.RGBAAt(px, py) == (color.RGBA{0, 0, 0, 255}) {
+				foundInk = true
+			}
+		}
+	}
+	if !foundInk {
+		t.Fatal("inner text was not painted over its stylesheet background")
+	}
+}
+
 func imagePainted(t *testing.T, viewport image.Rectangle, pictures ...ImageBox) *image.RGBA {
 	t.Helper()
 	var buf bytes.Buffer
@@ -424,6 +496,13 @@ func TestPaintEqualZIndexUsesTreeOrder(t *testing.T) {
 func TestPaintZIndexAutoAndZeroUseTreeOrder(t *testing.T) {
 	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:red;z-index:0"></div><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green"></div></body>`, image.Rect(0, 0, 40, 40))
 	pixel(t, img, 10, 10, zGreen)
+}
+
+func TestPaintLaterAutoWidthPositionedSiblingCoversReference(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="position:relative"><div style="position:absolute;left:0;top:0;width:60px;height:60px;border:5px solid red"></div><div style="position:absolute;left:0;top:0;border:5px solid green"><div style="width:30px;height:30px;margin:10px;border:5px solid green"></div></div></div></body>`, image.Rect(0, 0, 100, 100))
+	for _, point := range []image.Point{{2, 2}, {67, 2}, {2, 67}, {67, 67}} {
+		pixel(t, img, point.X, point.Y, zGreen)
+	}
 }
 
 func TestPaintZIndexIgnoredOnNonPositionedBoxes(t *testing.T) {

@@ -2,8 +2,8 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "total": 38,
-  "pass": 26,
-  "fail": 12,
+  "pass": 36,
+  "fail": 2,
   "error": 0,
   "results": [
     {
@@ -129,43 +129,43 @@
       "test": "margin-padding-clear/margin-001.xht",
       "reference": "margin-padding-clear/margin-001-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 16160
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "margin-padding-clear/margin-002.xht",
       "reference": "margin-padding-clear/margin-002-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 14240
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "margin-padding-clear/margin-003.xht",
       "reference": "margin-padding-clear/margin-003-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 16160
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "margin-padding-clear/margin-004.xht",
       "reference": "margin-padding-clear/margin-004-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 15680
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "positioning/absolute-non-replaced-height-003.xht",
       "reference": "positioning/absolute-non-replaced-height-003-ref.xht",
       "relation": "match",
       "status": "fail",
-      "different_pixels": 27648
+      "different_pixels": 5490
     },
     {
       "test": "positioning/absolute-non-replaced-height-006.xht",
       "reference": "positioning/absolute-non-replaced-height-006-ref.xht",
       "relation": "match",
       "status": "fail",
-      "different_pixels": 15000
+      "different_pixels": 30000
     },
     {
       "test": "positioning/position-relative-001.xht",
@@ -199,22 +199,22 @@
       "test": "tables/border-collapse-offset-001.xht",
       "reference": "tables/border-collapse-offset-001-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 1677
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "tables/border-collapse-offset-002.xht",
       "reference": "tables/border-collapse-offset-002-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 798
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "tables/border-collapse-empty-row.html",
       "reference": "tables/border-collapse-empty-row-ref.html",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 7200
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "tables/separated-border-model-007.xht",
@@ -227,15 +227,15 @@
       "test": "tables/caption-position-001.xht",
       "reference": "tables/caption-position-001-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 8149
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "tables/fixed-table-layout-002a.xht",
       "reference": "tables/fixed-table-layout-002a-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 2190
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "colors/color-applies-to-004.xht",
@@ -255,8 +255,8 @@
       "test": "colors/colors-007.xht",
       "reference": "colors/colors-007-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 3540
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "colors/color-applies-to-002.xht",
