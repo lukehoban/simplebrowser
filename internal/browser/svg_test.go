@@ -869,3 +869,137 @@ func TestSVGFillRulePolygon(t *testing.T) {
 		}
 	}
 }
+
+func TestSVGUseForwardReferencePaintAndGeometry(t *testing.T) {
+	src := `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="60" height="20">
+				<use href="#tile" x="2" y="3" fill="red" stroke="blue" stroke-width="2" transform="translate(4 0)"/>
+				<use xlink:href="#tile" x="30" fill="green"/>
+				<defs><g id="tile" transform="translate(1 0)"><rect width="10" height="10" fill-opacity=".5"/></g></defs>
+			</svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 2 {
+		t.Fatalf("got %d shapes, want 2", len(img.shapes))
+	}
+	if x, y := img.shapes[0].transform.apply(0, 0); x != 7 || y != 3 {
+		t.Errorf("use x/y and parent/target transforms = %v,%v, want 7,3", x, y)
+	}
+	if x, y := img.shapes[1].transform.apply(0, 0); x != 31 || y != 0 {
+		t.Errorf("xlink target transform = %v,%v, want 31,0", x, y)
+	}
+	if got := img.RGBAAt(10, 7); got != (color.RGBA{128, 0, 0, 128}) {
+		t.Errorf("inherited fill pixel = %v", got)
+	}
+	if got := img.RGBAAt(35, 5); got != (color.RGBA{0, 64, 0, 128}) {
+		t.Errorf("xlink inherited fill pixel = %v", got)
+	}
+}
+
+func TestSVGUseOverridesAndCycles(t *testing.T) {
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="8">
+				<defs>
+				  <g id="a"><use href="#b"/><rect x="8" width="4" height="8" fill="blue"/></g>
+				  <g id="b"><use href="#a"/><rect width="4" height="8" fill="red"/></g>
+				</defs>
+				<use href="#a"/>
+				<use href="#a" x="12" fill="green"/>
+			</svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 4 {
+		t.Errorf("cycle should skip cyclic edge, got %d shapes", len(img.shapes))
+	}
+	for _, tc := range []struct {
+		x    int
+		want color.RGBA
+	}{{1, color.RGBA{255, 0, 0, 255}}, {9, color.RGBA{0, 0, 255, 255}}, {13, color.RGBA{255, 0, 0, 255}}, {21, color.RGBA{0, 0, 255, 255}}} {
+		if got := img.RGBAAt(tc.x, 4); got != tc.want {
+			t.Errorf("pixel %d = %v, want %v", tc.x, got, tc.want)
+		}
+	}
+}
+
+func TestSVGUseInvalidAndExternalReferences(t *testing.T) {
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12">
+				<defs><rect id="box" width="12" height="12" fill="red"/></defs>
+				<use href="https://example.com/box.svg#box"/>
+				<use href="other.svg#box"/>
+				<use href="#missing"/>
+				<use href="#box" x="invalid"/>
+				<use href="#box" transform="unknown(2)"/>
+			</svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 0 || img.RGBAAt(5, 5).A != 0 {
+		t.Errorf("malformed/external use produced paint: %v", img.shapes)
+	}
+}
+
+func TestSVGUseNestedReferencesAndOverrides(t *testing.T) {
+	src := `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="18" height="8">
+		<defs>
+		  <rect id="leaf" width="4" height="8"/>
+		  <g id="pair"><use href="#leaf" x="4"/><rect x="12" width="4" height="8" fill="blue"/></g>
+		</defs>
+		<g transform="translate(2 0)">
+		  <use href="#pair" x="-2" y="0" transform="translate(2)" style="fill: red"/>
+		</g>
+		<use href="" xlink:href="#leaf" fill="green"/>
+	</svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 2 {
+		t.Fatalf("nested refs/empty href produced %d shapes, want 2", len(img.shapes))
+	}
+	if x, y := img.shapes[0].transform.apply(0, 0); x != 6 || y != 0 {
+		t.Errorf("nested use translation = %v,%v, want 6,0", x, y)
+	}
+	if got := img.RGBAAt(7, 4); got != (color.RGBA{255, 0, 0, 255}) {
+		t.Errorf("use style inherited by referenced leaf = %v", got)
+	}
+	if got := img.RGBAAt(15, 4); got != (color.RGBA{0, 0, 255, 255}) {
+		t.Errorf("target explicit fill overrides use = %v", got)
+	}
+}
+
+func TestSVGUseExpansionLimits(t *testing.T) {
+	// Ordinary source-tree nesting is not reference recursion and must not
+	// consume the use-depth budget.
+	deep := `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1">` +
+		strings.Repeat(`<g>`, maxSVGUseDepth+10) + `<rect width="1" height="1"/>` +
+		strings.Repeat(`</g>`, maxSVGUseDepth+10) + `</svg>`
+	img, err := decodeSVG([]byte(deep))
+	if err != nil {
+		t.Fatalf("deep non-reference tree: %v", err)
+	}
+	if got := img.RGBAAt(0, 0); got.A == 0 {
+		t.Error("ordinary nesting incorrectly consumed use-depth budget")
+	}
+
+	// A short, exponentially expanding graph must not evade the source
+	// element cap. It should fail before rasterizing the image.
+	var b strings.Builder
+	b.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><defs><g id="a0"><rect width="1" height="1"/></g>`)
+	for i := 1; i < 15; i++ {
+		b.WriteString(`<g id="a` + strconv.Itoa(i) + `"><use href="#a` + strconv.Itoa(i-1) + `"/><use href="#a` + strconv.Itoa(i-1) + `"/></g>`)
+	}
+	b.WriteString(`</defs><use href="#a14"/></svg>`)
+	if _, err := decodeSVG([]byte(b.String())); err == nil {
+		t.Error("unbounded fan-out accepted")
+	}
+	// The budget is for expanded path segments, not just source segments.
+	path := "M0 0" + strings.Repeat("L0 0", maxSVGPathSegs/4)
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"><defs><path id="p" d="` + path + `"/></defs>` +
+		strings.Repeat(`<use href="#p"/>`, 5) + `</svg>`
+	if _, err := decodeSVG([]byte(src)); err == nil {
+		t.Error("unbounded expanded segments accepted")
+	}
+}

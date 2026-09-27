@@ -18,8 +18,8 @@ import (
 // A minimal SVG subset, enough for simple icons such as the Hacker News logo
 // and vote arrow: <svg> sizing/viewBox/preserveAspectRatio, <g>, <path>, and
 // the basic shapes (<rect>, <circle>, <ellipse>, <line>, <polyline>,
-// <polygon>) with solid fills, strokes and transforms. Other elements are
-// skipped.
+// <polygon>) with solid fills, strokes, transforms and local <defs>/<use>.
+// Other elements are skipped.
 // A document that cannot be parsed returns an error so
 // callers keep their existing placeholder or empty-background behavior.
 
@@ -29,6 +29,8 @@ const (
 	maxSVGPathSegs    = 200000
 	maxSVGRasterSide  = 4096
 	svgNamespace      = "http://www.w3.org/2000/svg"
+	svgXLinkNamespace = "http://www.w3.org/1999/xlink"
+	maxSVGUseDepth    = 64
 	defaultSVGWidth   = 300
 	defaultSVGHeight  = 150
 	svgCircleConstant = 0.5522847498307936 // 4/3*(sqrt(2)-1), cubic arc control distance
@@ -94,6 +96,36 @@ func looksLikeSVG(data []byte) bool {
 	return bytes.Contains(prefix, []byte("<svg"))
 }
 
+// Keep the small source tree so forward references work. Only elements and
+// attributes are retained; no text, network resources or external URLs.
+type svgNode struct {
+	name     string
+	attrs    map[string]string
+	href     string
+	valid    bool
+	children []*svgNode
+}
+
+type svgFrame struct {
+	fill          color.NRGBA
+	hasFill       bool
+	fillRule      string
+	opacity       float64
+	stroke        color.NRGBA
+	hasStroke     bool
+	strokeOpacity float64
+	width         float64
+	cap, join     string
+	miterLimit    float64
+	transform     svgAffine
+}
+
+func svgDefaultFrame() svgFrame {
+	return svgFrame{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero",
+		opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
+		miterLimit: 4, transform: svgIdentity}
+}
+
 func decodeSVG(data []byte) (*svgImage, error) {
 	if len(data) > maxSVGBytes {
 		return nil, errUnsupportedSVG
@@ -101,23 +133,10 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	decoder.Strict = true
 	img := &svgImage{align: "xMidYMid"}
-	type frame struct {
-		fill          color.NRGBA
-		hasFill       bool
-		fillRule      string
-		opacity       float64
-		stroke        color.NRGBA
-		hasStroke     bool
-		strokeOpacity float64
-		width         float64
-		cap, join     string
-		miterLimit    float64
-		transform     svgAffine
-		skip          bool
-	}
-	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero", opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", miterLimit: 4, transform: svgIdentity}}
-	elements, segments := 0, 0
-	sawRoot := false
+	var root *svgNode
+	var stack []*svgNode
+	ids := make(map[string]*svgNode)
+	elements := 0
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -132,129 +151,57 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			if elements > maxSVGElements {
 				return nil, errUnsupportedSVG
 			}
-			parent := stack[len(stack)-1]
-			attrs := svgAttributes(t)
-			if !sawRoot {
+			node := &svgNode{name: t.Name.Local, attrs: svgAttributes(t),
+				valid: t.Name.Space == svgNamespace || t.Name.Space == ""}
+			hasHref := false
+			for _, a := range t.Attr {
+				if a.Name.Local == "href" && (a.Name.Space == "" || a.Name.Space == svgNamespace) {
+					node.href = a.Value // unqualified href takes precedence
+					hasHref = true
+					break
+				}
+			}
+			if !hasHref {
+				for _, a := range t.Attr {
+					if a.Name.Space == svgXLinkNamespace && a.Name.Local == "href" {
+						node.href = a.Value
+						break
+					}
+				}
+			}
+			if root == nil {
 				if t.Name.Local != "svg" || (t.Name.Space != svgNamespace && t.Name.Space != "") {
 					return nil, errUnsupportedSVG
 				}
-				sawRoot = true
-				if err := img.parseRoot(attrs); err != nil {
+				root = node
+				if err := img.parseRoot(node.attrs); err != nil {
 					return nil, err
 				}
 				// The root's own transform attribute (SVG 2) is not applied.
-				delete(attrs, "transform")
+				delete(node.attrs, "transform")
+			} else if len(stack) == 0 {
+				// Multiple root elements are not an SVG document.
+				return nil, errUnsupportedSVG
+			} else {
+				parent := stack[len(stack)-1]
+				parent.children = append(parent.children, node)
 			}
-			current := parent
-			if t.Name.Space != svgNamespace && t.Name.Space != "" {
-				current.skip = true
-			}
-			switch {
-			case elements == 1, svgRenderedElements[t.Name.Local]:
-			default:
-				// Nested <svg>, <defs>, <use>, <title>, <text>, ... are
-				// not rendered by this subset; skip the whole subtree.
-				current.skip = true
-			}
-			if !current.skip {
-				if value, ok := attrs["fill"]; ok {
-					current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
-				}
-				if value, ok := attrs["fill-opacity"]; ok {
-					if n, valid := svgUnitInterval(value); valid {
-						// fill-opacity is inherited, not accumulated through
-						// ancestors: an explicit child value replaces the
-						// inherited value. Group opacity is separate compositing
-						// behavior and is not implemented by this renderer.
-						current.opacity = n
-					}
-				}
-				if value := strings.TrimSpace(attrs["fill-rule"]); value == "evenodd" || value == "nonzero" {
-					// fill-rule is inherited; unknown values keep the
-					// inherited rule.
-					current.fillRule = value
-				}
-				if value, ok := attrs["stroke"]; ok {
-					current.stroke, current.hasStroke = svgPaint(value, parent.stroke, parent.hasStroke)
-				}
-				if value, ok := attrs["stroke-opacity"]; ok {
-					if n, valid := svgUnitInterval(value); valid {
-						current.strokeOpacity = n
-					}
-				}
-				if value, ok := attrs["stroke-width"]; ok {
-					if n, valid := svgLength(value); valid && n <= maxSVGStrokeWidth {
-						current.width = n
-					}
-				}
-				if value := attrs["stroke-linecap"]; value == "butt" || value == "square" || value == "round" {
-					current.cap = value
-				}
-				if value := attrs["stroke-linejoin"]; value == "miter" || value == "bevel" || value == "round" {
-					current.join = value
-				}
-				if value, ok := attrs["stroke-miterlimit"]; ok {
-					if n, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil && n >= 1 && n <= maxSVGStrokeWidth {
-						current.miterLimit = n
-					}
-				}
-				if value, ok := attrs["transform"]; ok {
-					transform, ok := parseSVGTransform(value)
-					if !ok {
-						// Per SVG, an invalid transform disables rendering of the element.
-						current.skip = true
-					} else {
-						current.transform = transform.then(parent.transform)
-					}
+			if node.valid && node.attrs["id"] != "" {
+				if _, exists := ids[node.attrs["id"]]; !exists {
+					ids[node.attrs["id"]] = node
 				}
 			}
-			if !current.skip && (current.hasFill || current.hasStroke) {
-				var shape []svgSegment
-				switch t.Name.Local {
-				case "path":
-					shape = parseSVGPath(attrs["d"], maxSVGPathSegs-segments)
-				case "rect":
-					shape = svgRect(attrs)
-				case "circle":
-					r, ok := svgLength(attrs["r"])
-					if ok {
-						shape = svgEllipse(attrs, r, r)
-					}
-				case "ellipse":
-					shape = svgEllipseAttrs(attrs)
-				case "line":
-					shape = svgLine(attrs)
-				case "polyline", "polygon":
-					shape = svgPolyline(attrs["points"], t.Name.Local == "polygon", maxSVGPathSegs-segments)
-				}
-				segments += len(shape)
-				if segments >= maxSVGPathSegs {
-					return nil, errUnsupportedSVG
-				}
-				if len(shape) > 0 {
-					fill := current.fill
-					fill.A = uint8(math.Round(float64(fill.A) * current.opacity))
-					if !current.hasFill {
-						fill = color.NRGBA{}
-					}
-					stroke := current.stroke
-					stroke.A = uint8(math.Round(float64(stroke.A) * current.strokeOpacity))
-					if !current.hasStroke {
-						stroke = color.NRGBA{}
-					}
-					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit})
-				}
-
-			}
-			stack = append(stack, current)
+			stack = append(stack, node)
 		case xml.EndElement:
-			if len(stack) > 1 {
-				stack = stack[:len(stack)-1]
-			}
+			stack = stack[:len(stack)-1]
 		}
 	}
-	if !sawRoot {
+	if root == nil {
 		return nil, errUnsupportedSVG
+	}
+	state := svgExpansion{img: img, root: root, ids: ids, active: make(map[*svgNode]bool)}
+	if err := state.walk(root, svgDefaultFrame(), false, 0); err != nil {
+		return nil, err
 	}
 	raster := img.rasterize(int(math.Round(img.width)), int(math.Round(img.height)))
 	if raster == nil {
@@ -262,6 +209,136 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	}
 	img.RGBA = raster
 	return img, nil
+}
+
+// The expansion budget counts every visited element (including non-painting
+// groups) and every emitted segment, not just source XML nodes. Recursive
+// references and exponentially branching references cannot bypass it.
+type svgExpansion struct {
+	img      *svgImage
+	root     *svgNode
+	ids      map[string]*svgNode
+	active   map[*svgNode]bool
+	elements int
+	segments int
+}
+
+func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
+	s.elements++
+	if s.elements > maxSVGElements {
+		return errUnsupportedSVG
+	}
+	if useDepth > maxSVGUseDepth || !node.valid {
+		return nil
+	}
+	name := node.name
+	if name == "defs" && !referenced || name != "svg" && name != "defs" && name != "use" && !svgRenderedElements[name] {
+		return nil
+	}
+	// Only the document root SVG is rendered; referenced groups/shapes work,
+	// but a referenced nested SVG requires viewport semantics we do not support.
+	if name == "svg" && node != s.root {
+		return nil
+	}
+	current := parent
+	a := node.attrs
+	if value, ok := a["fill"]; ok {
+		current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
+	}
+	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
+		current.opacity = n // inherited property, not ancestor compositing
+	}
+	if rule := strings.TrimSpace(a["fill-rule"]); rule == "evenodd" || rule == "nonzero" {
+		current.fillRule = rule
+	}
+	if value, ok := a["stroke"]; ok {
+		current.stroke, current.hasStroke = svgPaint(value, parent.stroke, parent.hasStroke)
+	}
+	if n, ok := svgUnitInterval(a["stroke-opacity"]); ok {
+		current.strokeOpacity = n
+	}
+	if n, ok := svgLength(a["stroke-width"]); ok && n <= maxSVGStrokeWidth {
+		current.width = n
+	}
+	if v := a["stroke-linecap"]; v == "butt" || v == "square" || v == "round" {
+		current.cap = v
+	}
+	if v := a["stroke-linejoin"]; v == "miter" || v == "bevel" || v == "round" {
+		current.join = v
+	}
+	if n, err := strconv.ParseFloat(strings.TrimSpace(a["stroke-miterlimit"]), 64); err == nil && n >= 1 && n <= maxSVGStrokeWidth {
+		current.miterLimit = n
+	}
+	if value, ok := a["transform"]; ok {
+		transform, ok := parseSVGTransform(value)
+		if !ok {
+			return nil
+		}
+		current.transform = transform.then(parent.transform)
+	}
+	if name == "use" {
+		// Only same-document fragment IDs: never open a URL or interpret a
+		// fragment as a filesystem path.
+		if !strings.HasPrefix(node.href, "#") || len(node.href) < 2 {
+			return nil
+		}
+		target := s.ids[node.href[1:]]
+		if target == nil || s.active[target] {
+			return nil
+		}
+		x, okX := svgCoordinate(a["x"])
+		y, okY := svgCoordinate(a["y"])
+		if a["x"] != "" && !okX || a["y"] != "" && !okY {
+			return nil
+		}
+		current.transform = (svgAffine{a: 1, d: 1, e: x, f: y}).then(current.transform)
+		s.active[target] = true
+		err := s.walk(target, current, true, useDepth+1)
+		delete(s.active, target)
+		return err
+	}
+	if current.hasFill || current.hasStroke {
+		var shape []svgSegment
+		switch name {
+		case "path":
+			shape = parseSVGPath(a["d"], maxSVGPathSegs-s.segments)
+		case "rect":
+			shape = svgRect(a)
+		case "circle":
+			if r, ok := svgLength(a["r"]); ok {
+				shape = svgEllipse(a, r, r)
+			}
+		case "ellipse":
+			shape = svgEllipseAttrs(a)
+		case "line":
+			shape = svgLine(a)
+		case "polyline", "polygon":
+			shape = svgPolyline(a["points"], name == "polygon", maxSVGPathSegs-s.segments)
+		}
+		s.segments += len(shape)
+		if s.segments >= maxSVGPathSegs {
+			return errUnsupportedSVG
+		}
+		if len(shape) > 0 {
+			fill := current.fill
+			fill.A = uint8(math.Round(float64(fill.A) * current.opacity))
+			if !current.hasFill {
+				fill = color.NRGBA{}
+			}
+			stroke := current.stroke
+			stroke.A = uint8(math.Round(float64(stroke.A) * current.strokeOpacity))
+			if !current.hasStroke {
+				stroke = color.NRGBA{}
+			}
+			s.img.shapes = append(s.img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit})
+		}
+	}
+	for _, child := range node.children {
+		if err := s.walk(child, current, false, useDepth); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 const maxSVGStrokeWidth = 4096
