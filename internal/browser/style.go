@@ -32,7 +32,8 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 	}
 	root := makeTree(document.Root, nil)
 	return StyledDocument{Document: document, UserAgent: ua, Stylesheets: sheets,
-		InlineStyles: inline, StyleRoot: root, Styles: styles}, nil
+		InlineStyles: inline, StyleRoot: root, Styles: styles,
+		Images: fetchImages(document, root, fetcher)}, nil
 }
 
 type winningDeclaration struct {

@@ -17,7 +17,7 @@ func painted(t *testing.T, markup string, viewport image.Rectangle) *image.RGBA 
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := paint(layout, &buf); err != nil {
+	if err := paint(layout, &buf, renderOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	img, err := png.Decode(&buf)
