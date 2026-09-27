@@ -108,6 +108,13 @@ func isTableNode(n *StyledNode) bool {
 	return displayIs(n, "table", "inline-table") || strings.EqualFold(n.Node.Name, "table")
 }
 
+// isInlineTableNode reports whether a table box is inline-level and therefore
+// participates in its parent's inline formatting context as an atomic inline
+// box, rather than stacking as a block.
+func isInlineTableNode(n *StyledNode) bool {
+	return displayIs(n, "inline-table")
+}
+
 func isRowGroupNode(n *StyledNode) bool {
 	if displayIs(n, "table-row-group", "table-header-group", "table-footer-group") {
 		return true
@@ -140,6 +147,11 @@ func isCellNode(n *StyledNode) bool {
 // containsTable reports whether a subtree holds a visible table element.
 func containsTable(n *StyledNode) bool {
 	if n == nil || n.Node == nil || hiddenNode(n) {
+		return false
+	}
+	if isInlineTableNode(n) {
+		// An inline table is inline-level content: it does not force its
+		// ancestors out of the inline formatting context.
 		return false
 	}
 	if isTableNode(n) {
@@ -1094,4 +1106,43 @@ func tableIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
 		return max(fixed+extra, captionMinWidth), max(max(fixed, minWidth)+extra, captionMinWidth)
 	}
 	return max(minWidth+extra, captionMinWidth), max(max(minWidth, maxWidth)+extra, captionMinWidth)
+}
+
+// inlineTablePart lays out an inline-level table as an atomic inline box at
+// the origin. The fragment is shrink-to-fit inside the available inline
+// width, so auto margins resolve to zero rather than centering the table in
+// the line, and the caller translates it onto the line it lands on.
+func inlineTablePart(n *StyledNode, available int, faces *faceSet) inlinePart {
+	available = max(0, available)
+	_, preferred := tableIntrinsic(n, faces)
+	box, height := layoutTable(n, 0, 0, min(available, max(0, preferred)), "", faces)
+	margin := boxEdges(n, "margin", float64(available))
+	width := box.Rect.Max.X + margin[1]
+	baseline, ok := firstTextBaseline(box, faces)
+	if !ok {
+		// With no in-flow line box the bottom margin edge is the baseline,
+		// matching how browsers align an inline table with no text.
+		baseline = height
+	}
+	return inlinePart{node: n.Node, style: n.Style, table: box, tableW: max(0, width),
+		tableH: max(0, height), tableBaseline: baseline, isTable: true}
+}
+
+// firstTextBaseline returns the baseline of the first text run in a laid out
+// subtree, in the subtree's own coordinate space. An inline table uses the
+// baseline of its first row, which is the first text a row lays out.
+func firstTextBaseline(b *Box, faces *faceSet) (int, bool) {
+	if b == nil {
+		return 0, false
+	}
+	for _, run := range b.Text {
+		ascent, _ := faces.metrics(run.Style).lineMetrics()
+		return run.Rect.Min.Y + ascent, true
+	}
+	for _, child := range b.Children {
+		if baseline, ok := firstTextBaseline(child, faces); ok {
+			return baseline, true
+		}
+	}
+	return 0, false
 }

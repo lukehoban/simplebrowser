@@ -1,0 +1,21 @@
+<!doctype html>
+<style>
+  body { margin: 24px; font: 18px sans-serif; width: 520px }
+  h2 { font-size: 18px; margin: 20px 0 6px }
+  table { display: inline-table; border-collapse: separate; border-spacing: 2px }
+  td { padding: 4px 8px; background: #eef3fb }
+  .red { border: 3px solid #c62828 }
+  .blue { border: 3px solid #1565c0 }
+  .green { border: 3px solid #2e7d32 }
+  .amber { border: 3px solid #ef6c00 }
+</style>
+<body>
+<h2>Adjacent inline tables share one line</h2>
+<table class="red"><tr><td>A</td></tr></table><table class="blue"><tr><td>B</td></tr></table><table class="green"><tr><td>C</td></tr></table><table class="amber"><tr><td>D</td></tr></table>
+
+<h2>Inline tables sit in surrounding text</h2>
+<div>before <table class="red"><tr><td>one</td><td>two</td></tr></table> after</div>
+
+<h2>Inline tables wrap when the line is full</h2>
+<div><table class="red"><tr><td>a wide inline table</td></tr></table><table class="blue"><tr><td>another wide table</td></tr></table><table class="green"><tr><td>a third wide table</td></tr></table><table class="amber"><tr><td>a fourth wide table</td></tr></table></div>
+</body>
