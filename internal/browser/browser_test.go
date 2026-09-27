@@ -4,17 +4,24 @@ import (
 	"bytes"
 	"image"
 	_ "image/png"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
 func TestRenderProducesDeterministicPNG(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "page.html")
+	if err := os.WriteFile(source, []byte("<html>local fixture</html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	var first bytes.Buffer
-	if err := Render("https://example.com/", &first); err != nil {
+	if err := Render(source, &first); err != nil {
 		t.Fatalf("Render() error = %v", err)
 	}
 
 	var second bytes.Buffer
-	if err := Render("https://example.com/", &second); err != nil {
+	if err := Render(source, &second); err != nil {
 		t.Fatalf("Render() second error = %v", err)
 	}
 
