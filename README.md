@@ -21,6 +21,10 @@ advanced CSS remain future work.
 
 ![Current centered Hacker News fixture render: orange header, painted story text, and gray SVG logo placeholder](docs/screenshots/hn-fixture.png)
 
+**Compatibility benchmark: [6/13 pinned WPT reftests passing](docs/compatibility.md)**
+([JSON](docs/compatibility.json)). Run `make compatibility` to regenerate the
+committed report and inspect failed test/reference/diff PNGs in `artifacts/wpt/`.
+
 *Offline Hacker News snapshot generated from the repository's current source
 (2026-09-26), with image painting and fixed-point line wrapping. The SVG logo
 is a neutral placeholder; the fixture's vote arrows are CSS backgrounds, not

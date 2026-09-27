@@ -1,0 +1,37 @@
+# Pinned WPT reftest subset
+
+These are unmodified files from [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt)
+at commit [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db),
+under the upstream [WPT 3-clause BSD license](https://github.com/web-platform-tests/wpt/blob/647d3bdf133159739b57cfb7afa0be3f5d76b9db/LICENSE.md).
+Each path here corresponds to `css/CSS2/<path>` upstream. Only the 13
+manifest-listed tests, their references, and three PNG support assets are
+included. No local edits were made to these upstream fixtures.
+The harness makes a temporary copy, removing XML `<![CDATA[` / `]]>` wrappers
+from `.xht` CSS before rendering: local XHTML is parsed as HTML by this
+browser, which otherwise treats XML CDATA delimiters as CSS text. The
+original fixtures remain byte-for-byte unchanged. No other markup is adapted.
+
+Selection covers color inheritance, cascade through tables, background
+painting, normal block flow, block-in-inline, anonymous tables, and collapsed
+borders. This is **not** a representative aggregate WPT pass rate; it is a
+small regression benchmark with known unsupported behavior. Selection is in
+`cmd/wptbench/main.go`; add a vendored test and its reference/assets there
+and regenerate the report with `make compatibility`.
+
+`make compatibility` renders at 800×600, reads `rel=match` or `rel=mismatch`
+from each original test, compares exact pixel colors against its reference,
+and writes `docs/compatibility.{json,md}`. `make compatibility-check` checks
+committed reports and the README score without rewriting them. Update the
+README score when refreshing the report. Currently only the first reftest
+relation in each selected file is evaluated; multiple relations per file are
+deferred. Mismatches are reported as failures,
+while missing references, render/decode errors, or diagnostic write failures
+are runner errors. Test/reference/diff PNGs are generated for failures under
+`artifacts/wpt/` (ignored by Git and uploaded by CI). Red pixels in diff PNGs
+are different pixels; transparent pixels match. Network dialing is forbidden
+during the run, including CSS/image loads.
+
+The fixed viewport and embedded font produce repeatable output on a given
+platform, but cross-platform font rasterization can differ. CI checks its
+report on Linux; if platform output diverges, regenerate using the same
+platform as CI rather than masking failures or rounding pixels.
