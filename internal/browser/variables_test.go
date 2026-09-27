@@ -105,6 +105,14 @@ func TestUnresolvedVariableFontSizeMoonRepro(t *testing.T) {
 	if got := styledElementByID(styled.StyleRoot, "bar").Style["width"]; got != "160px" {
 		t.Fatalf("bar width = %q", got)
 	}
+	laidOut, err := LayoutWithViewport(styled, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bar := boxesByID(laidOut.Root, "bar")["bar"]
+	if bar == nil || bar.Content.Dx() != 160 || bar.Content.Dy() != 20 {
+		t.Fatalf("Moon repro bar = %v, want 160x20", bar)
+	}
 }
 
 func TestSubstituteVarsIgnoresStringsAndRespectsNestedCommas(t *testing.T) {
