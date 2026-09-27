@@ -470,7 +470,12 @@ func mediaQueryAlternativeMatches(query string, viewport image.Point) bool {
 	}
 	matches := true
 	for _, part := range parts {
-		part = strings.TrimSpace(strings.Trim(part, "()"))
+		// Trim exactly one level of parentheses: a feature value may contain
+		// its own, as in (max-width: calc(1120px - 1px)).
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "(") && strings.HasSuffix(part, ")") {
+			part = strings.TrimSpace(part[1 : len(part)-1])
+		}
 		colon := strings.IndexByte(part, ':')
 		if colon < 0 {
 			matches = false
