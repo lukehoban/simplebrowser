@@ -537,3 +537,124 @@ func TestSVGPaintFromStylesheet(t *testing.T) {
 		t.Errorf("overlap = %v, want half-transparent blue only", got)
 	}
 }
+
+// The repro from #233: the 10×10 viewBox is fitted into each 20×20 tile.
+func TestSVGPatternViewBoxIssueRepro(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="40" height="20"><defs><pattern id="p" width="20" height="20" patternUnits="userSpaceOnUse" viewBox="0 0 10 10"><circle cx="5" cy="5" r="5" fill="red"/></pattern></defs><rect width="40" height="20" fill="url(#p) blue"/></svg>`)
+	red := color.RGBA{255, 0, 0, 255}
+	for _, p := range [][2]int{{10, 10}, {30, 10}, {10, 2}, {17, 10}, {37, 10}} {
+		if got := img.RGBAAt(p[0], p[1]); !near(got, red, 1) {
+			t.Errorf("circle pixel %v = %v, want red", p, got)
+		}
+	}
+	for _, p := range [][2]int{{1, 1}, {21, 18}, {38, 1}} {
+		if got := img.RGBAAt(p[0], p[1]); got.A != 0 {
+			t.Errorf("tile corner %v = %v, want transparent", p, got)
+		}
+	}
+}
+
+func TestSVGPatternViewBoxAspectRatio(t *testing.T) {
+	// 20×10 tiles; the 10×10 viewBox is a red square with a green top stripe.
+	content := `<rect width="10" height="10" fill="red"/><rect width="10" height="2" fill="#00ff00"/>`
+	red, green, clear := color.RGBA{255, 0, 0, 255}, color.RGBA{0, 255, 0, 255}, color.RGBA{}
+	for _, tc := range []struct {
+		name, attrs string
+		want        map[[2]int]color.RGBA
+	}{
+		{"default xMidYMid meet", ``, map[[2]int]color.RGBA{{2, 5}: clear, {10, 5}: red, {10, 0}: green, {17, 5}: clear}},
+		{"xMinYMid meet", `preserveAspectRatio="xMinYMid meet"`, map[[2]int]color.RGBA{{2, 5}: red, {12, 5}: clear, {17, 5}: clear}},
+		{"xMaxYMax", `preserveAspectRatio="xMaxYMax"`, map[[2]int]color.RGBA{{2, 5}: clear, {17, 5}: red}},
+		{"none stretches", `preserveAspectRatio="none"`, map[[2]int]color.RGBA{{1, 5}: red, {18, 5}: red, {18, 0}: green}},
+		{"slice crops", `preserveAspectRatio="xMidYMid slice"`, map[[2]int]color.RGBA{{1, 0}: red, {18, 9}: red}},
+		{"slice xMinYMin keeps top", `preserveAspectRatio="xMinYMin slice"`, map[[2]int]color.RGBA{{1, 0}: green, {18, 3}: green, {18, 5}: red}},
+		{"defer prefix accepted", `preserveAspectRatio="defer xMinYMid"`, map[[2]int]color.RGBA{{2, 5}: red, {17, 5}: clear}},
+		{"invalid align uses default", `preserveAspectRatio="xMinYMiddle"`, map[[2]int]color.RGBA{{2, 5}: clear, {10, 5}: red}},
+		{"invalid meetOrSlice uses default", `preserveAspectRatio="xMinYMid crop"`, map[[2]int]color.RGBA{{2, 5}: clear, {10, 5}: red}},
+		{"viewBox origin offset", `viewBox="5 0 10 10" preserveAspectRatio="none"`, map[[2]int]color.RGBA{{1, 5}: red, {11, 5}: clear}},
+		{"patternTransform after viewport", `preserveAspectRatio="xMinYMid" patternTransform="translate(5 0)"`, map[[2]int]color.RGBA{{3, 5}: clear, {7, 5}: red, {13, 5}: red, {17, 5}: clear}},
+		{"viewBox overrides content units", `patternContentUnits="objectBoundingBox" preserveAspectRatio="none"`, map[[2]int]color.RGBA{{1, 5}: red}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attrs := tc.attrs
+			if !strings.Contains(attrs, "viewBox") {
+				attrs += ` viewBox="0 0 10 10"`
+			}
+			img := decodeSVGString(t, svgOpen+`width="40" height="10"><defs><pattern id="p" width="20" height="10" patternUnits="userSpaceOnUse" `+attrs+`>`+content+`</pattern></defs><rect width="40" height="10" fill="url(#p) blue"/></svg>`)
+			for p, want := range tc.want {
+				for _, x := range []int{p[0], p[0] + 20} {
+					if got := img.RGBAAt(x, p[1]); !near(got, want, 1) {
+						t.Errorf("pixel (%d,%d) = %v, want %v", x, p[1], got, want)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestSVGPatternViewBoxInheritanceAndErrors(t *testing.T) {
+	red, clear, blue := color.RGBA{255, 0, 0, 255}, color.RGBA{}, color.RGBA{0, 0, 255, 255}
+	base := `<pattern id="base" width="20" height="10" patternUnits="userSpaceOnUse" viewBox="0 0 10 10" preserveAspectRatio="xMaxYMid"><rect width="10" height="10" fill="red"/></pattern>`
+	for _, tc := range []struct {
+		name, defs string
+		want       map[int]color.RGBA // x at y=5
+	}{
+		{"viewBox and preserveAspectRatio inherited", base + `<pattern id="p" href="#base"/>`, map[int]color.RGBA{2: clear, 17: red}},
+		{"preserveAspectRatio overridden independently", base + `<pattern id="p" href="#base" preserveAspectRatio="xMinYMid"/>`, map[int]color.RGBA{2: red, 17: clear}},
+		{"invalid preserveAspectRatio inherits", base + `<pattern id="p" href="#base" preserveAspectRatio="bogus"/>`, map[int]color.RGBA{2: clear, 17: red}},
+		{"viewBox overridden", base + `<pattern id="p" href="#base" viewBox="0 0 20 10"/>`, map[int]color.RGBA{2: red, 12: clear}},
+		{"malformed viewBox inherits", base + `<pattern id="p" href="#base" viewBox="0 0 10"/>`, map[int]color.RGBA{2: clear, 17: red}},
+		{"negative viewBox inherits", base + `<pattern id="p" href="#base" viewBox="0 0 -10 10"/>`, map[int]color.RGBA{2: clear, 17: red}},
+		{"zero viewBox disables rendering", base + `<pattern id="p" href="#base" viewBox="0 0 0 10"/>`, map[int]color.RGBA{2: clear, 17: clear}},
+		{"malformed viewBox without inheritance is ignored", `<pattern id="p" width="20" height="10" patternUnits="userSpaceOnUse" viewBox="a b c d"><rect width="4" height="10" fill="red"/></pattern>`, map[int]color.RGBA{2: red, 6: clear}},
+		{"zero tile still uses fallback", `<pattern id="p" width="0" height="10" patternUnits="userSpaceOnUse" viewBox="0 0 10 10"/>`, map[int]color.RGBA{2: blue}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := decodeSVGString(t, svgOpen+`width="40" height="10"><defs>`+tc.defs+`</defs><rect width="40" height="10" fill="url(#p) blue"/></svg>`)
+			for x, want := range tc.want {
+				if got := img.RGBAAt(x, 5); !near(got, want, 1) {
+					t.Errorf("pixel (%d,5) = %v, want %v", x, got, want)
+				}
+			}
+		})
+	}
+}
+
+// Without a viewBox, pattern content coordinates start at the tile origin (x, y).
+func TestSVGPatternContentOriginIsTileOrigin(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="8" height="8"><defs><pattern id="p" x="2" y="1" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="red"/></pattern></defs><rect width="8" height="8" fill="url(#p) blue"/></svg>`)
+	red := color.RGBA{255, 0, 0, 255}
+	for _, p := range [][2]int{{2, 1}, {3, 2}, {6, 5}, {7, 6}} {
+		if got := img.RGBAAt(p[0], p[1]); !near(got, red, 1) {
+			t.Errorf("tile-relative content pixel %v = %v, want red", p, got)
+		}
+	}
+
+	for _, p := range [][2]int{{0, 0}, {4, 1}, {2, 3}, {1, 0}} {
+		if got := img.RGBAAt(p[0], p[1]); got.A != 0 {
+			t.Errorf("gap pixel %v = %v, want transparent", p, got)
+		}
+	}
+}
+
+// A viewBox defines the pattern content coordinate system even when both
+// pattern unit attributes request objectBoundingBox. This also exercises an
+// offset, non-square painted object's bound tile.
+func TestSVGPatternViewBoxWithObjectBoundingBoxGeometry(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="36" height="16"><defs>
+		<pattern id="p" x=".25" y=".25" width=".5" height=".5"
+			patternContentUnits="objectBoundingBox" viewBox="5 10 10 10"
+			preserveAspectRatio="none"><rect x="5" y="10" width="5" height="10" fill="red"/></pattern>
+	</defs><rect x="20" y="4" width="8" height="4" fill="url(#p)"/></svg>`)
+	red := color.RGBA{255, 0, 0, 255}
+	for _, xy := range [][2]int{{22, 5}, {23, 5}, {26, 5}} {
+		if got := img.RGBAAt(xy[0], xy[1]); !near(got, red, 1) {
+			t.Errorf("viewBox object-bounding-box tile at %v = %v, want red", xy, got)
+		}
+	}
+	for _, xy := range [][2]int{{20, 5}, {24, 5}, {25, 5}, {22, 3}} {
+		if got := img.RGBAAt(xy[0], xy[1]); got.A != 0 {
+			t.Errorf("outside offset tile at %v = %v, want transparent", xy, got)
+		}
+	}
+}
