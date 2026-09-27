@@ -16,7 +16,7 @@ Work incrementally and visibly so others can follow along and guide the work.
 * Before starting a sub-issue, comment on it with the planned approach (1-5 bullets).
 * Push branches and PRs early, as Draft if unsure; mark Ready when possible.
 * PR descriptions include a current visual where relevant, and a "Known gaps / follow-ups" list linking the issues above.
-* Run independent work in parallel when it helps, and reconcile design, implementation, and merge conflicts between it via PRs.
+* Run independent work in parallel wherever possible in concurrent PR coding sessions, and reconcile design, implementation, and merge conflicts between it via PRs.
 * Do regular "clean up" passes to ensure debt isn't accruing.
 
 # Reporting progress
