@@ -105,6 +105,44 @@ func TestBackgroundRasterPaintAndStylesheetBase(t *testing.T) {
 	pixel(t, img, 10, 2, color.RGBA{0, 0, 255, 255})    // no repeat
 }
 
+func TestBackgroundShorthandCompactSlashPaintsScaledTile(t *testing.T) {
+	data := encodedTestImage(t, "png", image.Rect(0, 0, 2, 2))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tile.png" {
+			_, _ = w.Write(data)
+		} else {
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	source := `<div style="margin:0;width:8px;height:8px;background:url(tile.png) center/4px 4px no-repeat #00ff00"></div>`
+	doc, err := parse(Resource{URL: server.URL + "/page", Body: []byte(source)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := LayoutWithViewport(styled, image.Rect(0, 0, 12, 12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := paint(layout, &out, renderOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := png.Decode(&out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decoded.(*image.RGBA)
+	pixel(t, img, 1, 1, color.RGBA{0, 255, 0, 255})
+	pixel(t, img, 2, 2, color.RGBA{0, 0, 180, 255})
+	pixel(t, img, 6, 6, color.RGBA{0, 255, 0, 255})
+}
+
 func TestBackgroundRepeatAndFailuresHaveNoPlaceholder(t *testing.T) {
 	data := encodedTestImage(t, "png", image.Rect(0, 0, 2, 2))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

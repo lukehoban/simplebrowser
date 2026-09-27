@@ -70,13 +70,16 @@ func expandBackground(d Declaration) []Declaration {
 	values := parseValues(layer)
 	color, repeat, position, size := "transparent", "repeat", "", ""
 	imageValue := "none"
-	// parseValues treats '/' as a delimiter; split position/size first.
-	if slash := strings.Index(layer, " / "); slash >= 0 {
-		values = parseValues(layer[:slash])
-		size = strings.TrimSpace(layer[slash+3:])
-	}
+	afterSlash := false
+	sizeValues := 0
 	for _, v := range values {
 		word := strings.ToLower(v.Text)
+		// parseValues emits a slash outside functions and quoted strings as its
+		// own token, independent of surrounding whitespace.
+		if v.Text == "/" {
+			afterSlash = true
+			continue
+		}
 		switch {
 		case v.Kind == "url":
 			imageValue = `url("` + v.Text + `")`
@@ -84,8 +87,16 @@ func expandBackground(d Declaration) []Declaration {
 			color = v.Text
 		case word == "no-repeat" || word == "repeat" || word == "repeat-x" || word == "repeat-y":
 			repeat = word
-		case word == "left" || word == "right" || word == "top" || word == "bottom" || word == "center" ||
-			v.Kind == "length" || v.Kind == "percentage":
+		case afterSlash && sizeValues < 2 &&
+			(v.Kind == "length" || v.Kind == "percentage" || word == "auto" ||
+				(sizeValues == 0 && (word == "cover" || word == "contain"))):
+			if size != "" {
+				size += " "
+			}
+			size += v.Text
+			sizeValues++
+		case !afterSlash && (word == "left" || word == "right" || word == "top" || word == "bottom" || word == "center" ||
+			v.Kind == "length" || v.Kind == "percentage"):
 			position += " " + v.Text
 		}
 	}
