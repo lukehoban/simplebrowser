@@ -26,8 +26,20 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(display)", false},
 		{"(display:)", false},
 		// Features this engine does not render must not be claimed.
-		{"(mask-image: none)", false},
-		{"(-webkit-mask-image: none)", false},
+		{"(mask-mode: alpha)", false},
+		{"(mask-composite: add)", false},
+		{"(mask-image: url(#svg-mask) luminance)", false},
+		{"(mask: none red)", false},
+		{"(mask-repeat: space)", false},
+		// The implemented CSS Masking subset (mask.go), including aliases.
+		{"(mask-image: none)", true},
+		{"(-webkit-mask-image: none)", true},
+		{"(mask-image: url(a.svg), linear-gradient(red, blue))", true},
+		{"(mask-size: calc(max(calc(1rem + 4px), 10px)))", true},
+		{"(-webkit-mask-size: 20px auto)", true},
+		{"(mask-position: center)", true},
+		{"(mask-repeat: no-repeat)", true},
+		{"(mask: url(a.svg) center / 20px no-repeat)", true},
 		{"(display: grid)", false},
 		{"(display: flex)", true},
 		{"(visibility: hidden)", true},
@@ -48,14 +60,14 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(float: inline-start)", false},
 		{"(opacity: 0.5)", false},
 		// Boolean operators and nesting.
-		{"not (mask-image: none)", true},
+		{"not (mask-mode: alpha)", true},
 		{"NOT (display: block)", false},
 		{"(display: block) and (color: red)", true},
 		{"(display: block) and (display: grid)", false},
 		{"(display: grid) or (display: block)", true},
-		{"(display: grid) or (mask-image: none)", false},
+		{"(display: grid) or (mask-mode: alpha)", false},
 		{"(display: block) and (color: red) and (width: 1px)", true},
-		{"((display: grid) or (display: block)) and (not (mask-image: none))", true},
+		{"((display: grid) or (display: block)) and (not (mask-mode: alpha))", true},
 		{"not ((display: block) and (display: grid))", true},
 		{"(not (display: grid))", true},
 		{"/* c */ (display: block)", true},
@@ -100,8 +112,8 @@ func TestParseCSSSupportsBlocks(t *testing.T) {
 	sheet := ParseCSS(`
 		@supports (display:block) { .yes { color: green } }
 		@supports (not-a-property:1) { .no { color: red } }
-		@supports (mask-image: none) { .mask { color: red } }
-		@supports not (mask-image: none) { .fallback { color: green } }
+		@supports (mask-mode: alpha) { .mask { color: red } }
+		@supports not (mask-mode: alpha) { .fallback { color: green } }
 		@supports(display:block){ .tight { color: green } }
 		@supportsx (display:block) { .bogus { color: red } }
 		@media screen and (min-width: 640px) {
@@ -139,15 +151,15 @@ func TestParseCSSSupportsBlocks(t *testing.T) {
 	}
 }
 
-// Moon/Vector icon pattern: mask-image is not rendered, so the background
-// fallback must win, and the Moon repro's two boxes must both be green.
+// An unsupported feature's @supports not (...) fallback must win, and the Moon
+// repro's two boxes must both be green.
 func TestSupportsCascadeSelectsFallback(t *testing.T) {
 	green := color.RGBA{0, 128, 0, 255}
 	img := painted(t, `<body style="margin:0">
 <style>
 div { width: 100px; height: 20px; background: red }
-@supports (mask-image: none) { .icon { background: red } }
-@supports not (mask-image: none) { .icon { background: green } }
+@supports (mask-mode: alpha) { .icon { background: red } }
+@supports not (mask-mode: alpha) { .icon { background: green } }
 @media (min-width: 1px) { @supports (display: block) { .nested { background: green } } }
 </style>
 <div class="icon"></div><div class="nested"></div></body>`, image.Rect(0, 0, 200, 60))
@@ -169,8 +181,8 @@ func TestSVGStylesheetSupports(t *testing.T) {
 	<style>
 	rect { fill: red }
 	@supports (fill: green) { .a { fill: green } }
-	@supports (mask-image: none) { .b { fill: blue } }
-	@supports not (mask-image: none) { .b { fill: green } }
+	@supports (mask-mode: alpha) { .b { fill: blue } }
+	@supports not (mask-mode: alpha) { .b { fill: green } }
 	</style>
 	<rect class="a" x="0" y="0" width="20" height="20"/>
 	<rect class="b" x="20" y="0" width="20" height="20"/>

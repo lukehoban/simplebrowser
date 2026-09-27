@@ -37,7 +37,8 @@ type StyledDocument struct {
 	Styles           map[*Node]ComputedStyle
 	Images           map[*Node]image.Image
 	BackgroundImages map[*Node][]image.Image
-	styleViewport    image.Point // Size used for computed values; zero for manually constructed styles.
+	MaskImages       map[*Node][]image.Image // mask-image layers; nil entries paint as transparent
+	styleViewport    image.Point             // Size used for computed values; zero for manually constructed styles.
 }
 
 // ComputedStyle contains the values used by later layout and painting stages.

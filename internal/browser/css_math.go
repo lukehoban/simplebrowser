@@ -19,6 +19,10 @@ type cssMathParser struct {
 	i       int
 	depth   int
 	convert func(float64, string) (cssMathValue, bool)
+	// functions enables nested calc(), min() and max() inside an expression.
+	// It is only enabled for properties whose used values evaluate them
+	// (currently mask-size); ordinary length properties do not yet.
+	functions bool
 }
 
 const maxCSSMathDepth = 64
@@ -170,6 +174,11 @@ func (p *cssMathParser) unary() (cssMathValue, bool) {
 
 func (p *cssMathParser) atom() (cssMathValue, bool) {
 	start := p.i
+	if p.functions {
+		if v, ok, matched := p.function(); matched {
+			return v, ok
+		}
+	}
 	if p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] >= '0' && p.s[p.i] <= '9') {
 		for p.i < len(p.s) && p.s[p.i] >= '0' && p.s[p.i] <= '9' {
 			p.i++
@@ -215,43 +224,135 @@ func (p *cssMathParser) atom() (cssMathValue, bool) {
 	return cssMathValue{}, false
 }
 
+// function parses a nested calc(), min() or max(). matched reports whether
+// the input started with one of these names, so atom can fall through to
+// numbers otherwise. min()/max() compare pixel values only; a percentage
+// argument has no basis at parse time, so such comparisons are rejected.
+func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
+	name := ""
+	for _, candidate := range []string{"calc(", "min(", "max("} {
+		if len(p.s)-p.i >= len(candidate) && strings.EqualFold(p.s[p.i:p.i+len(candidate)], candidate) {
+			name = candidate[:len(candidate)-1]
+			break
+		}
+	}
+	if name == "" {
+		return cssMathValue{}, false, false
+	}
+	if p.depth >= maxCSSMathDepth {
+		return cssMathValue{}, false, true
+	}
+	p.i += len(name) + 1
+	p.depth++
+	defer func() { p.depth-- }()
+	var result cssMathValue
+	for count := 0; ; count++ {
+		arg, ok := p.sum()
+		p.space()
+		if !ok || p.i >= len(p.s) {
+			return cssMathValue{}, false, true
+		}
+		if count == 0 {
+			result = arg
+		} else {
+			if arg.number != result.number || arg.percent != 0 || result.percent != 0 {
+				return cssMathValue{}, false, true
+			}
+			if name == "min" {
+				result.px = math.Min(result.px, arg.px)
+			} else {
+				result.px = math.Max(result.px, arg.px)
+			}
+		}
+		switch {
+		case p.s[p.i] == ')':
+			p.i++
+			return result, true, true
+		case p.s[p.i] == ',' && name != "calc":
+			p.i++
+		default:
+			return cssMathValue{}, false, true
+		}
+	}
+}
+
 func finite(n float64) bool { return !math.IsNaN(n) && !math.IsInf(n, 0) }
 
 func normalizeCalcValues(values ComputedStyle, viewportWidth, viewportHeight int, rootSize float64) {
 	fontSize := computedFontSize(values)
 	ratios := ratiosFor(values)
+	convert := func(n float64, unit string) (cssMathValue, bool) {
+		switch unit {
+		case "%":
+			return cssMathValue{percent: n / 100}, true
+		case "px":
+			return cssMathValue{px: n}, true
+		case "em":
+			return cssMathValue{px: n * fontSize}, true
+		case "rem":
+			return cssMathValue{px: n * rootSize}, true
+		case "ex":
+			return cssMathValue{px: n * fontSize * ratios.ex}, true
+		case "ch":
+			return cssMathValue{px: n * fontSize * ratios.ch}, true
+		case "vw":
+			return cssMathValue{px: n * float64(viewportWidth) / 100}, true
+		case "vh":
+			return cssMathValue{px: n * float64(viewportHeight) / 100}, true
+		}
+		return cssMathValue{}, false
+	}
 	for property, text := range values {
+		if property == "mask-size" {
+			values[property] = normalizeMathComponents(text, convert)
+			continue
+		}
 		if strings.HasPrefix(property, "--") || !calcLengthProperty(property) {
 			continue
 		}
 		values[property] = replaceCalcFunctions(text, func(expression string) (string, bool) {
-			v, ok := parseCSSMath("calc("+expression+")", func(n float64, unit string) (cssMathValue, bool) {
-				switch unit {
-				case "%":
-					return cssMathValue{percent: n / 100}, true
-				case "px":
-					return cssMathValue{px: n}, true
-				case "em":
-					return cssMathValue{px: n * fontSize}, true
-				case "rem":
-					return cssMathValue{px: n * rootSize}, true
-				case "ex":
-					return cssMathValue{px: n * fontSize * ratios.ex}, true
-				case "ch":
-					return cssMathValue{px: n * fontSize * ratios.ch}, true
-				case "vw":
-					return cssMathValue{px: n * float64(viewportWidth) / 100}, true
-				case "vh":
-					return cssMathValue{px: n * float64(viewportHeight) / 100}, true
-				}
-				return cssMathValue{}, false
-			})
+			v, ok := parseCSSMath("calc("+expression+")", convert)
 			if !ok || v.number {
 				return "", false
 			}
 			return serializeCSSMath(v), true
 		})
 	}
+}
+
+// parseCSSMathFunction evaluates one top-level calc(), min() or max(),
+// including nested math functions.
+func parseCSSMathFunction(value string, convert func(float64, string) (cssMathValue, bool)) (cssMathValue, bool) {
+	p := cssMathParser{s: strings.TrimSpace(value), convert: convert, functions: true}
+	v, ok, matched := p.function()
+	return v, ok && matched && p.i == len(p.s) && finite(v.px) && finite(v.percent)
+}
+
+// normalizeMathComponents replaces each comma- or space-separated math
+// function in a compound value (e.g. mask-size layers) with its computed
+// length. Unevaluable components are left unchanged for the used-value
+// parser to reject.
+func normalizeMathComponents(text string, convert func(float64, string) (cssMathValue, bool)) string {
+	if !strings.Contains(text, "(") {
+		return text
+	}
+	layers := backgroundLayers(text)
+	for i, layer := range layers {
+		parts, ok := splitCSSComponents(layer)
+		if !ok {
+			continue
+		}
+		for j, part := range parts {
+			if !strings.Contains(part, "(") {
+				continue
+			}
+			if v, ok := parseCSSMathFunction(part, convert); ok && !v.number {
+				parts[j] = serializeCSSMath(v)
+			}
+		}
+		layers[i] = strings.Join(parts, " ")
+	}
+	return strings.Join(layers, ", ")
 }
 
 func serializeCSSMath(v cssMathValue) string {

@@ -243,13 +243,18 @@ func validBackground(value string) bool {
 		if strings.TrimSpace(layer) == "" {
 			return false
 		}
-		seenImage, seenRepeat, seenColor, afterSlash := false, false, false, false
+		seenImage, seenRepeat, seenColor, afterSlash, sizeDone := false, false, false, false, false
 		positionCount, sizeCount := 0, 0
 		for _, token := range parseValues(layer) {
 			word := strings.ToLower(token.Text)
+			// <bg-size> ends at the first token that cannot extend it, so
+			// "center / 20px no-repeat" continues with the other components.
+			if afterSlash && sizeCount > 0 && !(token.Kind == "length" || token.Kind == "percentage" || word == "auto") {
+				afterSlash, sizeDone = false, true
+			}
 			switch {
 			case token.Text == "/":
-				if afterSlash || positionCount == 0 {
+				if afterSlash || sizeDone || positionCount == 0 {
 					return false
 				}
 				afterSlash = true
@@ -275,7 +280,7 @@ func validBackground(value string) bool {
 				if sizeCount > 2 {
 					return false
 				}
-			case !afterSlash && (word == "left" || word == "right" || word == "top" ||
+			case !afterSlash && !sizeDone && (word == "left" || word == "right" || word == "top" ||
 				word == "bottom" || word == "center" || token.Kind == "length" || token.Kind == "percentage"):
 				positionCount++
 				if positionCount > 2 {
@@ -305,6 +310,14 @@ func backgroundLayerStyle(style ComputedStyle, index int) ComputedStyle {
 
 func backgroundLength(s string, basis int) (int, bool) {
 	if strings.EqualFold(s, "auto") {
+		return 0, false
+	}
+	if len(s) > 5 && strings.EqualFold(s[:5], "calc(") {
+		// Computed mixed lengths (e.g. calc(50% + 2px)) resolve against the
+		// positioning area here, at used-value time.
+		if v, ok := evaluateComputedCalc(s, float64(basis)); ok && v >= float64(math.MinInt32) && v <= float64(math.MaxInt32) {
+			return int(math.Round(v)), true
+		}
 		return 0, false
 	}
 	return imageDimensionValue(s, basis)

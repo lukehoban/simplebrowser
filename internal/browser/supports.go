@@ -184,8 +184,8 @@ func supportsDeclaration(s string) (string, string, bool) {
 // listed only when the cascade, layout or painting consumes it, and only
 // values this renderer implements are accepted. It is intentionally
 // conservative; extend it when a feature lands. Unlisted properties such as
-// mask-image, and values such as display:grid or math functions like
-// min()/round(), are unsupported. A single calc() length is accepted for the
+// mask-mode or mask-composite, and values such as display:grid or math
+// functions like min()/round() (outside mask-size), are unsupported. A single calc() length is accepted for the
 // properties listed by calcLengthProperty (see docs/css-calc.md).
 var supportValidators = map[string]func(string) bool{
 	"display": keywordValidator("none", "block", "inline", "inline-block", "flex", "inline-flex", "list-item", "flow-root",
@@ -246,6 +246,13 @@ var supportValidators = map[string]func(string) bool{
 	"stroke-linejoin": keywordValidator("miter", "round", "bevel"),
 	"fill-opacity":    unitNumber,
 	"stroke-opacity":  unitNumber,
+	// CSS Masking subset painted by mask.go. -webkit-mask* aliases are
+	// canonicalized before lookup.
+	"mask":          validMask,
+	"mask-image":    layerList(supportsOr(keywordValidator("none"), urlValue, gradientValue)),
+	"mask-repeat":   layerList(keywordValidator("repeat", "no-repeat", "repeat-x", "repeat-y")),
+	"mask-position": layerList(positionValue),
+	"mask-size":     layerList(maskSizeValue),
 }
 
 func init() {
@@ -257,6 +264,7 @@ func init() {
 
 // featureSupported answers one @supports (property: value) test.
 func featureSupported(property, value string) bool {
+	property = canonicalMaskProperty(property)
 	valid, ok := supportValidators[property]
 	if !ok || value == "" {
 		return false
@@ -372,4 +380,70 @@ func boxShorthand(valid func(string) bool) func(string) bool {
 		}
 		return true
 	}
+}
+
+// layerList applies valid to each comma-separated layer of a list-valued
+// property such as mask-image or mask-size.
+func layerList(valid func(string) bool) func(string) bool {
+	return func(v string) bool {
+		for _, layer := range backgroundLayers(v) {
+			if layer == "" || !valid(layer) {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+func gradientValue(v string) bool {
+	c := classifyValue(v)
+	return c.Kind == "function" && gradientFunction(c.Text) != ""
+}
+
+// positionValue accepts the one- and two-component <position> forms that
+// backgroundPositionAxes resolves.
+func positionValue(v string) bool {
+	parts, ok := splitCSSComponents(v)
+	if !ok || len(parts) < 1 || len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		if !keywordValidator("left", "right", "top", "bottom", "center")(part) && !lengthOrPercentage(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// maskSizeValue accepts cover/contain or one or two auto/length/percentage
+// components, where a component may be a calc()/min()/max() expression.
+func maskSizeValue(v string) bool {
+	if keywordValidator("cover", "contain")(v) {
+		return true
+	}
+	parts, ok := splitCSSComponents(v)
+	if !ok || len(parts) < 1 || len(parts) > 2 {
+		return false
+	}
+	for _, part := range parts {
+		if strings.Contains(part, "(") {
+			m, ok := parseCSSMathFunction(part, func(n float64, unit string) (cssMathValue, bool) {
+				switch unit {
+				case "%":
+					return cssMathValue{percent: n / 100}, true
+				case "px", "em", "rem", "ex", "ch", "vw", "vh":
+					return cssMathValue{px: n}, true
+				}
+				return cssMathValue{}, false
+			})
+			if !ok || m.number {
+				return false
+			}
+			continue
+		}
+		if !keywordValidator("auto")(part) && !nonNegativeLength(part) {
+			return false
+		}
+	}
+	return true
 }
