@@ -22,54 +22,85 @@ import (
 
 const revision = "647d3bdf133159739b57cfb7afa0be3f5d76b9db"
 
-var tests = []string{
-	"colors/color-175.xht",
-	"colors/color-176.xht",
-	"colors/color-177.xht",
-	"colors/color-applies-to-001.xht",
-	"backgrounds/background-001.xht",
-	"backgrounds/background-002.xht",
-	"normal-flow/block-formatting-contexts-001.xht",
-	"normal-flow/block-formatting-contexts-003.xht",
-	"normal-flow/block-formatting-contexts-005.xht",
-	"normal-flow/block-formatting-context-height-001.xht",
-	"normal-flow/block-in-inline-align-001.html",
-	"tables/anonymous-table-box-width-001.xht",
-	"tables/border-collapse-005.html",
-	"box/ltr-basic.xht",
-	"box/rtl-basic.xht",
-	"box/ltr-ib.xht",
-	"box/rtl-ib.xht",
-	"margin-padding-clear/margin-001.xht",
-	"margin-padding-clear/margin-002.xht",
-	"margin-padding-clear/margin-003.xht",
-	"margin-padding-clear/margin-004.xht",
-	"positioning/absolute-non-replaced-height-003.xht",
-	"positioning/absolute-non-replaced-height-006.xht",
-	"positioning/position-relative-001.xht",
-	"positioning/position-relative-003.xht",
-	"abspos/abspos-containing-block-initial-004a.xht",
-	"abspos/abspos-containing-block-initial-007.xht",
-	"tables/border-collapse-offset-001.xht",
-	"tables/border-collapse-offset-002.xht",
-	"tables/border-collapse-empty-row.html",
-	"tables/separated-border-model-007.xht",
-	"tables/caption-position-001.xht",
-	"tables/fixed-table-layout-002a.xht",
-	"colors/color-applies-to-004.xht",
-	"colors/color-applies-to-005.xht",
-	"colors/colors-007.xht",
-	"colors/color-applies-to-002.xht",
-	"colors/color-applies-to-003.xht",
+type benchmark struct {
+	Test       string
+	Area       string
+	Suite      string
+	Diagnostic bool
+	NotCovered string
+	Issue      string
+}
+
+func pinned(test, area, notCovered string) benchmark {
+	return benchmark{Test: test, Area: area, Suite: "WPT", NotCovered: notCovered}
+}
+
+var tests = []benchmark{
+	pinned("colors/color-175.xht", "Colors", "Color parsing beyond this declaration and inheritance case."),
+	pinned("colors/color-176.xht", "Colors", "Color parsing beyond this declaration and inheritance case."),
+	pinned("colors/color-177.xht", "Colors", "Color parsing beyond this declaration and inheritance case."),
+	pinned("colors/color-applies-to-001.xht", "Colors", "Color application outside the element exercised here."),
+	pinned("backgrounds/background-001.xht", "Backgrounds", "Multiple layers, sizing, positioning, and canvas propagation."),
+	pinned("backgrounds/background-002.xht", "Backgrounds", "Multiple layers, sizing, positioning, and canvas propagation."),
+	pinned("normal-flow/block-formatting-contexts-001.xht", "Normal flow", "Floats, clearance, fragmentation, and writing modes."),
+	pinned("normal-flow/block-formatting-contexts-003.xht", "Normal flow", "Floats, clearance, fragmentation, and writing modes."),
+	pinned("normal-flow/block-formatting-contexts-005.xht", "Normal flow", "Floats, clearance, fragmentation, and writing modes."),
+	pinned("normal-flow/block-formatting-context-height-001.xht", "Normal flow", "Floats, clearance, fragmentation, and writing modes."),
+	pinned("normal-flow/block-in-inline-align-001.html", "Normal flow", "General block-in-inline splitting and bidi layout."),
+	pinned("tables/anonymous-table-box-width-001.xht", "Tables", "Collapsed-border conflict resolution and spanning cells."),
+	pinned("tables/border-collapse-005.html", "Tables", "The full collapsed-border conflict precedence algorithm."),
+	pinned("box/ltr-basic.xht", "Box direction", "Vertical writing modes and bidi reordering."),
+	pinned("box/rtl-basic.xht", "Box direction", "Vertical writing modes and bidi reordering."),
+	pinned("box/ltr-ib.xht", "Box direction", "Vertical writing modes and bidi reordering."),
+	pinned("box/rtl-ib.xht", "Box direction", "Vertical writing modes and bidi reordering."),
+	pinned("margin-padding-clear/margin-001.xht", "Margins", "Margin collapsing with floats, clearance, or negative margins."),
+	pinned("margin-padding-clear/margin-002.xht", "Margins", "Margin collapsing with floats, clearance, or negative margins."),
+	pinned("margin-padding-clear/margin-003.xht", "Margins", "Margin collapsing with floats, clearance, or negative margins."),
+	pinned("margin-padding-clear/margin-004.xht", "Margins", "Margin collapsing with floats, clearance, or negative margins."),
+	pinned("positioning/absolute-non-replaced-height-003.xht", "Positioning", "Replaced elements, fixed positioning, and stacking."),
+	pinned("positioning/absolute-non-replaced-height-006.xht", "Positioning", "Replaced elements, fixed positioning, and stacking."),
+	pinned("positioning/position-relative-001.xht", "Positioning", "Relative offsets in writing modes other than horizontal LTR."),
+	pinned("positioning/position-relative-003.xht", "Positioning", "Relative offsets in writing modes other than horizontal LTR."),
+	pinned("abspos/abspos-containing-block-initial-004a.xht", "Positioning", "Nested transformed or non-initial containing blocks."),
+	pinned("abspos/abspos-containing-block-initial-007.xht", "Positioning", "Nested transformed or non-initial containing blocks."),
+	pinned("tables/border-collapse-offset-001.xht", "Tables", "The full collapsed-border conflict precedence algorithm."),
+	pinned("tables/border-collapse-offset-002.xht", "Tables", "The full collapsed-border conflict precedence algorithm."),
+	pinned("tables/border-collapse-empty-row.html", "Tables", "Spans and non-empty row-group border conflicts."),
+	pinned("tables/separated-border-model-007.xht", "Tables", "Collapsed borders and spanning cells."),
+	pinned("tables/caption-position-001.xht", "Tables", "Side captions, multiple captions, and writing modes."),
+	pinned("tables/fixed-table-layout-002a.xht", "Tables", "Automatic table layout and spanning cells."),
+	pinned("colors/color-applies-to-004.xht", "Colors", "Color application outside the element exercised here."),
+	pinned("colors/color-applies-to-005.xht", "Colors", "Color application outside the element exercised here."),
+	pinned("colors/colors-007.xht", "Colors", "Modern color syntaxes, profiles, and interpolation."),
+	pinned("colors/color-applies-to-002.xht", "Colors", "Color application outside the element exercised here."),
+	pinned("colors/color-applies-to-003.xht", "Colors", "Color application outside the element exercised here."),
+
+	{Test: "margin-padding-clear/margin-collapse-003.xht", Area: "Margins", Suite: "WPT", Diagnostic: true, NotCovered: "Floats, clearance, negative margins, and margin trimming."},
+	{Test: "floats-clear/clear-001.xht", Area: "Floats and clear", Suite: "WPT", Diagnostic: true, NotCovered: "Right floats, multiple floats, and margin-collapse interactions."},
+	{Test: "floats-clear/clear-002.xht", Area: "Floats and clear", Suite: "WPT", Diagnostic: true, NotCovered: "Right floats, nested formatting contexts, and negative clearance."},
+	{Test: "positioning/bottom-offset-percentage-001.xht", Area: "Positioning", Suite: "WPT", Diagnostic: true, NotCovered: "Auto offsets, replaced elements, and indefinite containing-block heights.", Issue: "#216"},
+	{Test: "positioning/position-relative-004.xht", Area: "Positioning", Suite: "WPT", Diagnostic: true, NotCovered: "Writing modes, bidi reordering, and positioned descendants.", Issue: "#76"},
+	{Test: "backgrounds/background-body-001.xht", Area: "Backgrounds", Suite: "WPT", Diagnostic: true, NotCovered: "Background images, repeat, position, size, and multiple layers."},
+	{Test: "linebox/line-box-height-002.xht", Area: "Line boxes", Suite: "WPT", Diagnostic: true, NotCovered: "Mixed fonts, vertical-align variants, bidi, and vertical writing modes."},
+
+	{Test: "canvas-background-image.html", Area: "Backgrounds", Suite: "Local", Diagnostic: true, NotCovered: "Positioning, sizing, non-solid tiles, multiple layers, and root-image propagation.", Issue: "#63"},
+	{Test: "float-clearance-margin-collapse.html", Area: "Floats and clear", Suite: "Local", Diagnostic: true, NotCovered: "Right floats, multiple floats, inline wrapping, and negative margins.", Issue: "#68"},
+	{Test: "collapsed-border-conflict.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Row/table borders, style precedence, spans, and multi-row conflicts.", Issue: "#66"},
+	{Test: "inline-table-line-edge.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multiple cells, spans, captions, bidi, and vertical alignment variants.", Issue: "#209"},
 }
 
 type result struct {
-	Test      string `json:"test"`
-	Reference string `json:"reference"`
-	Relation  string `json:"relation"`
-	Status    string `json:"status"`
-	Pixels    int    `json:"different_pixels"`
-	Error     string `json:"error,omitempty"`
+	Test       string `json:"test"`
+	Reference  string `json:"reference"`
+	Relation   string `json:"relation"`
+	Suite      string `json:"suite"`
+	Area       string `json:"area"`
+	Diagnostic bool   `json:"diagnostic"`
+	NotCovered string `json:"not_covered"`
+	Issue      string `json:"issue,omitempty"`
+	Status     string `json:"status"`
+	Pixels     int    `json:"different_pixels"`
+	Error      string `json:"error,omitempty"`
 }
 
 type reftestReference struct {
@@ -78,13 +109,26 @@ type reftestReference struct {
 }
 
 type report struct {
-	Revision string   `json:"wpt_revision"`
-	Viewport string   `json:"viewport"`
-	Total    int      `json:"total"`
-	Pass     int      `json:"pass"`
-	Fail     int      `json:"fail"`
-	Error    int      `json:"error"`
-	Results  []result `json:"results"`
+	Revision string      `json:"wpt_revision"`
+	Viewport string      `json:"viewport"`
+	Blocking score       `json:"blocking_wpt"`
+	WPT      score       `json:"diagnostic_wpt"`
+	Local    score       `json:"diagnostic_local"`
+	Areas    []areaScore `json:"areas"`
+	Results  []result    `json:"results"`
+}
+
+type score struct {
+	Total int `json:"total"`
+	Pass  int `json:"pass"`
+	Fail  int `json:"fail"`
+	Error int `json:"error"`
+}
+
+type areaScore struct {
+	Suite string `json:"suite"`
+	Area  string `json:"area"`
+	score
 }
 
 // Reftest link attributes can occur in either order and either quote style.
@@ -161,9 +205,17 @@ func run(root, diagnostics string) report {
 	r := report{Revision: revision, Viewport: "800x600", Results: make([]result, 0, len(tests))}
 	// Clean old diagnostics, so only current failures are uploaded.
 	_ = os.RemoveAll(diagnostics)
-	for _, name := range tests {
-		testResult := result{Test: name}
-		testPath := filepath.Join(root, filepath.FromSlash(name))
+	for _, test := range tests {
+		name := test.Test
+		testResult := result{
+			Test: name, Suite: test.Suite, Area: test.Area, Diagnostic: test.Diagnostic,
+			NotCovered: test.NotCovered, Issue: test.Issue,
+		}
+		testRoot := root
+		if test.Suite == "Local" {
+			testRoot = filepath.Join(filepath.Dir(root), "wpt-local")
+		}
+		testPath := filepath.Join(testRoot, filepath.FromSlash(name))
 		data, err := os.ReadFile(testPath)
 		var references []reftestReference
 		if err == nil {
@@ -172,9 +224,8 @@ func run(root, diagnostics string) report {
 		if err != nil {
 			appendError := func(item result, err error) {
 				// Keep error reports reproducible across machines and runs.
-				item.Status, item.Error = "error", strings.ReplaceAll(err.Error(), root, "testdata/wpt")
-				r.Total++
-				r.Error++
+				item.Status, item.Error = "error", reproducibleError(err, root)
+				addResult(&r, item)
 				r.Results = append(r.Results, item)
 			}
 			appendError(testResult, err)
@@ -186,8 +237,8 @@ func run(root, diagnostics string) report {
 			// Each relation is an independent assertion. Do not let a prior
 			// reference's validation or rendering error poison the next one.
 			err = nil
-			r.Total++
-			item := result{Test: name, Relation: ref.Relation, Reference: ref.Href}
+			item := testResult
+			item.Relation, item.Reference = ref.Relation, ref.Href
 			refPath := filepath.Clean(filepath.Join(filepath.Dir(name), filepath.FromSlash(ref.Href)))
 			switch {
 			case ref.Href == "":
@@ -199,7 +250,7 @@ func run(root, diagnostics string) report {
 			default:
 				item.Reference = filepath.ToSlash(refPath)
 				var refImg image.Image
-				refImg, err = render(filepath.Join(root, refPath))
+				refImg, err = render(filepath.Join(testRoot, refPath))
 				if err == nil && testImg.Bounds() != refImg.Bounds() {
 					err = fmt.Errorf("image bounds differ: %v vs %v", testImg.Bounds(), refImg.Bounds())
 				}
@@ -209,12 +260,13 @@ func run(root, diagnostics string) report {
 					passes := (item.Relation == "match" && item.Pixels == 0) || (item.Relation == "mismatch" && item.Pixels > 0)
 					if passes {
 						item.Status = "pass"
-						r.Pass++
 					} else {
 						item.Status = "fail"
-						r.Fail++
-						dir := filepath.Join(diagnostics, strings.TrimSuffix(name, filepath.Ext(name)),
-							fmt.Sprintf("reference-%03d-%s", index+1, item.Relation))
+						diagnosticName := strings.TrimSuffix(name, filepath.Ext(name))
+						if test.Suite == "Local" {
+							diagnosticName = filepath.Join("local", diagnosticName)
+						}
+						dir := filepath.Join(diagnostics, diagnosticName, fmt.Sprintf("reference-%03d-%s", index+1, item.Relation))
 						e := os.MkdirAll(dir, 0755)
 						if e == nil {
 							e = writePNG(filepath.Join(dir, "test.png"), testImg)
@@ -228,97 +280,119 @@ func run(root, diagnostics string) report {
 						if e != nil {
 							err = fmt.Errorf("write diagnostics: %w", e)
 							item.Status = "error"
-							r.Fail--
 						}
 					}
 				}
 			}
 			if err != nil {
 				// Keep error reports reproducible across machines and runs.
-				item.Status, item.Error = "error", strings.ReplaceAll(err.Error(), root, "testdata/wpt")
-				r.Error++
+				item.Status, item.Error = "error", reproducibleError(err, root)
 			}
+			addResult(&r, item)
 			r.Results = append(r.Results, item)
 		}
 	}
+	r.Areas = summarizeAreas(r.Results)
 	return r
+}
+
+func reproducibleError(err error, root string) string {
+	message := strings.ReplaceAll(err.Error(), filepath.Join(filepath.Dir(root), "wpt-local"), "testdata/wpt-local")
+	return strings.ReplaceAll(message, root, "testdata/wpt")
+}
+
+func addScore(s *score, status string) {
+	s.Total++
+	switch status {
+	case "pass":
+		s.Pass++
+	case "fail":
+		s.Fail++
+	default:
+		s.Error++
+	}
+}
+
+func addResult(r *report, item result) {
+	switch {
+	case !item.Diagnostic:
+		addScore(&r.Blocking, item.Status)
+	case item.Suite == "WPT":
+		addScore(&r.WPT, item.Status)
+	default:
+		addScore(&r.Local, item.Status)
+	}
+}
+
+func summarizeAreas(results []result) []areaScore {
+	var areas []areaScore
+	for _, item := range results {
+		index := -1
+		for i := range areas {
+			if areas[i].Suite == item.Suite && areas[i].Area == item.Area {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			areas = append(areas, areaScore{Suite: item.Suite, Area: item.Area})
+			index = len(areas) - 1
+		}
+		addScore(&areas[index].score, item.Status)
+	}
+	return areas
 }
 
 func markdown(r report) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# WPT compatibility: %d/%d reference assertions passing\n\n", r.Pass, r.Total)
-	fmt.Fprintf(&b, "Pinned WPT revision: [`%s`](https://github.com/web-platform-tests/wpt/commit/%s). Viewport: %s. Exact PNG pixels; %d compatibility failures, %d runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).\n\n", r.Revision, r.Revision, r.Viewport, r.Fail, r.Error)
-	b.WriteString("![Stacked pass/fail graph by selected WPT tranche and area](compatibility.svg)\n\n")
-	b.WriteString("| Test | Reference | Relation | Status | Different pixels |\n| --- | --- | --- | --- | ---: |\n")
+	fmt.Fprintf(&b, "# Compatibility coverage matrix\n\n")
+	fmt.Fprintf(&b, "**Blocking regression set: %d/%d pinned WPT reference assertions passing.** New coverage is diagnostic: WPT %d/%d, repo-owned references %d/%d.\n\n",
+		r.Blocking.Pass, r.Blocking.Total, r.WPT.Pass, r.WPT.Total, r.Local.Pass, r.Local.Total)
+	fmt.Fprintf(&b, "Pinned WPT revision: [`%s`](https://github.com/web-platform-tests/wpt/commit/%s). Viewport: %s. Exact PNG pixels. The selected tests are a bounded coverage matrix, not a general conformance score. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).\n\n", r.Revision, r.Revision, r.Viewport)
+	b.WriteString("![Stacked pass/fail graph by benchmark suite and area](compatibility.svg)\n\n")
+	b.WriteString("## Per-area results\n\n| Suite | Area | Pass | Fail | Error | Total |\n| --- | --- | ---: | ---: | ---: | ---: |\n")
+	for _, area := range r.Areas {
+		fmt.Fprintf(&b, "| %s | %s | %d | %d | %d | %d |\n", area.Suite, area.Area, area.Pass, area.Fail, area.Error, area.Total)
+	}
+	b.WriteString("\n## Assertions\n\n| Suite | Area | Test | Reference | Status | Different pixels | Does not cover |\n| --- | --- | --- | --- | --- | ---: | --- |\n")
 	for _, item := range r.Results {
-		fmt.Fprintf(&b, "| `%s` | `%s` | %s | **%s** | %d |\n", item.Test, item.Reference, item.Relation, item.Status, item.Pixels)
+		test := fmt.Sprintf("`%s`", item.Test)
+		if item.Issue != "" {
+			test += fmt.Sprintf(" ([%s](https://github.com/lukehoban/simplebrowser/issues/%s))", item.Issue, strings.TrimPrefix(item.Issue, "#"))
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | `%s` (%s) | **%s** | %d | %s |\n",
+			item.Suite, item.Area, test, item.Reference, item.Relation, item.Status, item.Pixels, item.NotCovered)
 		if item.Error != "" {
 			fmt.Fprintf(&b, "\nError in `%s`: %s\n", item.Test, item.Error)
 		}
 	}
-	b.WriteString("\nOn failures, run `make compatibility` and inspect `artifacts/wpt/<test>/` (test, reference, red pixel diff). A failure is a pixel mismatch, not a test process failure.\n")
+	b.WriteString("\nThe first 38 WPT assertions are blocking regressions. New WPT and local assertions are diagnostic: mismatches remain visible without making CI fail. On failures, run `make compatibility` and inspect `artifacts/wpt/<suite>/<test>/` (test, reference, red pixel diff).\n")
 	return []byte(b.String())
 }
 
 // graph is an SVG rather than a raster chart so the committed visual can be
 // reproduced exactly on every platform without a font or rasterizer dependency.
 func graph(r report) []byte {
-	type bucket struct {
-		name               string
-		pass, fail, errors int
-	}
-	buckets := []bucket{
-		{name: "Initial baseline"},
-		{name: "Box direction"},
-		{name: "Margins"},
-		{name: "Positioning"},
-		{name: "Tables"},
-		{name: "Colors"},
-	}
-	for i, item := range r.Results {
-		index := 0
-		if i >= 13 {
-			switch {
-			case strings.HasPrefix(item.Test, "box/"):
-				index = 1
-			case strings.HasPrefix(item.Test, "margin-padding-clear/"):
-				index = 2
-			case strings.HasPrefix(item.Test, "positioning/"), strings.HasPrefix(item.Test, "abspos/"):
-				index = 3
-			case strings.HasPrefix(item.Test, "tables/"):
-				index = 4
-			case strings.HasPrefix(item.Test, "colors/"):
-				index = 5
-			}
-		}
-		switch item.Status {
-		case "pass":
-			buckets[index].pass++
-		case "fail":
-			buckets[index].fail++
-		default:
-			buckets[index].errors++
-		}
-	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"680\" height=\"%d\" viewBox=\"0 0 680 %d\" role=\"img\" aria-label=\"WPT selected reference assertions: %d pass, %d fail, %d runner errors\">\n", 92+len(buckets)*34, 92+len(buckets)*34, r.Pass, r.Fail, r.Error)
+	height := 112 + len(r.Areas)*34
+	fmt.Fprintf(&b, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"760\" height=\"%d\" viewBox=\"0 0 760 %d\" role=\"img\" aria-label=\"Compatibility reference assertions by suite and area\">\n", height, height)
 	b.WriteString("<rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n")
-	fmt.Fprintf(&b, "<text x=\"16\" y=\"27\" font-family=\"sans-serif\" font-size=\"18\">Pinned WPT: %d/%d passing</text>\n", r.Pass, r.Total)
-	b.WriteString("<text x=\"16\" y=\"53\" font-family=\"sans-serif\" font-size=\"13\">Green: pass   Red: compatibility failure   Gray: runner error</text>\n")
-	for i, item := range buckets {
+	fmt.Fprintf(&b, "<text x=\"16\" y=\"27\" font-family=\"sans-serif\" font-size=\"18\">Blocking WPT: %d/%d · Diagnostic WPT: %d/%d · Local: %d/%d</text>\n", r.Blocking.Pass, r.Blocking.Total, r.WPT.Pass, r.WPT.Total, r.Local.Pass, r.Local.Total)
+	b.WriteString("<text x=\"16\" y=\"53\" font-family=\"sans-serif\" font-size=\"13\">Green: pass   Red: mismatch   Gray: runner error · one block per assertion</text>\n")
+	for i, item := range r.Areas {
 		y := 76 + i*34
-		fmt.Fprintf(&b, "<text x=\"16\" y=\"%d\" font-family=\"sans-serif\" font-size=\"13\">%s</text>\n", y+13, item.name)
-		x := 180
+		fmt.Fprintf(&b, "<text x=\"16\" y=\"%d\" font-family=\"sans-serif\" font-size=\"13\">%s · %s</text>\n", y+13, item.Suite, item.Area)
+		x := 240
 		for _, part := range []struct {
 			count int
 			color string
-		}{{item.pass, "#21864b"}, {item.fail, "#bd3636"}, {item.errors, "#666666"}} {
+		}{{item.Pass, "#21864b"}, {item.Fail, "#bd3636"}, {item.Error, "#666666"}} {
 			if part.count > 0 {
 				fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"20\" fill=\"%s\"/>\n", x, y, part.count*25, part.color)
 				x += part.count * 25
 			}
 		}
-		fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" font-family=\"sans-serif\" font-size=\"13\">%d / %d</text>\n", x+8, y+15, item.pass, item.pass+item.fail+item.errors)
+		fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" font-family=\"sans-serif\" font-size=\"13\">%d / %d</text>\n", x+8, y+15, item.Pass, item.Total)
 	}
 	b.WriteString("</svg>\n")
 	return []byte(b.String())
@@ -347,14 +421,15 @@ func main() {
 	}
 	if *check {
 		readme, e := os.ReadFile("README.md")
-		score := fmt.Sprintf("%d/%d pinned WPT reference assertions passing", r.Pass, r.Total)
+		score := fmt.Sprintf("%d/%d pinned WPT reference assertions passing", r.Blocking.Pass, r.Blocking.Total)
 		if e != nil || !bytes.Contains(readme, []byte(score)) {
 			fmt.Fprintln(os.Stderr, "README compatibility score is stale:", score)
 			os.Exit(1)
 		}
 	}
-	fmt.Printf("WPT: %d/%d pass, %d fail, %d errors\n", r.Pass, r.Total, r.Fail, r.Error)
-	if r.Error != 0 {
+	fmt.Printf("Blocking WPT: %d/%d; diagnostic WPT: %d/%d; local: %d/%d\n",
+		r.Blocking.Pass, r.Blocking.Total, r.WPT.Pass, r.WPT.Total, r.Local.Pass, r.Local.Total)
+	if r.Blocking.Fail != 0 || r.Blocking.Error != 0 || r.WPT.Error != 0 || r.Local.Error != 0 {
 		os.Exit(1)
 	}
 }

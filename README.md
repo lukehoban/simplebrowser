@@ -12,9 +12,9 @@ records the initial Hacker News rendering milestone.
 not a pixel-perfect browser reference.*
 
 **Compatibility benchmark: [38/38 pinned WPT reference assertions passing](docs/compatibility.md)**
-([JSON results](docs/compatibility.json)). The 800×600 exact-pixel subset covers
-colors, backgrounds, normal flow, box layout, positioning, and tables. This is
-a small, pinned test set, not a general web-platform conformance score. Run
+([JSON results](docs/compatibility.json)). A separate diagnostic matrix is
+currently 5/7 WPT and 1/4 repo-owned references, reported by rendering area.
+This is a small, pinned test set, not a general web-platform conformance score. Run
 `make compatibility` to regenerate the report and inspect failure diagnostics
 in `artifacts/wpt/`.
 
@@ -30,7 +30,7 @@ fixture is rendered in CI, with the result available as a
 [workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
 
 **What's next:** Track [renderer follow-ups (#154)](https://github.com/lukehoban/simplebrowser/issues/154)
-and [pinned benchmark expansion (#158)](https://github.com/lukehoban/simplebrowser/issues/158)
+and the [per-area benchmark matrix (#240)](https://github.com/lukehoban/simplebrowser/issues/240)
 for current scope and live checklists.
 
 ## Usage

@@ -41,30 +41,31 @@ func TestCompareExactPixels(t *testing.T) {
 }
 
 func TestDeterministicMarkdown(t *testing.T) {
-	r := report{Revision: revision, Viewport: "800x600", Total: 1, Pass: 1,
-		Results: []result{{Test: "a.html", Reference: "b.html", Relation: "mismatch", Status: "pass", Pixels: 1}}}
-	if got := string(markdown(r)); !strings.Contains(got, "1/1 reference assertions passing") || !strings.Contains(got, "`a.html` | `b.html` | mismatch | **pass** | 1") {
+	r := report{Revision: revision, Viewport: "800x600", Blocking: score{Total: 1, Pass: 1},
+		Results: []result{{Suite: "WPT", Area: "Colors", Test: "a.html", Reference: "b.html", Relation: "mismatch", Status: "pass", Pixels: 1, NotCovered: "Other colors."}}}
+	if got := string(markdown(r)); !strings.Contains(got, "1/1 pinned WPT reference assertions passing") || !strings.Contains(got, "`b.html` (mismatch) | **pass** | 1 | Other colors.") {
 		t.Fatal("unexpected markdown output")
 	}
 }
 
 func TestPinnedSecondTrancheAndGraph(t *testing.T) {
-	if len(tests) != 38 {
-		t.Fatalf("expected 13 baseline + 25 second-tranche tests, got %d", len(tests))
+	if len(tests) != 49 {
+		t.Fatalf("expected 38 blocking + 11 diagnostic tests, got %d", len(tests))
 	}
 	seen := make(map[string]bool)
-	for _, name := range tests {
-		if seen[name] {
-			t.Fatalf("duplicate selected reftest: %s", name)
+	for _, test := range tests {
+		key := test.Suite + "/" + test.Test
+		if seen[key] {
+			t.Fatalf("duplicate selected reftest: %s", key)
 		}
-		seen[name] = true
+		seen[key] = true
 	}
-	r := report{Total: 2, Pass: 1, Fail: 1, Results: []result{
-		{Test: "colors/color-175.xht", Status: "pass"},
-		{Test: "tables/border-collapse-offset-001.xht", Status: "fail"},
-	}}
+	r := report{
+		Blocking: score{Total: 1, Pass: 1}, WPT: score{Total: 1, Fail: 1},
+		Areas: []areaScore{{Suite: "WPT", Area: "Colors", score: score{Total: 1, Pass: 1}}, {Suite: "WPT", Area: "Tables", score: score{Total: 1, Fail: 1}}},
+	}
 	svg := string(graph(r))
-	for _, want := range []string{"Pinned WPT: 1/2 passing", "Initial baseline", "Tables", "#21864b", "#bd3636"} {
+	for _, want := range []string{"Blocking WPT: 1/1", "WPT · Colors", "WPT · Tables", "#21864b", "#bd3636"} {
 		if !strings.Contains(svg, want) {
 			t.Fatalf("graph missing %q", want)
 		}
@@ -73,11 +74,11 @@ func TestPinnedSecondTrancheAndGraph(t *testing.T) {
 
 func TestMissingFixtureIsRunnerError(t *testing.T) {
 	r := run(t.TempDir(), filepath.Join(t.TempDir(), "diagnostics"))
-	if r.Error != len(tests) || r.Pass != 0 || r.Fail != 0 {
+	if r.Blocking.Error+r.WPT.Error+r.Local.Error != len(tests) {
 		t.Fatalf("missing fixtures should be errors, got %+v", r)
 	}
 	for _, item := range r.Results {
-		if item.Status != "error" || !strings.Contains(item.Error, "testdata/wpt/") {
+		if item.Status != "error" || (!strings.Contains(item.Error, "testdata/wpt/") && !strings.Contains(item.Error, "testdata/wpt-local/")) {
 			t.Fatalf("error should have deterministic path: %+v", item)
 		}
 	}
@@ -111,11 +112,11 @@ func TestRunAllRelationsAndPerReferenceErrors(t *testing.T) {
 	}
 
 	originalTests := tests
-	tests = []string{"relations/test.html"}
+	tests = []benchmark{pinned("relations/test.html", "Test", "Nothing else.")}
 	defer func() { tests = originalTests }()
 	diagnostics := filepath.Join(t.TempDir(), "diagnostics")
 	r := run(root, diagnostics)
-	if r.Total != 7 || r.Pass != 3 || r.Fail != 1 || r.Error != 3 || len(r.Results) != 7 {
+	if r.Blocking.Total != 7 || r.Blocking.Pass != 3 || r.Blocking.Fail != 1 || r.Blocking.Error != 3 || len(r.Results) != 7 {
 		t.Fatalf("unexpected multi-relation report: %+v", r)
 	}
 	if again := run(root, diagnostics); !reflect.DeepEqual(r, again) {
@@ -155,10 +156,10 @@ func TestRunOriginalXHTMLFixtureWithCDATA(t *testing.T) {
 	}
 
 	originalTests := tests
-	tests = []string{"colors/color-175.xht"}
+	tests = []benchmark{pinned("colors/color-175.xht", "Colors", "Other cases.")}
 	defer func() { tests = originalTests }()
 	r := run(root, filepath.Join(t.TempDir(), "diagnostics"))
-	if r.Pass != 1 || r.Fail != 0 || r.Error != 0 {
+	if r.Blocking.Pass != 1 || r.Blocking.Fail != 0 || r.Blocking.Error != 0 {
 		t.Fatalf("runner did not apply CDATA stylesheet from original fixture: %+v", r)
 	}
 }

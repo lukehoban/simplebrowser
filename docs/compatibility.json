@@ -1,15 +1,131 @@
 {
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
-  "total": 38,
-  "pass": 38,
-  "fail": 0,
-  "error": 0,
+  "blocking_wpt": {
+    "total": 38,
+    "pass": 38,
+    "fail": 0,
+    "error": 0
+  },
+  "diagnostic_wpt": {
+    "total": 7,
+    "pass": 5,
+    "fail": 2,
+    "error": 0
+  },
+  "diagnostic_local": {
+    "total": 4,
+    "pass": 1,
+    "fail": 3,
+    "error": 0
+  },
+  "areas": [
+    {
+      "suite": "WPT",
+      "area": "Colors",
+      "total": 9,
+      "pass": 9,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Backgrounds",
+      "total": 3,
+      "pass": 3,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Normal flow",
+      "total": 5,
+      "pass": 5,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Tables",
+      "total": 8,
+      "pass": 8,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Box direction",
+      "total": 4,
+      "pass": 4,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Margins",
+      "total": 5,
+      "pass": 5,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Positioning",
+      "total": 8,
+      "pass": 6,
+      "fail": 2,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Floats and clear",
+      "total": 2,
+      "pass": 2,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "WPT",
+      "area": "Line boxes",
+      "total": 1,
+      "pass": 1,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "Local",
+      "area": "Backgrounds",
+      "total": 1,
+      "pass": 1,
+      "fail": 0,
+      "error": 0
+    },
+    {
+      "suite": "Local",
+      "area": "Floats and clear",
+      "total": 1,
+      "pass": 0,
+      "fail": 1,
+      "error": 0
+    },
+    {
+      "suite": "Local",
+      "area": "Tables",
+      "total": 2,
+      "pass": 0,
+      "fail": 2,
+      "error": 0
+    }
+  ],
   "results": [
     {
       "test": "colors/color-175.xht",
       "reference": "colors/color-175-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color parsing beyond this declaration and inheritance case.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -17,6 +133,10 @@
       "test": "colors/color-176.xht",
       "reference": "reference/ref-this-text-should-be-green.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color parsing beyond this declaration and inheritance case.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -24,6 +144,10 @@
       "test": "colors/color-177.xht",
       "reference": "colors/color-175-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color parsing beyond this declaration and inheritance case.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -31,6 +155,10 @@
       "test": "colors/color-applies-to-001.xht",
       "reference": "colors/color-applies-to-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color application outside the element exercised here.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -38,6 +166,10 @@
       "test": "backgrounds/background-001.xht",
       "reference": "backgrounds/background-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Backgrounds",
+      "diagnostic": false,
+      "not_covered": "Multiple layers, sizing, positioning, and canvas propagation.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -45,6 +177,10 @@
       "test": "backgrounds/background-002.xht",
       "reference": "backgrounds/background-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Backgrounds",
+      "diagnostic": false,
+      "not_covered": "Multiple layers, sizing, positioning, and canvas propagation.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -52,6 +188,10 @@
       "test": "normal-flow/block-formatting-contexts-001.xht",
       "reference": "normal-flow/block-formatting-contexts-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Normal flow",
+      "diagnostic": false,
+      "not_covered": "Floats, clearance, fragmentation, and writing modes.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -59,6 +199,10 @@
       "test": "normal-flow/block-formatting-contexts-003.xht",
       "reference": "normal-flow/block-formatting-contexts-003-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Normal flow",
+      "diagnostic": false,
+      "not_covered": "Floats, clearance, fragmentation, and writing modes.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -66,6 +210,10 @@
       "test": "normal-flow/block-formatting-contexts-005.xht",
       "reference": "normal-flow/block-formatting-contexts-005-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Normal flow",
+      "diagnostic": false,
+      "not_covered": "Floats, clearance, fragmentation, and writing modes.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -73,6 +221,10 @@
       "test": "normal-flow/block-formatting-context-height-001.xht",
       "reference": "reference/ref-filled-black-96px-square.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Normal flow",
+      "diagnostic": false,
+      "not_covered": "Floats, clearance, fragmentation, and writing modes.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -80,6 +232,10 @@
       "test": "normal-flow/block-in-inline-align-001.html",
       "reference": "normal-flow/block-in-inline-align-001-ref.html",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Normal flow",
+      "diagnostic": false,
+      "not_covered": "General block-in-inline splitting and bidi layout.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -87,6 +243,10 @@
       "test": "tables/anonymous-table-box-width-001.xht",
       "reference": "reference/ref-filled-green-100px-square.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "Collapsed-border conflict resolution and spanning cells.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -94,6 +254,10 @@
       "test": "tables/border-collapse-005.html",
       "reference": "tables/border-collapse-005-ref.html",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "The full collapsed-border conflict precedence algorithm.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -101,6 +265,10 @@
       "test": "box/ltr-basic.xht",
       "reference": "box/left-ltr-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Box direction",
+      "diagnostic": false,
+      "not_covered": "Vertical writing modes and bidi reordering.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -108,6 +276,10 @@
       "test": "box/rtl-basic.xht",
       "reference": "box/right-rtl-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Box direction",
+      "diagnostic": false,
+      "not_covered": "Vertical writing modes and bidi reordering.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -115,6 +287,10 @@
       "test": "box/ltr-ib.xht",
       "reference": "box/left-ltr-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Box direction",
+      "diagnostic": false,
+      "not_covered": "Vertical writing modes and bidi reordering.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -122,6 +298,10 @@
       "test": "box/rtl-ib.xht",
       "reference": "box/right-rtl-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Box direction",
+      "diagnostic": false,
+      "not_covered": "Vertical writing modes and bidi reordering.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -129,6 +309,10 @@
       "test": "margin-padding-clear/margin-001.xht",
       "reference": "margin-padding-clear/margin-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Margins",
+      "diagnostic": false,
+      "not_covered": "Margin collapsing with floats, clearance, or negative margins.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -136,6 +320,10 @@
       "test": "margin-padding-clear/margin-002.xht",
       "reference": "margin-padding-clear/margin-002-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Margins",
+      "diagnostic": false,
+      "not_covered": "Margin collapsing with floats, clearance, or negative margins.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -143,6 +331,10 @@
       "test": "margin-padding-clear/margin-003.xht",
       "reference": "margin-padding-clear/margin-003-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Margins",
+      "diagnostic": false,
+      "not_covered": "Margin collapsing with floats, clearance, or negative margins.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -150,6 +342,10 @@
       "test": "margin-padding-clear/margin-004.xht",
       "reference": "margin-padding-clear/margin-004-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Margins",
+      "diagnostic": false,
+      "not_covered": "Margin collapsing with floats, clearance, or negative margins.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -157,6 +353,10 @@
       "test": "positioning/absolute-non-replaced-height-003.xht",
       "reference": "positioning/absolute-non-replaced-height-003-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Replaced elements, fixed positioning, and stacking.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -164,6 +364,10 @@
       "test": "positioning/absolute-non-replaced-height-006.xht",
       "reference": "positioning/absolute-non-replaced-height-006-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Replaced elements, fixed positioning, and stacking.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -171,6 +375,10 @@
       "test": "positioning/position-relative-001.xht",
       "reference": "positioning/position-relative-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Relative offsets in writing modes other than horizontal LTR.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -178,6 +386,10 @@
       "test": "positioning/position-relative-003.xht",
       "reference": "positioning/position-relative-003-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Relative offsets in writing modes other than horizontal LTR.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -185,6 +397,10 @@
       "test": "abspos/abspos-containing-block-initial-004a.xht",
       "reference": "abspos/abspos-containing-block-initial-004-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Nested transformed or non-initial containing blocks.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -192,6 +408,10 @@
       "test": "abspos/abspos-containing-block-initial-007.xht",
       "reference": "abspos/abspos-containing-block-initial-007-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Nested transformed or non-initial containing blocks.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -199,6 +419,10 @@
       "test": "tables/border-collapse-offset-001.xht",
       "reference": "tables/border-collapse-offset-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "The full collapsed-border conflict precedence algorithm.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -206,6 +430,10 @@
       "test": "tables/border-collapse-offset-002.xht",
       "reference": "tables/border-collapse-offset-002-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "The full collapsed-border conflict precedence algorithm.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -213,6 +441,10 @@
       "test": "tables/border-collapse-empty-row.html",
       "reference": "tables/border-collapse-empty-row-ref.html",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "Spans and non-empty row-group border conflicts.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -220,6 +452,10 @@
       "test": "tables/separated-border-model-007.xht",
       "reference": "tables/separated-border-model-007-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "Collapsed borders and spanning cells.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -227,6 +463,10 @@
       "test": "tables/caption-position-001.xht",
       "reference": "tables/caption-position-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "Side captions, multiple captions, and writing modes.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -234,6 +474,10 @@
       "test": "tables/fixed-table-layout-002a.xht",
       "reference": "tables/fixed-table-layout-002a-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Tables",
+      "diagnostic": false,
+      "not_covered": "Automatic table layout and spanning cells.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -241,6 +485,10 @@
       "test": "colors/color-applies-to-004.xht",
       "reference": "colors/color-applies-to-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color application outside the element exercised here.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -248,6 +496,10 @@
       "test": "colors/color-applies-to-005.xht",
       "reference": "colors/color-applies-to-005-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color application outside the element exercised here.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -255,6 +507,10 @@
       "test": "colors/colors-007.xht",
       "reference": "colors/colors-007-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Modern color syntaxes, profiles, and interpolation.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -262,6 +518,10 @@
       "test": "colors/color-applies-to-002.xht",
       "reference": "colors/color-applies-to-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color application outside the element exercised here.",
       "status": "pass",
       "different_pixels": 0
     },
@@ -269,8 +529,139 @@
       "test": "colors/color-applies-to-003.xht",
       "reference": "colors/color-applies-to-001-ref.xht",
       "relation": "match",
+      "suite": "WPT",
+      "area": "Colors",
+      "diagnostic": false,
+      "not_covered": "Color application outside the element exercised here.",
       "status": "pass",
       "different_pixels": 0
+    },
+    {
+      "test": "margin-padding-clear/margin-collapse-003.xht",
+      "reference": "margin-padding-clear/margin-collapse-003-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Margins",
+      "diagnostic": true,
+      "not_covered": "Floats, clearance, negative margins, and margin trimming.",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "floats-clear/clear-001.xht",
+      "reference": "floats-clear/clear-001-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Floats and clear",
+      "diagnostic": true,
+      "not_covered": "Right floats, multiple floats, and margin-collapse interactions.",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "floats-clear/clear-002.xht",
+      "reference": "floats-clear/clear-002-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Floats and clear",
+      "diagnostic": true,
+      "not_covered": "Right floats, nested formatting contexts, and negative clearance.",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "positioning/bottom-offset-percentage-001.xht",
+      "reference": "positioning/bottom-offset-percentage-001-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": true,
+      "not_covered": "Auto offsets, replaced elements, and indefinite containing-block heights.",
+      "issue": "#216",
+      "status": "fail",
+      "different_pixels": 5000
+    },
+    {
+      "test": "positioning/position-relative-004.xht",
+      "reference": "positioning/position-relative-004-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": true,
+      "not_covered": "Writing modes, bidi reordering, and positioned descendants.",
+      "issue": "#76",
+      "status": "fail",
+      "different_pixels": 36864
+    },
+    {
+      "test": "backgrounds/background-body-001.xht",
+      "reference": "backgrounds/background-body-001-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Backgrounds",
+      "diagnostic": true,
+      "not_covered": "Background images, repeat, position, size, and multiple layers.",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "linebox/line-box-height-002.xht",
+      "reference": "linebox/line-box-height-002-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Line boxes",
+      "diagnostic": true,
+      "not_covered": "Mixed fonts, vertical-align variants, bidi, and vertical writing modes.",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "canvas-background-image.html",
+      "reference": "canvas-background-image-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Backgrounds",
+      "diagnostic": true,
+      "not_covered": "Positioning, sizing, non-solid tiles, multiple layers, and root-image propagation.",
+      "issue": "#63",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "float-clearance-margin-collapse.html",
+      "reference": "float-clearance-margin-collapse-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Floats and clear",
+      "diagnostic": true,
+      "not_covered": "Right floats, multiple floats, inline wrapping, and negative margins.",
+      "issue": "#68",
+      "status": "fail",
+      "different_pixels": 37888
+    },
+    {
+      "test": "collapsed-border-conflict.html",
+      "reference": "collapsed-border-conflict-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Tables",
+      "diagnostic": true,
+      "not_covered": "Row/table borders, style precedence, spans, and multi-row conflicts.",
+      "issue": "#66",
+      "status": "fail",
+      "different_pixels": 240
+    },
+    {
+      "test": "inline-table-line-edge.html",
+      "reference": "inline-table-line-edge-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Tables",
+      "diagnostic": true,
+      "not_covered": "Multiple cells, spans, captions, bidi, and vertical alignment variants.",
+      "issue": "#209",
+      "status": "fail",
+      "different_pixels": 244
     }
   ]
 }

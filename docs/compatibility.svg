@@ -1,23 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="680" height="296" viewBox="0 0 680 296" role="img" aria-label="WPT selected reference assertions: 38 pass, 0 fail, 0 runner errors">
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="520" viewBox="0 0 760 520" role="img" aria-label="Compatibility reference assertions by suite and area">
 <rect width="100%" height="100%" fill="white"/>
-<text x="16" y="27" font-family="sans-serif" font-size="18">Pinned WPT: 38/38 passing</text>
-<text x="16" y="53" font-family="sans-serif" font-size="13">Green: pass   Red: compatibility failure   Gray: runner error</text>
-<text x="16" y="89" font-family="sans-serif" font-size="13">Initial baseline</text>
-<rect x="180" y="76" width="325" height="20" fill="#21864b"/>
-<text x="513" y="91" font-family="sans-serif" font-size="13">13 / 13</text>
-<text x="16" y="123" font-family="sans-serif" font-size="13">Box direction</text>
-<rect x="180" y="110" width="100" height="20" fill="#21864b"/>
-<text x="288" y="125" font-family="sans-serif" font-size="13">4 / 4</text>
-<text x="16" y="157" font-family="sans-serif" font-size="13">Margins</text>
-<rect x="180" y="144" width="100" height="20" fill="#21864b"/>
-<text x="288" y="159" font-family="sans-serif" font-size="13">4 / 4</text>
-<text x="16" y="191" font-family="sans-serif" font-size="13">Positioning</text>
-<rect x="180" y="178" width="150" height="20" fill="#21864b"/>
-<text x="338" y="193" font-family="sans-serif" font-size="13">6 / 6</text>
-<text x="16" y="225" font-family="sans-serif" font-size="13">Tables</text>
-<rect x="180" y="212" width="150" height="20" fill="#21864b"/>
-<text x="338" y="227" font-family="sans-serif" font-size="13">6 / 6</text>
-<text x="16" y="259" font-family="sans-serif" font-size="13">Colors</text>
-<rect x="180" y="246" width="125" height="20" fill="#21864b"/>
-<text x="313" y="261" font-family="sans-serif" font-size="13">5 / 5</text>
+<text x="16" y="27" font-family="sans-serif" font-size="18">Blocking WPT: 38/38 · Diagnostic WPT: 5/7 · Local: 1/4</text>
+<text x="16" y="53" font-family="sans-serif" font-size="13">Green: pass   Red: mismatch   Gray: runner error · one block per assertion</text>
+<text x="16" y="89" font-family="sans-serif" font-size="13">WPT · Colors</text>
+<rect x="240" y="76" width="225" height="20" fill="#21864b"/>
+<text x="473" y="91" font-family="sans-serif" font-size="13">9 / 9</text>
+<text x="16" y="123" font-family="sans-serif" font-size="13">WPT · Backgrounds</text>
+<rect x="240" y="110" width="75" height="20" fill="#21864b"/>
+<text x="323" y="125" font-family="sans-serif" font-size="13">3 / 3</text>
+<text x="16" y="157" font-family="sans-serif" font-size="13">WPT · Normal flow</text>
+<rect x="240" y="144" width="125" height="20" fill="#21864b"/>
+<text x="373" y="159" font-family="sans-serif" font-size="13">5 / 5</text>
+<text x="16" y="191" font-family="sans-serif" font-size="13">WPT · Tables</text>
+<rect x="240" y="178" width="200" height="20" fill="#21864b"/>
+<text x="448" y="193" font-family="sans-serif" font-size="13">8 / 8</text>
+<text x="16" y="225" font-family="sans-serif" font-size="13">WPT · Box direction</text>
+<rect x="240" y="212" width="100" height="20" fill="#21864b"/>
+<text x="348" y="227" font-family="sans-serif" font-size="13">4 / 4</text>
+<text x="16" y="259" font-family="sans-serif" font-size="13">WPT · Margins</text>
+<rect x="240" y="246" width="125" height="20" fill="#21864b"/>
+<text x="373" y="261" font-family="sans-serif" font-size="13">5 / 5</text>
+<text x="16" y="293" font-family="sans-serif" font-size="13">WPT · Positioning</text>
+<rect x="240" y="280" width="150" height="20" fill="#21864b"/>
+<rect x="390" y="280" width="50" height="20" fill="#bd3636"/>
+<text x="448" y="295" font-family="sans-serif" font-size="13">6 / 8</text>
+<text x="16" y="327" font-family="sans-serif" font-size="13">WPT · Floats and clear</text>
+<rect x="240" y="314" width="50" height="20" fill="#21864b"/>
+<text x="298" y="329" font-family="sans-serif" font-size="13">2 / 2</text>
+<text x="16" y="361" font-family="sans-serif" font-size="13">WPT · Line boxes</text>
+<rect x="240" y="348" width="25" height="20" fill="#21864b"/>
+<text x="273" y="363" font-family="sans-serif" font-size="13">1 / 1</text>
+<text x="16" y="395" font-family="sans-serif" font-size="13">Local · Backgrounds</text>
+<rect x="240" y="382" width="25" height="20" fill="#21864b"/>
+<text x="273" y="397" font-family="sans-serif" font-size="13">1 / 1</text>
+<text x="16" y="429" font-family="sans-serif" font-size="13">Local · Floats and clear</text>
+<rect x="240" y="416" width="25" height="20" fill="#bd3636"/>
+<text x="273" y="431" font-family="sans-serif" font-size="13">0 / 1</text>
+<text x="16" y="463" font-family="sans-serif" font-size="13">Local · Tables</text>
+<rect x="240" y="450" width="50" height="20" fill="#bd3636"/>
+<text x="298" y="465" font-family="sans-serif" font-size="13">0 / 2</text>
 </svg>
