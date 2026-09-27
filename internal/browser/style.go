@@ -338,6 +338,9 @@ func expandDeclaration(d Declaration) []Declaration {
 	if d.Property == "background" {
 		return expandBackground(d)
 	}
+	if d.Property == "font" {
+		return expandFont(d)
+	}
 	if d.Property == "border" {
 		result := make([]Declaration, 0, 4)
 		for _, side := range []string{"top", "right", "bottom", "left"} {
@@ -368,6 +371,226 @@ func expandDeclaration(d Declaration) []Declaration {
 		result[i] = Declaration{Property: names[i], Value: parts[i], Important: d.Important}
 	}
 	return result
+}
+
+type fontToken struct {
+	text   string
+	quoted bool
+}
+
+// expandFont parses the CSS 2 font shorthand. System-font keywords and the
+// font-stretch component are deliberately unsupported; rejecting the whole
+// declaration prevents a malformed shorthand from partially changing style.
+func expandFont(d Declaration) []Declaration {
+	tokens, ok := tokenizeFont(d.Value)
+	if !ok || len(tokens) < 2 {
+		return nil
+	}
+
+	style, weight := "normal", "normal"
+	seenStyle, seenVariant, seenWeight, optionalCount := false, false, false, 0
+	sizeIndex := -1
+	for i, token := range tokens {
+		lower := strings.ToLower(token.text)
+		if !token.quoted && validFontSize(lower) {
+			sizeIndex = i
+			break
+		}
+		if token.quoted || token.text == "/" || token.text == "," {
+			return nil
+		}
+		optionalCount++
+		if optionalCount > 3 {
+			return nil
+		}
+		switch {
+		case lower == "italic" || lower == "oblique":
+			if seenStyle {
+				return nil
+			}
+			style, seenStyle = lower, true
+		case lower == "small-caps":
+			if seenVariant {
+				return nil
+			}
+			seenVariant = true
+		case validFontWeight(lower):
+			if seenWeight {
+				return nil
+			}
+			weight, seenWeight = lower, true
+		case lower == "normal":
+			// "normal" is shared by style, variant, and weight. Its exact
+			// assignment is immaterial because all three initial values match.
+		default:
+			return nil
+		}
+	}
+	if sizeIndex < 0 {
+		return nil
+	}
+
+	size := tokens[sizeIndex].text
+	index := sizeIndex + 1
+	lineHeight := "normal"
+	if index < len(tokens) && tokens[index].text == "/" {
+		index++
+		if index >= len(tokens) || tokens[index].quoted || !validLineHeight(tokens[index].text) {
+			return nil
+		}
+		lineHeight = tokens[index].text
+		index++
+	}
+	if index >= len(tokens) || !validFontFamily(tokens[index:]) {
+		return nil
+	}
+	family := joinFontFamily(tokens[index:])
+
+	property := func(name, value string) Declaration {
+		return Declaration{Property: name, Value: value, Values: parseValues(value), Important: d.Important}
+	}
+	return []Declaration{
+		property("font-style", style),
+		property("font-weight", weight),
+		property("font-size", size),
+		property("line-height", lineHeight),
+		property("font-family", family),
+	}
+}
+
+func tokenizeFont(value string) ([]fontToken, bool) {
+	var tokens []fontToken
+	for i := 0; i < len(value); {
+		if cssSpace(value[i]) {
+			i++
+			continue
+		}
+		if value[i] == '/' || value[i] == ',' {
+			tokens = append(tokens, fontToken{text: value[i : i+1]})
+			i++
+			continue
+		}
+		start := i
+		if value[i] == '"' || value[i] == '\'' {
+			quote := value[i]
+			i++
+			closed := false
+			for i < len(value) {
+				if value[i] == '\\' && i+1 < len(value) {
+					i += 2
+				} else if value[i] == quote {
+					i++
+					closed = true
+					break
+				} else {
+					i++
+				}
+			}
+			if !closed {
+				return nil, false
+			}
+			tokens = append(tokens, fontToken{text: value[start:i], quoted: true})
+			continue
+		}
+		for i < len(value) && !cssSpace(value[i]) && value[i] != '/' && value[i] != ',' {
+			i++
+		}
+		tokens = append(tokens, fontToken{text: value[start:i]})
+	}
+	return tokens, len(tokens) > 0
+}
+
+func validFontSize(value string) bool {
+	switch strings.ToLower(value) {
+	case "xx-small", "x-small", "small", "medium", "large", "x-large", "xx-large",
+		"xxx-large", "smaller", "larger":
+		return true
+	}
+	v := classifyValue(value)
+	return (v.Kind == "length" || v.Kind == "percentage" || v.Kind == "number" && v.Number == 0) && v.Number >= 0
+}
+
+func validLineHeight(value string) bool {
+	if strings.EqualFold(value, "normal") {
+		return true
+	}
+	v := classifyValue(value)
+	return (v.Kind == "length" || v.Kind == "percentage" || v.Kind == "number") && v.Number >= 0
+}
+
+func validFontWeight(value string) bool {
+	switch value {
+	case "bold", "bolder", "lighter":
+		return true
+	}
+	n, err := strconv.Atoi(value)
+	return err == nil && n >= 100 && n <= 900 && n%100 == 0
+}
+
+func validFontFamily(tokens []fontToken) bool {
+	expectName := true
+	words := 0
+	quotedGroup := false
+	for _, token := range tokens {
+		if token.text == "/" {
+			return false
+		}
+		if token.text == "," {
+			if expectName || words == 0 {
+				return false
+			}
+			expectName, words, quotedGroup = true, 0, false
+			continue
+		}
+		if token.quoted {
+			if !expectName || len(token.text) <= 2 {
+				return false
+			}
+			expectName, words, quotedGroup = false, 1, true
+			continue
+		}
+		if !validFontFamilyIdentifier(token.text) || quotedGroup {
+			return false
+		}
+		expectName = false
+		words++
+	}
+	return !expectName && words > 0
+}
+
+func validFontFamilyIdentifier(value string) bool {
+	if value == "" || strings.ContainsAny(value, `"'()!`) {
+		return false
+	}
+	if !(isLetter(value[0]) || value[0] == '_' ||
+		value[0] == '-' && len(value) > 1 && !(value[1] >= '0' && value[1] <= '9')) {
+		return false
+	}
+	for i := range value {
+		if !cssIdent(value[i]) {
+			return false
+		}
+	}
+	switch strings.ToLower(value) {
+	case "inherit", "initial", "unset", "revert", "revert-layer":
+		return false
+	}
+	return true
+}
+
+func joinFontFamily(tokens []fontToken) string {
+	var result strings.Builder
+	for i, token := range tokens {
+		if token.text == "," {
+			result.WriteString(", ")
+		} else {
+			if i > 0 && tokens[i-1].text != "," {
+				result.WriteByte(' ')
+			}
+			result.WriteString(token.text)
+		}
+	}
+	return result.String()
 }
 
 func addPresentational(n *Node, add func(Declaration, [3]int, int, bool)) {

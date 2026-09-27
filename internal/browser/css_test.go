@@ -80,6 +80,30 @@ func TestCSSValuesAndQuotedDelimiters(t *testing.T) {
 	}
 }
 
+func TestFontShorthandExpansionParsing(t *testing.T) {
+	declarations := ParseDeclarations(
+		`font: italic small-caps 700 18px/1.5 "Open Sans", Arial, sans-serif !important`)
+	if len(declarations) != 1 {
+		t.Fatalf("declarations = %+v", declarations)
+	}
+	got := expandDeclaration(declarations[0])
+	want := map[string]string{
+		"font-style":  "italic",
+		"font-weight": "700",
+		"font-size":   "18px",
+		"line-height": "1.5",
+		"font-family": `"Open Sans", Arial, sans-serif`,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expanded declarations = %+v", got)
+	}
+	for _, declaration := range got {
+		if declaration.Value != want[declaration.Property] || !declaration.Important {
+			t.Errorf("expanded declaration = %+v, want value %q and important", declaration, want[declaration.Property])
+		}
+	}
+}
+
 func TestExtractStylesRelativeAndInline(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "css"), 0700); err != nil {

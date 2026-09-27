@@ -126,6 +126,68 @@ func TestComputedFontSizesAndFontRelativeLengths(t *testing.T) {
 	}
 }
 
+func TestFontShorthandCascadeAndResets(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>
+		#full {
+			font: italic small-caps 700 20px/150% "Open Sans", Courier, monospace !important;
+			font-size: 40px;
+			font-style: normal !important;
+		}
+		#reset {
+			font-style: italic; font-weight: bold; line-height: 3; font-family: monospace;
+			font: 18px serif;
+		}
+		#invalid {
+			font-style: italic; font-weight: bold; font-size: 19px; line-height: 2; font-family: monospace;
+			font: italic 24px/ "Broken";
+			font: menu;
+		}
+		</style>
+		<p id=full>full</p><p id=reset>reset</p><p id=invalid>invalid</p>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	full := styledElementByID(styled.StyleRoot, "full").Style
+	if full["font-style"] != "normal" || full["font-weight"] != "700" ||
+		full["font-size"] != "20px" || full["line-height"] != "30px" ||
+		full["font-family"] != `"Open Sans", Courier, monospace` {
+		t.Fatalf("full shorthand computed style = %#v", full)
+	}
+	reset := styledElementByID(styled.StyleRoot, "reset").Style
+	if reset["font-style"] != "normal" || reset["font-weight"] != "normal" ||
+		reset["font-size"] != "18px" || reset["line-height"] != "normal" ||
+		reset["font-family"] != "serif" {
+		t.Fatalf("omitted shorthand values did not reset = %#v", reset)
+	}
+	invalid := styledElementByID(styled.StyleRoot, "invalid").Style
+	if invalid["font-style"] != "italic" || invalid["font-weight"] != "bold" ||
+		invalid["font-size"] != "19px" || invalid["line-height"] != "2" ||
+		invalid["font-family"] != "monospace" {
+		t.Fatalf("invalid shorthand changed longhands = %#v", invalid)
+	}
+}
+
+func TestInvalidFontShorthandsAreIgnored(t *testing.T) {
+	for _, value := range []string{
+		`italic 16px`, `16px/ serif`, `16px "unterminated`,
+		`italic italic 16px serif`, `16px serif,,sans-serif`,
+		`caption`, `wide 16px serif`, `16px "Quoted Family" extra`,
+	} {
+		t.Run(value, func(t *testing.T) {
+			declaration := ParseDeclarations("font:" + value)[0]
+			if got := expandDeclaration(declaration); len(got) != 0 {
+				t.Fatalf("expandDeclaration(%q) = %+v, want ignored", value, got)
+			}
+		})
+	}
+}
+
 func TestStyleAppliesXHTMLCDATAStylesheet(t *testing.T) {
 	doc, err := parse(Resource{
 		URL:  "fixture.xht",
