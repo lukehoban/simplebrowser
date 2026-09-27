@@ -56,6 +56,7 @@ type metrics struct {
 	smallCapsFace   font.Face
 	size            float64
 	lineHeightValue string
+	language        language.Tag
 }
 
 func (m metrics) width(s string) int {
@@ -81,10 +82,10 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 // and painting walk the same contiguous face segments (including kerning).
 //
 // Lowercase runs are mapped with Unicode full (SpecialCasing) uppercase rules
-// for the root locale, so one source rune may expand to several glyphs
-// (ß → SS, ﬁ → FI, ŉ → ʼN). Mapping a whole contiguous lowercase segment
-// rather than rune-by-rune keeps any context-sensitive rules deterministic.
-// Language-tailored mappings (lang="tr", "lt", "el") are not applied.
+// for the inherited document language, so one source rune may expand to
+// several glyphs (ß → SS, ﬁ → FI, ŉ → ʼN). Mapping a whole contiguous
+// lowercase segment rather than rune-by-rune keeps context-sensitive rules
+// deterministic.
 func (m metrics) eachTextSegment(s string, visit func(font.Face, string)) {
 	if m.smallCapsFace == nil {
 		visit(m.face, s)
@@ -98,12 +99,15 @@ func (m metrics) eachTextSegment(s string, visit func(font.Face, string)) {
 		}
 		face, text := m.face, s[start:end]
 		if small {
-			face, text = m.smallCapsFace, smallCapsUpper(text)
+			face, text = m.smallCapsFace, smallCapsUpper(text, m.language)
 		}
 		visit(face, text)
 		start = end
 	}
 	for i, r := range s {
+		if unicode.IsMark(r) {
+			continue
+		}
 		if next := unicode.IsLower(r); next != small {
 			flush(i)
 			small = next
@@ -112,11 +116,14 @@ func (m metrics) eachTextSegment(s string, visit func(font.Face, string)) {
 	flush(len(s))
 }
 
-// smallCapsUpper applies root-locale full uppercase mapping. A fresh Caser is
-// used per call because cases.Caser is stateful and not safe for concurrent
-// renders.
-func smallCapsUpper(s string) string {
-	return cases.Upper(language.Und).String(s)
+// smallCapsUpper applies full uppercase mapping for the specified language. A
+// fresh Caser is used per call because cases.Caser is stateful and not safe
+// for concurrent renders.
+func smallCapsUpper(s string, lang language.Tag) string {
+	if lang == (language.Tag{}) {
+		lang = language.Und
+	}
+	return cases.Upper(lang).String(s)
 }
 
 func (m metrics) lineHeight() int {
@@ -206,7 +213,11 @@ func (f *faceSet) metrics(style ComputedStyle) metrics {
 	variant := styleFontVariant(style)
 	key := faceKey{size: size, family: variant.family, bold: variant.bold, italic: variant.italic}
 	face := f.face(key, variant)
-	m := metrics{face: face, size: size, lineHeightValue: style["line-height"]}
+	lang, err := language.Parse(style["lang"])
+	if err != nil {
+		lang = language.Und
+	}
+	m := metrics{face: face, size: size, lineHeightValue: style["line-height"], language: lang}
 	if strings.EqualFold(strings.TrimSpace(style["font-variant"]), "small-caps") {
 		key.size = size * .8
 		m.smallCapsFace = f.face(key, variant)
