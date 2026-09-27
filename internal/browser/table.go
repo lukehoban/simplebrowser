@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"unicode"
+
+	"golang.org/x/image/math/fixed"
 )
 
 // Table layout implements the separated-borders model that Hacker News relies
@@ -44,11 +46,12 @@ type tableCellBox struct {
 	colspan int
 	rowspan int
 
-	minWidth int
-	maxWidth int
-	fixed    int     // explicit width in px, -1 when absent
-	percent  float64 // explicit percentage width, -1 when absent
-	caption  bool    // anonymous cell holding a table caption
+	minWidth   int
+	maxWidth   int
+	maxAdvance fixed.Int26_6 // exact no-wrap text advance when it is representable
+	fixed      int           // explicit width in px, -1 when absent
+	percent    float64       // explicit percentage width, -1 when absent
+	caption    bool          // anonymous cell holding a table caption
 
 	box    *Box
 	height int // outer height required by the cell content
@@ -442,6 +445,11 @@ func (g *tableGrid) measureCells(faces *faceSet) {
 			minWidth, maxWidth := contentIntrinsicWidths(cell.node, faces)
 			cell.minWidth = minWidth + extra
 			cell.maxWidth = max(minWidth, maxWidth) + extra
+			if advance, ok := singleTextAdvance(cell.node, faces); ok {
+				cell.maxAdvance = advance + fixed.I(extra)
+			} else {
+				cell.maxAdvance = fixed.I(cell.maxWidth)
+			}
 			cell.fixed = -1
 			cell.percent = -1
 			switch value := strings.TrimSpace(cell.node.Style["width"]); {
@@ -455,6 +463,7 @@ func (g *tableGrid) measureCells(faces *faceSet) {
 				cell.fixed = max(0, int(math.Round(px(value, 0, 0))))
 				cell.minWidth = cell.fixed + extra
 				cell.maxWidth = cell.minWidth
+				cell.maxAdvance = fixed.I(cell.maxWidth)
 			}
 			if cell.caption {
 				// The caption constrains the anonymous table box by its
@@ -463,6 +472,42 @@ func (g *tableGrid) measureCells(faces *faceSet) {
 			}
 		}
 	}
+}
+
+// singleTextAdvance returns a precise no-wrap advance for a cell containing
+// exactly one text node. Integer intrinsic widths remain the allocation
+// unit, but this value lets the following column retain the fractional pen
+// phase when its position is content-sized. More complex content keeps the
+// existing integer geometry until it has an unambiguous intrinsic model.
+func singleTextAdvance(n *StyledNode, faces *faceSet) (fixed.Int26_6, bool) {
+	var text *StyledNode
+	var visit func(*StyledNode) bool
+	visit = func(current *StyledNode) bool {
+		if current == nil || hiddenNode(current) {
+			return true
+		}
+		if current.Node != nil && current.Node.Type == TextNode {
+			if text != nil {
+				return false
+			}
+			text = current
+			return true
+		}
+		for _, child := range current.Children {
+			if !visit(child) {
+				return false
+			}
+		}
+		return true
+	}
+	if !visit(n) || text == nil {
+		return 0, false
+	}
+	fields := strings.FieldsFunc(text.Node.Data, func(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' })
+	if len(fields) == 0 {
+		return 0, true
+	}
+	return faces.metrics(text.Style).advance(strings.Join(fields, " ")), true
 }
 
 type columnSizes struct {
@@ -698,6 +743,32 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	columnX[grid.columns] = cursorX
 	tableWidth := max(0, cursorX-originX)
 
+	// Keep fractional content-sized column boundaries for text in the next
+	// cell. Pixel box widths still use columnWidths; only inline pen origins
+	// carry the sub-pixel remainder. A flexible/grown column has no intrinsic
+	// text boundary to preserve and therefore contributes no correction.
+	columnPhase := make([]fixed.Int26_6, grid.columns+1)
+	for col := 0; col < grid.columns; col++ {
+		correction := fixed.Int26_6(0)
+		hasCorrection := false
+		if columnWidths[col] == sizes.max[col] {
+			for _, row := range grid.rows {
+				for _, cell := range row.cells {
+					if cell.col != col || cell.colspan != 1 || cell.maxWidth != sizes.max[col] ||
+						cell.maxAdvance.Ceil() != cell.maxWidth {
+						continue
+					}
+					candidate := cell.maxAdvance - fixed.I(cell.maxWidth)
+					if !hasCorrection || candidate > correction {
+						correction = candidate
+						hasCorrection = true
+					}
+				}
+			}
+		}
+		columnPhase[col+1] = columnPhase[col] + correction
+	}
+
 	// First pass: lay out cell content to learn row heights.
 	for _, row := range grid.rows {
 		for _, cell := range row.cells {
@@ -713,7 +784,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			innerWidth := max(0, cellWidth-padding[1]-padding[3]-cellBorder[1]-cellBorder[3])
 			contentX := columnX[min(cell.col, grid.columns)] + padding[3] + cellBorder[3]
 			children, height := layoutChildren(cell.node, contentX, 0, innerWidth, faces,
-				containingBlock{x: contentX, width: innerWidth})
+				containingBlock{x: contentX, width: innerWidth,
+					inlinePenX: fixed.I(contentX) + columnPhase[min(cell.col, grid.columns)], hasInlinePenX: true})
 			if value := strings.TrimSpace(cell.node.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
 				height = max(height, int(math.Max(0, px(value, 0, float64(height)))))
 			}
@@ -860,6 +932,7 @@ func translateBox(b *Box, dx, dy int) {
 	b.Content = b.Content.Add(offset)
 	for i := range b.Text {
 		b.Text[i].Rect = b.Text[i].Rect.Add(offset)
+		b.Text[i].PenX += fixed.I(dx)
 	}
 	for i := range b.Images {
 		b.Images[i].Rect = b.Images[i].Rect.Add(offset)
