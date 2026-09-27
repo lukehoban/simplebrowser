@@ -19,8 +19,8 @@ and `bottom`). Painting rasterizes colors, CSS background images
 (GIF/PNG/JPEG/SVG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
 elements, and neutral placeholders for unsupported `<img>` elements. A minimal
 in-repo SVG subset (`<svg>` sizing and `viewBox`, `<g>`, `<path>`, `<rect>`,
-solid fills, transforms) renders at the used size for both `<img>` and CSS
-backgrounds. Strokes, other SVG shapes, and advanced CSS remain future work.
+solid fills and strokes, transforms) renders at the used size for both `<img>`
+and CSS backgrounds. Other SVG shapes and advanced CSS remain future work.
 
 ## Rendering progress
 
@@ -36,7 +36,18 @@ logo and vote-arrow backgrounds. This is a progress snapshot, not a
 pixel-accurate HN reference.*
 
 **What's next**
-- Continue closing tracked SVG gaps [#80–#84](https://github.com/lukehoban/simplebrowser/issues/80) and typography gaps [#87–#89](https://github.com/lukehoban/simplebrowser/issues/87).
+- Continue closing tracked SVG gaps [#81–#84](https://github.com/lukehoban/simplebrowser/issues/81) and typography gaps [#87–#89](https://github.com/lukehoban/simplebrowser/issues/87).
+
+SVG strokes (paths and rectangles) now include inherited solid stroke paint,
+pixel/unitless widths, independent stroke opacity, and butt/square/round caps
+and miter/bevel/round joins (with miter limits). Curves use bounded polygonal
+flattening; [dashed strokes (#92)](https://github.com/lukehoban/simplebrowser/issues/92)
+and [group opacity (#84)](https://github.com/lukehoban/simplebrowser/issues/84)
+are not supported.
+Before (fill-only) → after, from [`testdata/svg/stroke-demo.svg`](testdata/svg/stroke-demo.svg):
+
+![SVG fill-only preview: outline-only paths are absent](docs/screenshots/svg-strokes-before.png)
+![SVG stroke preview: red, blue and green paths and outlined rectangle](docs/screenshots/svg-strokes-after.png)
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
