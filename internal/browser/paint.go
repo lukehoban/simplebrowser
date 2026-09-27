@@ -268,7 +268,7 @@ func drawText(dst *image.RGBA, run TextRun, styles map[*Node]ComputedStyle, face
 	// SubImage constrains glyph masks to the run and the viewport; long
 	// unbreakable words cannot paint across neighboring boxes.
 	drawer := font.Drawer{Dst: dst.SubImage(clip).(draw.Image), Src: image.NewUniform(ink),
-		Face: m.face, Dot: fixed.P(run.Rect.Min.X, baseline)}
+		Face: m.face, Dot: fixed.Point26_6{X: run.PenX, Y: fixed.I(baseline)}}
 	drawer.DrawString(run.Text)
 	if decorated(run, styles, "underline") {
 		fill(dst, image.Rect(run.Rect.Min.X, baseline+1, run.Rect.Max.X, baseline+2).Intersect(clip), ink)

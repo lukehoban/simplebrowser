@@ -46,6 +46,59 @@ func boxText(b *Box) string {
 	return out.String()
 }
 
+func TestTableAdjacentCellsRetainFractionalTextPen(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt", "colors", "color-applies-to-001.xht"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := styledForLayout(t, string(source))
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runs []TextRun
+	var walk func(*Box)
+	walk = func(box *Box) {
+		if box == nil {
+			return
+		}
+		runs = append(runs, box.Text...)
+		for _, child := range box.Children {
+			walk(child)
+		}
+	}
+	walk(layout.Root)
+	faces := newFaceSet()
+	defer faces.close()
+	found := 0
+	for _, run := range runs {
+		if run.Text != "Filler" {
+			continue
+		}
+		var following *TextRun
+		for i := range runs {
+			if strings.HasSuffix(runs[i].Text, "Text") && runs[i].Rect.Min.Y == run.Rect.Min.Y {
+				following = &runs[i]
+				break
+			}
+		}
+		if following == nil {
+			t.Fatalf("no adjacent second-cell Text run for row at y=%d: %+v", run.Rect.Min.Y, runs)
+		}
+		want := run.PenX + faces.metrics(run.Style).advance(run.Text)
+		if following.PenX != want {
+			t.Fatalf("second-cell text pen = %v, want exact first-cell end %v", following.PenX, want)
+		}
+		if want&63 == 0 {
+			t.Fatalf("fixture no longer exercises a fractional boundary: %v", want)
+		}
+		found++
+	}
+	if found != 2 {
+		t.Fatalf("found %d fractional table rows, want 2", found)
+	}
+}
+
 // checkGeometry asserts that every box has non-negative geometry and that no
 // table is wider than the viewport it was laid out in.
 func checkGeometry(t *testing.T, root *Box, viewport image.Rectangle) {

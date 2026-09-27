@@ -350,8 +350,8 @@ func TestLayoutSharedInlineFlowAndStyleIdentity(t *testing.T) {
 	if runs[1].Style["font-size"] != "20px" || runs[0].Style["font-size"] == "20px" {
 		t.Fatalf("nested inline style lost: %+v", runs)
 	}
-	if runs[2].Rect.Min.X != runs[1].Rect.Max.X {
-		t.Fatalf("adjacent runs do not meet: %+v", runs)
+	if got, want := runs[2].PenX, runs[1].PenX+faces.metrics(runs[1].Style).advance(runs[1].Text); got != want {
+		t.Fatalf("adjacent run pen = %v, want fractional advance %v: %+v", got, want, runs)
 	}
 	if runs[len(runs)-1].Rect.Min.Y <= runs[0].Rect.Min.Y+20 {
 		t.Fatalf("br did not advance lines: %+v", runs)

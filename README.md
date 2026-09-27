@@ -30,7 +30,7 @@ and CSS backgrounds. `<use>`/`<defs>` references and advanced CSS remain future 
 
 ![Current centered Hacker News fixture render: orange header, painted story text, and SVG logo and vote arrows](docs/screenshots/hn-fixture.png)
 
-**Compatibility benchmark: [12/13 pinned WPT reftests passing](docs/compatibility.md)**
+**Compatibility benchmark: [13/13 pinned WPT reftests passing](docs/compatibility.md)**
 ([JSON](docs/compatibility.json)). Run `make compatibility` to regenerate the
 committed report and inspect failed test/reference/diff PNGs in `artifacts/wpt/`.
 
