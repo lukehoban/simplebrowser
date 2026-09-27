@@ -1,6 +1,6 @@
-# WPT compatibility: 10/13 passing
+# WPT compatibility: 11/13 passing
 
-Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels; 3 compatibility failures, 0 runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
+Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels; 2 compatibility failures, 0 runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
 
 | Test | Reference | Relation | Status | Different pixels |
 | --- | --- | --- | --- | ---: |
@@ -14,7 +14,7 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | `normal-flow/block-formatting-contexts-003.xht` | `normal-flow/block-formatting-contexts-003-ref.xht` | match | **pass** | 0 |
 | `normal-flow/block-formatting-contexts-005.xht` | `normal-flow/block-formatting-contexts-005-ref.xht` | match | **pass** | 0 |
 | `normal-flow/block-formatting-context-height-001.xht` | `reference/ref-filled-black-96px-square.xht` | match | **pass** | 0 |
-| `normal-flow/block-in-inline-align-001.html` | `normal-flow/block-in-inline-align-001-ref.html` | match | **fail** | 2678 |
+| `normal-flow/block-in-inline-align-001.html` | `normal-flow/block-in-inline-align-001-ref.html` | match | **pass** | 0 |
 | `tables/anonymous-table-box-width-001.xht` | `reference/ref-filled-green-100px-square.xht` | match | **fail** | 20000 |
 | `tables/border-collapse-005.html` | `tables/border-collapse-005-ref.html` | match | **pass** | 0 |
 

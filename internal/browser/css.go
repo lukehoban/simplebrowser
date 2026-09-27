@@ -620,7 +620,7 @@ ul, ol { margin: 1em 0; padding-left: 40px; }
 center { display: block; text-align: center; }
 table { display: table; border-spacing: 2px; }
 tr { display: table-row; }
-td, th { display: table-cell; }
+td, th { display: table-cell; text-align: start; }
 img { display: inline-block; }
 `
 
