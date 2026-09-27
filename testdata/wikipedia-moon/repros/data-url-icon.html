@@ -1,13 +1,10 @@
-<!doctype html>
-<html>
-<head>
+<!DOCTYPE html>
+<!-- Vector's @supports not (mask-image) fallback paints header icons as
+     data: URL SVG backgrounds. The box should show a green square icon
+     on a light background (no red). -->
 <style>
-body { font-family: sans-serif; padding: 16px; }
+  div { width: 300px; height: 40px; margin: 8px; background-color: #eee; background-repeat: no-repeat;
+        background-position: 10px 10px; font: 16px sans-serif; padding-left: 40px; box-sizing: border-box; line-height: 40px; }
+  .icon { background-image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2220%22%20height=%2220%22%3E%3Crect%20width=%2220%22%20height=%2220%22%20fill=%22%23008000%22/%3E%3C/svg%3E"); }
 </style>
-</head>
-<body>
-<div style="width:140px;height:48px;background:#ddd;padding:8px">
-  <div style="width:20px;height:20px;background-repeat:no-repeat;background-size:20px 20px;background-image:url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEElEQVR4nGNgWOXyH4xhDABAOAe1B39o9QAAAABJRU5ErkJggg==')"></div>
-</div>
-</body>
-</html>
+<div class="icon">data: SVG background icon</div>

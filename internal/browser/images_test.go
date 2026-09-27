@@ -176,6 +176,22 @@ func TestDataURLImagesAreOfflineForImgAndBackground(t *testing.T) {
 		t.Fatalf("data URLs triggered %d network dials", got)
 	}
 }
+
+func TestDataURLSVGReproPaintsGreenBackground(t *testing.T) {
+	source := filepath.Join("..", "..", "testdata", "wikipedia-moon", "repros", "data-url-icon.html")
+	var output bytes.Buffer
+	if err := RenderWithFetcher(source, &output, &Fetcher{}); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := png.Decode(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := color.RGBAModel.Convert(rendered.At(30, 30)).(color.RGBA); got != (color.RGBA{0, 128, 0, 255}) {
+		t.Fatalf("SVG data URL icon pixel = %v, want green", got)
+	}
+}
+
 func TestFetchImageCacheAndInlineLayout(t *testing.T) {
 	pngBytes := encodedTestImage(t, "png", image.Rect(0, 0, 4, 2))
 	var requests atomic.Int32
