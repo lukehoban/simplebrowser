@@ -812,13 +812,6 @@ func expandDeclaration(d Declaration) []Declaration {
 		return expandBackground(d)
 	}
 
-	func invalidLonghands(d Declaration, names ...string) []Declaration {
-		result := make([]Declaration, 0, len(names))
-		for _, name := range names {
-			result = append(result, Declaration{Property: name, Value: invalidVariable, Important: d.Important})
-		}
-		return result
-	}
 	if d.Property == "font" {
 		return expandFont(d)
 	}
@@ -829,6 +822,7 @@ func expandDeclaration(d Declaration) []Declaration {
 		}
 		return result
 	}
+
 	if d.Property != "margin" && d.Property != "padding" && d.Property != "border-width" &&
 		d.Property != "border-color" && d.Property != "border-style" {
 		return []Declaration{d}
@@ -850,6 +844,14 @@ func expandDeclaration(d Declaration) []Declaration {
 	result := make([]Declaration, 4)
 	for i := range result {
 		result[i] = Declaration{Property: names[i], Value: parts[i], Important: d.Important}
+	}
+	return result
+}
+
+func invalidLonghands(d Declaration, names ...string) []Declaration {
+	result := make([]Declaration, 0, len(names))
+	for _, name := range names {
+		result = append(result, Declaration{Property: name, Value: invalidVariable, Important: d.Important})
 	}
 	return result
 }
