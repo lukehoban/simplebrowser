@@ -97,16 +97,16 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	decoder.Strict = true
 	img := &svgImage{align: "xMidYMid"}
 	type frame struct {
-		fill      color.NRGBA
-		hasFill   bool
-		opacity   float64
-		stroke    color.NRGBA
-		hasStroke bool
+		fill          color.NRGBA
+		hasFill       bool
+		opacity       float64
+		stroke        color.NRGBA
+		hasStroke     bool
 		strokeOpacity float64
-		width float64
-		cap, join string
-		transform svgAffine
-		skip      bool
+		width         float64
+		cap, join     string
+		transform     svgAffine
+		skip          bool
 	}
 	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", transform: svgIdentity}}
 	elements, segments := 0, 0
@@ -206,19 +206,17 @@ func decodeSVG(data []byte) (*svgImage, error) {
 				if len(shape) > 0 {
 					fill := current.fill
 					fill.A = uint8(math.Round(float64(fill.A) * current.opacity))
-					if !current.hasFill { fill = color.NRGBA{} }
+					if !current.hasFill {
+						fill = color.NRGBA{}
+					}
 					stroke := current.stroke
 					stroke.A = uint8(math.Round(float64(stroke.A) * current.strokeOpacity))
-					if !current.hasStroke { stroke = color.NRGBA{} }
+					if !current.hasStroke {
+						stroke = color.NRGBA{}
+					}
 					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, stroke: stroke, width: current.width, cap: current.cap, join: current.join})
 				}
 
-				const maxSVGStrokeWidth = 4096
-
-				func svgUnitInterval(s string) (float64, bool) {
-					n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
-					return math.Max(0, math.Min(1, n)), err == nil && !math.IsNaN(n)
-				}
 			}
 			stack = append(stack, current)
 		case xml.EndElement:
@@ -236,6 +234,13 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	}
 	img.RGBA = raster
 	return img, nil
+}
+
+const maxSVGStrokeWidth = 4096
+
+func svgUnitInterval(s string) (float64, bool) {
+	n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return math.Max(0, math.Min(1, n)), err == nil && !math.IsNaN(n)
 }
 
 // svgAttributes merges presentation attributes with the style attribute; the
@@ -403,31 +408,31 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			r.Reset(w, h)
 			drawn := false
 			for _, seg := range shape.segments {
-			switch seg.op {
-			case 'M':
-				x, y := pt(seg.pts[0])
-				if drawn {
+				switch seg.op {
+				case 'M':
+					x, y := pt(seg.pts[0])
+					if drawn {
+						r.ClosePath()
+					}
+					r.MoveTo(x, y)
+				case 'L':
+					x, y := pt(seg.pts[0])
+					r.LineTo(x, y)
+					drawn = true
+				case 'Q':
+					x1, y1 := pt(seg.pts[0])
+					x, y := pt(seg.pts[1])
+					r.QuadTo(x1, y1, x, y)
+					drawn = true
+				case 'C':
+					x1, y1 := pt(seg.pts[0])
+					x2, y2 := pt(seg.pts[1])
+					x, y := pt(seg.pts[2])
+					r.CubeTo(x1, y1, x2, y2, x, y)
+					drawn = true
+				case 'Z':
 					r.ClosePath()
 				}
-				r.MoveTo(x, y)
-			case 'L':
-				x, y := pt(seg.pts[0])
-				r.LineTo(x, y)
-				drawn = true
-			case 'Q':
-				x1, y1 := pt(seg.pts[0])
-				x, y := pt(seg.pts[1])
-				r.QuadTo(x1, y1, x, y)
-				drawn = true
-			case 'C':
-				x1, y1 := pt(seg.pts[0])
-				x2, y2 := pt(seg.pts[1])
-				x, y := pt(seg.pts[2])
-				r.CubeTo(x1, y1, x2, y2, x, y)
-				drawn = true
-			case 'Z':
-				r.ClosePath()
-			}
 			}
 			if drawn {
 				r.ClosePath()
