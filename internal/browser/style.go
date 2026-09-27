@@ -519,10 +519,21 @@ type fontToken struct {
 	quoted bool
 }
 
-// expandFont parses the CSS 2 font shorthand. System-font keywords and the
-// font-stretch component are deliberately unsupported; rejecting the whole
-// declaration prevents a malformed shorthand from partially changing style.
+// systemFontSizes maps CSS system fonts to fixed sizes. All use the embedded
+// Go Sans face, never an OS-dependent UI font. These sizes are renderer choices,
+// not claims about a particular platform's system font metrics.
+var systemFontSizes = map[string]string{
+	"caption": "14px", "icon": "12px", "menu": "14px",
+	"message-box": "14px", "small-caption": "12px", "status-bar": "12px",
+}
+
+// expandFont parses the CSS 2 font shorthand. The font-stretch component is
+// deliberately unsupported; rejecting the whole declaration prevents a
+// malformed shorthand from partially changing style.
 func expandFont(d Declaration) []Declaration {
+	if size, ok := systemFontSizes[strings.ToLower(strings.TrimSpace(d.Value))]; ok {
+		return fontDeclarations(d, "normal", "normal", size, "normal", "sans-serif")
+	}
 	tokens, ok := tokenizeFont(d.Value)
 	if !ok || len(tokens) < 2 {
 		return nil
@@ -587,6 +598,10 @@ func expandFont(d Declaration) []Declaration {
 	}
 	family := joinFontFamily(tokens[index:])
 
+	return fontDeclarations(d, style, weight, size, lineHeight, family)
+}
+
+func fontDeclarations(d Declaration, style, weight, size, lineHeight, family string) []Declaration {
 	property := func(name, value string) Declaration {
 		return Declaration{Property: name, Value: value, Values: parseValues(value), Important: d.Important}
 	}
