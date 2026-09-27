@@ -18,8 +18,8 @@ import (
 // A minimal SVG subset, enough for simple icons such as the Hacker News logo
 // and vote arrow: <svg> sizing/viewBox/preserveAspectRatio, <g>, <path>, and
 // the basic shapes (<rect>, <circle>, <ellipse>, <line>, <polyline>,
-// <polygon>) with solid fills, strokes, transforms and local <defs>/<use>.
-// Other elements are skipped.
+// <polygon>) with solid or local gradient fills and strokes (svg_paint.go),
+// group opacity, transforms and local <defs>/<use>. Other elements are skipped.
 // A document that cannot be parsed returns an error so
 // callers keep their existing placeholder or empty-background behavior.
 
@@ -64,18 +64,34 @@ type svgSegment struct {
 	pts [3][2]float64
 }
 
+// svgShape is one painted shape, or a group-opacity marker: kind
+// svgLayerPush starts an offscreen group composited with opacity at the
+// matching svgLayerPop.
 type svgShape struct {
-	segments   []svgSegment
-	transform  svgAffine
-	fill       color.NRGBA
-	fillRule   string // "nonzero" (default) or "evenodd"
-	stroke     color.NRGBA
-	width      float64
-	cap, join  string
-	miterLimit float64
-	dashArray  []float64
-	dashOffset float64
+	kind      svgShapeKind
+	opacity   float64
+	segments  []svgSegment
+	transform svgAffine
+	fill      color.NRGBA
+	fillRule  string // "nonzero" (default) or "evenodd"
+	stroke    color.NRGBA
+	// fillServer/strokeServer replace the solid colour with a gradient; the
+	// colour's alpha then carries fill-opacity/stroke-opacity.
+	fillServer, strokeServer *svgPaintServer
+	width                    float64
+	cap, join                string
+	miterLimit               float64
+	dashArray                []float64
+	dashOffset               float64
 }
+
+type svgShapeKind uint8
+
+const (
+	svgShapePaint svgShapeKind = iota
+	svgLayerPush
+	svgLayerPop
+)
 
 // svgImage is an image.Image rasterized at its intrinsic size. Painters that
 // know the used size call rasterize to render crisply at that size instead.
@@ -116,24 +132,26 @@ type svgNode struct {
 }
 
 type svgFrame struct {
-	fill          color.NRGBA
-	hasFill       bool
-	fontSize      float64
-	fontFamily    string
-	fontStyle     string
-	fontWeight    string
-	fontRatios    fontRatios
-	fillRule      string
-	opacity       float64
-	stroke        color.NRGBA
-	hasStroke     bool
-	strokeOpacity float64
-	width         float64
-	cap, join     string
-	miterLimit    float64
-	dashArray     []float64
-	dashOffset    float64
-	transform     svgAffine
+	fill           color.NRGBA
+	hasFill        bool
+	fillGradient   *svgGradient
+	fontSize       float64
+	fontFamily     string
+	fontStyle      string
+	fontWeight     string
+	fontRatios     fontRatios
+	fillRule       string
+	opacity        float64
+	stroke         color.NRGBA
+	hasStroke      bool
+	strokeGradient *svgGradient
+	strokeOpacity  float64
+	width          float64
+	cap, join      string
+	miterLimit     float64
+	dashArray      []float64
+	dashOffset     float64
+	transform      svgAffine
 }
 
 func svgDefaultFrame() svgFrame {
@@ -231,7 +249,8 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	if root == nil {
 		return nil, errUnsupportedSVG
 	}
-	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool)}
+	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool),
+		gradients: make(map[*svgNode]*svgGradient)}
 	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
 		return nil, err
 	}
@@ -250,13 +269,15 @@ func decodeSVG(data []byte) (*svgImage, error) {
 // groups) and every emitted segment, not just source XML nodes. Recursive
 // references and exponentially branching references cannot bypass it.
 type svgExpansion struct {
-	img      *svgImage
-	root     *svgNode
-	ids      map[string]*svgNode
-	sheets   []Stylesheet
-	active   map[*svgNode]bool
-	elements int
-	segments int
+	img    *svgImage
+	root   *svgNode
+	ids    map[string]*svgNode
+	sheets []Stylesheet
+	active map[*svgNode]bool
+	// gradients memoizes resolved paint servers by element.
+	gradients map[*svgNode]*svgGradient
+	elements  int
+	segments  int
 }
 
 func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
@@ -294,7 +315,8 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		"font-family": current.fontFamily, "font-style": current.fontStyle, "font-weight": current.fontWeight,
 	})
 	if value, ok := a["fill"]; ok {
-		current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
+		p := parseSVGPaint(value, svgPaintValue{parent.fill, parent.fillGradient, parent.hasFill}, s.resolveGradient)
+		current.fill, current.fillGradient, current.hasFill = p.color, p.gradient, p.ok
 	}
 	rootFontSize := s.img.rootFontSize
 	if node == s.root {
@@ -316,7 +338,8 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		current.fillRule = rule
 	}
 	if value, ok := a["stroke"]; ok {
-		current.stroke, current.hasStroke = svgPaint(value, parent.stroke, parent.hasStroke)
+		p := parseSVGPaint(value, svgPaintValue{parent.stroke, parent.strokeGradient, parent.hasStroke}, s.resolveGradient)
+		current.stroke, current.strokeGradient, current.hasStroke = p.color, p.gradient, p.ok
 	}
 	if n, ok := svgUnitInterval(a["stroke-opacity"]); ok {
 		current.strokeOpacity = n
@@ -348,6 +371,54 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		}
 		current.transform = transform.then(parent.transform)
 	}
+	// opacity is not inherited: it composites this element and its
+	// descendants (or a <use> target) as one group.
+	opacity := 1.0
+	if n, ok := svgOpacityValue(a["opacity"]); ok {
+		opacity = n
+	}
+	if opacity <= 0 {
+		return nil
+	}
+	if opacity >= 1 {
+		return s.walkContent(node, a, current, basis, useDepth)
+	}
+	start := len(s.img.shapes)
+	s.img.shapes = append(s.img.shapes, svgShape{kind: svgLayerPush, opacity: opacity})
+	if err := s.walkContent(node, a, current, basis, useDepth); err != nil {
+		return err
+	}
+	s.img.closeLayer(start)
+	return nil
+}
+
+// closeLayer ends the group opened at shapes[start]. Empty groups are
+// dropped, and a group holding a single shape that paints only fill or only
+// stroke is folded into that paint's alpha, which is equivalent.
+func (img *svgImage) closeLayer(start int) {
+	opacity := img.shapes[start].opacity
+	inner := img.shapes[start+1:]
+	switch {
+	case len(inner) == 0:
+		img.shapes = img.shapes[:start]
+		return
+	case len(inner) == 1 && inner[0].kind == svgShapePaint:
+		shape := inner[0]
+		hasFill, hasStroke := shape.fill.A != 0, shape.stroke.A != 0 && shape.width > 0
+		if hasFill != hasStroke {
+			scale := func(c *color.NRGBA) { c.A = uint8(math.Round(float64(c.A) * opacity)) }
+			scale(&shape.fill)
+			scale(&shape.stroke)
+			img.shapes[start] = shape
+			img.shapes = img.shapes[:start+1]
+			return
+		}
+	}
+	img.shapes = append(img.shapes, svgShape{kind: svgLayerPop})
+}
+
+func (s *svgExpansion) walkContent(node *svgNode, a map[string]string, current svgFrame, basis svgLengthBasis, useDepth int) error {
+	name := node.name
 	if name == "use" {
 		// Only same-document fragment IDs: never open a URL or interpret a
 		// fragment as a filesystem path.
@@ -402,7 +473,17 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 			if !current.hasStroke {
 				stroke = color.NRGBA{}
 			}
-			s.img.shapes = append(s.img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit, dashArray: current.dashArray, dashOffset: current.dashOffset})
+			// objectBoundingBox gradients use the fill geometry's bounds for
+			// both fill and stroke; an empty box paints nothing.
+			fillServer, ok := bindSVGPaint(current.fillGradient, shape)
+			if !ok || !current.hasFill {
+				fill, fillServer = color.NRGBA{}, nil
+			}
+			strokeServer, ok := bindSVGPaint(current.strokeGradient, shape)
+			if !ok || !current.hasStroke {
+				stroke, strokeServer = color.NRGBA{}, nil
+			}
+			s.img.shapes = append(s.img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, fillServer: fillServer, strokeServer: strokeServer, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit, dashArray: current.dashArray, dashOffset: current.dashOffset})
 		}
 	}
 	for _, child := range node.children {
@@ -581,6 +662,7 @@ var svgStyleProperties = map[string]bool{
 	"stroke-linecap": true, "stroke-linejoin": true, "stroke-miterlimit": true,
 	"stroke-dasharray": true, "stroke-dashoffset": true, "font-size": true,
 	"font-family": true, "font-style": true, "font-weight": true,
+	"opacity": true, "stop-color": true, "stop-opacity": true,
 }
 
 func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
@@ -943,7 +1025,53 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	view := img.viewTransform(w, h)
 	r := vector.NewRasterizer(w, h)
+	var paint svgPaintRaster
+	// Group opacity layers. Past the depth or pixel budget a group is
+	// folded into its shapes' alpha instead (approximate where they overlap).
+	type layer struct {
+		parent  *image.RGBA
+		opacity float64
+		folded  bool
+	}
+	var layers []layer
+	var spare []*image.RGBA
+	depth, fold := 0, 1.0
 	for _, shape := range img.shapes {
+		switch shape.kind {
+		case svgLayerPush:
+			if depth < maxSVGLayerDepth && paint.layerPixels+int64(w)*int64(h) <= maxSVGLayerPixels {
+				paint.layerPixels += int64(w) * int64(h)
+				var buf *image.RGBA
+				if n := len(spare); n > 0 {
+					buf, spare = spare[n-1], spare[:n-1]
+					clear(buf.Pix)
+				} else {
+					buf = image.NewRGBA(dst.Bounds())
+				}
+				layers = append(layers, layer{parent: dst, opacity: shape.opacity})
+				dst = buf
+				depth++
+			} else {
+				layers = append(layers, layer{opacity: shape.opacity, folded: true})
+				fold *= shape.opacity
+			}
+			continue
+		case svgLayerPop:
+			if len(layers) == 0 {
+				continue
+			}
+			top := layers[len(layers)-1]
+			layers = layers[:len(layers)-1]
+			if top.folded {
+				fold /= top.opacity
+			} else {
+				svgCompositeLayer(top.parent, dst, top.opacity)
+				spare = append(spare, dst)
+				dst = top.parent
+				depth--
+			}
+			continue
+		}
 		m := shape.transform.then(view)
 		pt := func(p [2]float64) (float32, float32) {
 			x, y := m.apply(p[0], p[1])
@@ -958,7 +1086,8 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			}
 			if useParityRasterizer {
 				if mask := svgEvenOddMask(paths, w, h); mask != nil {
-					draw.DrawMask(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{}, mask, image.Point{}, draw.Over)
+					src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
+					draw.DrawMask(dst, dst.Bounds(), src, image.Point{}, mask, image.Point{}, draw.Over)
 				}
 			} else {
 				r.Reset(w, h)
@@ -992,14 +1121,17 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 				}
 				if drawn {
 					r.ClosePath()
-					r.Draw(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{})
+					src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
+					r.Draw(dst, dst.Bounds(), src, image.Point{})
 				}
 			}
 		}
 		if shape.stroke.A != 0 && shape.width > 0 {
 			r.Reset(w, h)
 			strokeSVGPath(r, shape, m)
-			r.Draw(dst, dst.Bounds(), image.NewUniform(shape.stroke), image.Point{})
+			pad := shape.width*math.Max(shape.miterLimit, math.Sqrt2)*svgAffineScale(m)/2 + 2
+			src := paint.source(shape.stroke, shape.strokeServer, m, svgDeviceBounds(shape, m, pad, dst.Bounds()), fold)
+			r.Draw(dst, dst.Bounds(), src, image.Point{})
 		}
 	}
 	return dst
