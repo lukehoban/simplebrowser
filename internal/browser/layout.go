@@ -20,18 +20,30 @@ import (
 // the border box. Text is kept as runs so the painter does not need to walk
 // the DOM again.
 type Box struct {
-	Node     *Node
-	Rect     image.Rectangle
-	Content  image.Rectangle
-	Children []*Box
-	Text     []TextRun
-	Images   []ImageBox
+	Node              *Node
+	Rect              image.Rectangle
+	Content           image.Rectangle
+	Children          []*Box
+	Text              []TextRun
+	Images            []ImageBox
+	InlineBackgrounds []InlineBackground
+	// AtomicInline boxes paint their background in the inline-content phase,
+	// above ancestor inline backgrounds rather than with block backgrounds.
+	AtomicInline bool
 	// BorderWidths overrides the widths from the node's computed style when
 	// table border collapsing allocates a shared edge to another box.
 	BorderWidths *[4]int // top, right, bottom, left
 	// BorderOnly marks a paint-only fragment of another box's collapsed
 	// border: it paints no background and has no content of its own.
 	BorderOnly bool
+}
+
+// InlineBackground is one painted fragment of a text-bearing inline element.
+// Wrapped inline elements have one fragment per line so their backgrounds do
+// not fill the unused space between the end and start of adjacent lines.
+type InlineBackground struct {
+	Node *Node
+	Rect image.Rectangle
 }
 
 // ImageBox exposes a decoded replaced image and its used rectangle to the
@@ -367,14 +379,18 @@ func displayBlock(n *StyledNode) bool {
 		return false
 	}
 	switch n.Node.Name {
-	case "html", "body", "address", "article", "aside", "blockquote", "div", "dl",
+	case "html", "body", "address", "article", "aside", "blockquote", "caption", "div", "dl",
 		"dt", "dd", "fieldset", "figcaption", "figure", "footer", "form", "h1",
 		"h2", "h3", "h4", "h5", "h6", "header", "hr", "li", "main", "nav",
 		"ol", "p", "pre", "section", "table", "tbody", "td", "tfoot", "th",
 		"thead", "tr", "ul":
 		return true
 	}
-	return strings.EqualFold(n.Style["display"], "block") || strings.EqualFold(n.Style["display"], "list-item")
+	// A table caption is a block container (CSS 2.1 §17.4), so it keeps its
+	// margins when laid out inside the table wrapper's caption row.
+	display := n.Style["display"]
+	return strings.EqualFold(display, "block") || strings.EqualFold(display, "list-item") ||
+		strings.EqualFold(display, "table-caption")
 }
 
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
@@ -645,7 +661,9 @@ func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
 		return m
 	}
 	inner := blockContentWidth(n, width)
-	for _, child := range n.Children {
+	// Match layoutFlow's children: an anonymous table, like any table, keeps
+	// its first cell's or caption's margins from collapsing through.
+	for _, child := range wrapAnonymousTables(n, n.Children) {
 		switch k := childFlowKind(child); k {
 		case flowSkip:
 			continue
@@ -727,7 +745,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		}
 		inline = nil
 	}
-	for _, child := range splitInlineBlocks(parent.Children) {
+	for _, child := range wrapAnonymousTables(parent, splitInlineBlocks(parent.Children)) {
 		kind := childFlowKind(child)
 		switch kind {
 		case flowSkip:
@@ -963,6 +981,9 @@ func translatePositionedBox(box *Box, dx, dy int) *Box {
 	for i := range box.Images {
 		box.Images[i].Rect = box.Images[i].Rect.Add(image.Pt(dx, dy))
 	}
+	for i := range box.InlineBackgrounds {
+		box.InlineBackgrounds[i].Rect = box.InlineBackgrounds[i].Rect.Add(image.Pt(dx, dy))
+	}
 	for _, child := range box.Children {
 		translatePositionedBox(child, dx, dy)
 	}
@@ -1002,7 +1023,8 @@ type inlinePart struct {
 	// isBox marks a non-replaced atomic inline box (an empty inline-block).
 	// It occupies imageW by imageH of content, and paints as a child box
 	// rather than as replaced content.
-	isBox bool
+	isBox       bool
+	backgrounds []*Node
 }
 
 // atomic reports whether a part is laid out as one unbreakable unit with an
@@ -1013,8 +1035,8 @@ func (p inlinePart) atomic() bool { return p.isImage || p.isBox }
 // whitespace between element boundaries. Text ownership survives flattening.
 func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 	var parts []inlinePart
-	var visit func(*StyledNode)
-	visit = func(n *StyledNode) {
+	var visit func(*StyledNode, []*Node)
+	visit = func(n *StyledNode, backgrounds []*Node) {
 		if n.Node.Type == ElementNode {
 			if strings.EqualFold(n.Style["display"], "none") {
 				return
@@ -1038,16 +1060,22 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 					innerEdges: inlineInnerEdges(n, width), isBox: true})
 				return
 			}
+			if _, ok := backgroundColor(n.Style); ok ||
+				(strings.TrimSpace(n.Style["background-image"]) != "" &&
+					!strings.EqualFold(strings.TrimSpace(n.Style["background-image"]), "none")) {
+				backgrounds = append(append([]*Node(nil), backgrounds...), n.Node)
+			}
 		}
 		if n.Node.Type == TextNode {
-			parts = append(parts, inlinePart{node: n.Node, style: n.Style, text: n.Node.Data})
+			parts = append(parts, inlinePart{node: n.Node, style: n.Style, text: n.Node.Data,
+				backgrounds: backgrounds})
 		}
 		for _, child := range n.Children {
-			visit(child)
+			visit(child, backgrounds)
 		}
 	}
 	for _, n := range nodes {
-		visit(n)
+		visit(n, nil)
 	}
 	return parts
 }
@@ -1211,7 +1239,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if unicode.IsSpace(r) && r != '\u00a0' {
 				flushWord()
 				if space == nil {
-					p := inlinePart{node: part.node, style: part.style, text: " "}
+					p := inlinePart{node: part.node, style: part.style, text: " ",
+						backgrounds: part.backgrounds}
 					space = &p
 				}
 				continue
@@ -1219,7 +1248,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if len(word) != 0 && word[len(word)-1].node == part.node {
 				word[len(word)-1].text += string(r)
 			} else {
-				word = append(word, inlinePart{node: part.node, style: part.style, text: string(r)})
+				word = append(word, inlinePart{node: part.node, style: part.style, text: string(r),
+					backgrounds: part.backgrounds})
 			}
 		}
 	}
@@ -1243,6 +1273,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		}
 		baseline := cursor + l.ascent
 		penX := fixed.I(xpos) + (startPenX - fixed.I(x))
+		backgroundFragments := make(map[*Node]int)
 		for _, p := range l.parts {
 			if p.atomic() {
 				outerHeight := p.outerHeight()
@@ -1264,7 +1295,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 					// background and borders come from its own child box.
 					border := p.borderBox(penX.Round(), outerY)
 					box.Children = append(box.Children,
-						&Box{Node: p.node, Rect: border, Content: content})
+						&Box{Node: p.node, Rect: border, Content: content, AtomicInline: true})
 				} else {
 					box.Images = append(box.Images, ImageBox{Image: p.image, Rect: content})
 				}
@@ -1277,6 +1308,17 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			right := (penX + advance).Ceil()
 			textAscent, textDescent := faces.metrics(p.style).lineMetrics()
 			textY := baseline - textAscent
+			textRect := image.Rect(left, textY, right, textY+textAscent+textDescent)
+			for _, node := range p.backgrounds {
+				if index, ok := backgroundFragments[node]; ok {
+					box.InlineBackgrounds[index].Rect =
+						box.InlineBackgrounds[index].Rect.Union(textRect)
+					continue
+				}
+				backgroundFragments[node] = len(box.InlineBackgrounds)
+				box.InlineBackgrounds = append(box.InlineBackgrounds,
+					InlineBackground{Node: node, Rect: textRect})
+			}
 			if len(box.Text) != 0 {
 				last := &box.Text[len(box.Text)-1]
 				if last.Node == p.node && last.Rect.Min.Y == textY {
@@ -1291,7 +1333,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 				}
 			}
 			box.Text = append(box.Text, TextRun{Node: p.node, Style: p.style, Text: p.text,
-				Rect: image.Rect(left, textY, right, textY+textAscent+textDescent), PenX: penX})
+				Rect: textRect, PenX: penX})
 			penX += advance
 			xpos = penX.Round()
 		}

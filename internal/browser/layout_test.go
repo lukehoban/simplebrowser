@@ -509,6 +509,34 @@ func TestLayoutInlineWrapsUsingUnroundedLineWidth(t *testing.T) {
 	}
 }
 
+func TestLayoutWrappedInlineBackgroundFragments(t *testing.T) {
+	doc := styledForLayout(t, `<style>.highlight { background:#00ff00 }</style>
+		<p style="margin:0;width:55px"><span class="highlight">alpha beta gamma</span></p>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineBox := got.Root.Children[0].Children[0]
+	if len(lineBox.InlineBackgrounds) != 3 {
+		t.Fatalf("background fragments = %#v, want one for each of three wrapped lines",
+			lineBox.InlineBackgrounds)
+	}
+	node := lineBox.InlineBackgrounds[0].Node
+	previousY := -1
+	for i, fragment := range lineBox.InlineBackgrounds {
+		if fragment.Node != node {
+			t.Fatalf("fragment %d belongs to %p, want %p", i, fragment.Node, node)
+		}
+		if fragment.Rect.Empty() || fragment.Rect.Dx() >= lineBox.Rect.Dx() {
+			t.Fatalf("fragment %d wrongly fills line box: %v in %v", i, fragment.Rect, lineBox.Rect)
+		}
+		if fragment.Rect.Min.Y <= previousY {
+			t.Fatalf("fragment %d did not advance to a new line: %#v", i, lineBox.InlineBackgrounds)
+		}
+		previousY = fragment.Rect.Min.Y
+	}
+}
+
 func TestLayoutInlineImagesShareTextBaselineAndMargins(t *testing.T) {
 	doc := styledForLayout(t, `<p style="margin:0">A<img style="width:20px;height:20px;margin:2px 3px 4px 5px;padding:1px;border-width:1px">z</p>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))

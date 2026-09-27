@@ -8,6 +8,44 @@ import (
 
 var grey = color.RGBA{128, 128, 128, 255}
 
+// Combining inline text backgrounds (#197) and empty inline-blocks (#192)
+// must not paint an ancestor's line fragment over the atomic box.
+func TestEmptyInlineBlockAboveInlineBackground(t *testing.T) {
+	const markup = `<body style="margin:0"><div><span style="background:yellow">before` +
+		`<span style="display:inline-block;width:20px;height:10px;background:grey;border:2px solid blue"></span>` +
+		`after</span></div></body>`
+	viewport := image.Rect(0, 0, 400, 100)
+	got, err := LayoutWithViewport(styledForLayout(t, markup), viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spans := collectBoxes(got.Root, "span")
+	if len(spans) != 1 {
+		t.Fatalf("got %d span boxes, want one atomic box", len(spans))
+	}
+	var fragments []InlineBackground
+	var collect func(*Box)
+	collect = func(b *Box) {
+		fragments = append(fragments, b.InlineBackgrounds...)
+		for _, child := range b.Children {
+			collect(child)
+		}
+	}
+	collect(got.Root)
+	if len(fragments) != 1 {
+		t.Fatalf("got %d background fragments, want only the text ancestor", len(fragments))
+	}
+	box, fragment := spans[0], fragments[0].Rect
+	if fragment.Min.X >= box.Rect.Min.X || fragment.Max.X <= box.Rect.Max.X {
+		t.Fatalf("ancestor background %v must span the box %v", fragment, box.Rect)
+	}
+	img := painted(t, markup, viewport)
+	pixel(t, img, box.Content.Min.X, box.Content.Min.Y, grey)
+	pixel(t, img, box.Rect.Min.X, box.Rect.Min.Y, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, fragment.Min.X, fragment.Max.Y-1, color.RGBA{255, 255, 0, 255})
+	pixel(t, img, fragment.Max.X-1, fragment.Max.Y-1, color.RGBA{255, 255, 0, 255})
+}
+
 func spanRects(t *testing.T, source string) []image.Rectangle {
 	t.Helper()
 	got, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 400, 400))
