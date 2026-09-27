@@ -111,6 +111,38 @@ func TestLayoutInlineWrappingAcrossNodeBoundaries(t *testing.T) {
 	}
 }
 
+func TestLayoutInlineWrapsUsingUnroundedLineWidth(t *testing.T) {
+	doc := styledForLayout(t, `<p style="margin:0">hello world</p>`)
+	faces := newFaceSet()
+	defer faces.close()
+	exactWidth := faces.metrics(doc.StyleRoot.Style).width("hello world")
+
+	for _, tc := range []struct {
+		name      string
+		width     int
+		wantLines int
+	}{
+		{name: "exact width fits", width: exactWidth, wantLines: 1},
+		{name: "narrower width wraps", width: exactWidth - 1, wantLines: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := LayoutWithViewport(doc, image.Rect(0, 0, tc.width, 100))
+			if err != nil {
+				t.Fatal(err)
+			}
+			runs := got.Root.Children[0].Children[0].Text
+			lineYs := make(map[int]bool)
+			for _, run := range runs {
+				lineYs[run.Rect.Min.Y] = true
+			}
+			if len(lineYs) != tc.wantLines {
+				t.Fatalf("line count at width %d = %d, want %d; runs: %+v",
+					tc.width, len(lineYs), tc.wantLines, runs)
+			}
+		})
+	}
+}
+
 func TestLayoutTrimsTrailingCollapsibleWhitespacePerLine(t *testing.T) {
 	doc := styledForLayout(t, `<p style="margin:0"><a>first word </a><br><a>last  </a></p>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 100))

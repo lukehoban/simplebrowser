@@ -16,8 +16,7 @@ remain future work.
 
 ![Current Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
 
-*Offline Hacker News snapshot with link styling and text-width fixes through
-[a63d208](https://github.com/lukehoban/simplebrowser/commit/a63d2084abf54bbe66050d20e0fa322e0f455a0a)
+*Offline Hacker News snapshot generated from the repository's current source
 (2026-09-26). The screenshot is a progress snapshot, not a pixel-accurate
 Hacker News reference.*
 
