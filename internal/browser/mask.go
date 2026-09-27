@@ -13,7 +13,7 @@ import (
 // mask-composite (add), and the mask is positioned in and clipped to the border
 // box (the initial mask-origin/mask-clip). References to SVG <mask> elements,
 // mask-mode: luminance, and other mask-origin/clip/composite values are not
-// implemented; see docs/css-mask.md.
+// implemented; see docs/css-mask.md (#313, #314).
 
 // maskLonghands lists the mask longhands this renderer consumes.
 var maskLonghands = []string{"mask-image", "mask-repeat", "mask-position", "mask-size"}
