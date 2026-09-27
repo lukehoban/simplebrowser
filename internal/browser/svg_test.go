@@ -86,6 +86,13 @@ func TestParseSVGPath(t *testing.T) {
 }
 
 func TestSVGArcGeometry(t *testing.T) {
+	// Roundoff on either side of a quarter turn must not change subdivision.
+	for _, endX := range []float64{-1e-15, 0, 1e-15} {
+		segs, ok := svgArc(1, 0, 1, 1, 0, false, true, endX, 1)
+		if !ok || len(segs) != 1 || segs[0].pts[2] != [2]float64{endX, 1} {
+			t.Errorf("near-quarter arc to (%g,1): %v, valid=%v", endX, segs, ok)
+		}
+	}
 	// A unit circle's four possible arcs between these endpoints have known
 	// centers, segment counts and tangent directions.
 	for _, tc := range []struct {

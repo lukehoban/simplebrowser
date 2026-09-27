@@ -731,7 +731,14 @@ func svgArc(x, y, rx, ry, rotation float64, large, sweep bool, ex, ey float64) (
 	} else if !sweep && delta > 0 {
 		delta -= 2 * math.Pi
 	}
-	n := int(math.Ceil(math.Abs(delta) / (math.Pi / 2)))
+	// Atan2/Hypot roundoff can put an exact quarter turn just above its
+	// boundary on some architectures. Snap only the segment count (not the
+	// angle or endpoints) so these arcs do not acquire an extra cubic.
+	quarters := math.Abs(delta) / (math.Pi / 2)
+	if nearest := math.Round(quarters); nearest >= 1 && math.Abs(quarters-nearest) < 1e-12 {
+		quarters = nearest
+	}
+	n := int(math.Ceil(quarters))
 	if n < 1 || n > 4 {
 		return nil, false
 	}
