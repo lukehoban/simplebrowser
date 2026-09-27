@@ -27,6 +27,10 @@ type Box struct {
 	Text              []TextRun
 	Images            []ImageBox
 	InlineBackgrounds []InlineBackground
+	// Anonymous boxes participate in layout but do not generate a CSS
+	// background or border of their own. Node remains available for
+	// diagnostics and inherited style lookups.
+	Anonymous bool
 	// AtomicInline boxes paint their background in the inline-content phase,
 	// above ancestor inline backgrounds rather than with block backgrounds.
 	AtomicInline bool
@@ -644,9 +648,8 @@ func inlineBlockPartFit(n *StyledNode, available, fit int, faces *faceSet, paren
 	cb.atomicLocal = true
 	box, _ := layoutBlock(used, -margin[3], margin[0], available, faces, cb)
 	box.AtomicInline = true
-	// Anonymous line boxes reuse their parent's DOM node for diagnostics.
-	// Inside an atomic box that would paint the same background and border a
-	// second time over its own content; only the outer border box paints them.
+	// Anonymous line boxes inside atomic boxes are hidden from node-based
+	// box collection so the atomic element is represented only once.
 	for _, child := range box.Children {
 		if child.Node == n.Node {
 			child.Node = nil
@@ -1350,6 +1353,86 @@ type inlineLine struct {
 	height  int
 }
 
+// inlineVerticalAlignment describes an atomic inline's vertical placement.
+// offset is the distance from the line baseline to the atomic box's own
+// baseline; positive CSS lengths raise the box and therefore increase it.
+type inlineVerticalAlignment struct {
+	kind   string
+	offset int
+}
+
+func resolveInlineVerticalAlign(p inlinePart, parentStyle ComputedStyle, faces *faceSet) inlineVerticalAlignment {
+	value := strings.ToLower(strings.TrimSpace(p.style["vertical-align"]))
+	switch value {
+	case "top", "bottom", "middle", "text-top", "text-bottom":
+		return inlineVerticalAlignment{kind: value}
+	case "", "baseline":
+		return inlineVerticalAlignment{kind: "baseline"}
+	}
+	ascent, descent := faces.metrics(parentStyle).lineMetrics()
+	if parsed := classifyValue(value); parsed.Kind == "length" || parsed.Kind == "number" ||
+		parsed.Kind == "percentage" {
+		return inlineVerticalAlignment{
+			kind:   "baseline",
+			offset: int(math.Round(px(value, float64(ascent+descent), 0))),
+		}
+	}
+	return inlineVerticalAlignment{kind: "baseline"}
+}
+
+func (p inlinePart) baseline() int {
+	if p.isTable {
+		return p.tableBaseline
+	}
+	return p.outerHeight()
+}
+
+// inlineVerticalExtents returns how far an atomic inline extends above and
+// below the line baseline. Top and bottom are line-relative and are handled
+// after the line height is known.
+func inlineVerticalExtents(p inlinePart, alignment inlineVerticalAlignment, parentStyle ComputedStyle, faces *faceSet) (int, int) {
+	h := p.outerHeight()
+	switch alignment.kind {
+	case "top", "bottom":
+		return 0, 0
+	case "middle":
+		// CSS aligns the box midpoint with the parent baseline plus half the
+		// parent's x-height (approximated here as half its em).
+		xHalf := int(math.Ceil(faces.metrics(parentStyle).size / 4))
+		return (h + 2*xHalf + 1) / 2, max(0, (h-2*xHalf+1)/2)
+	case "text-top":
+		ascent, _ := faces.metrics(parentStyle).lineMetrics()
+		return ascent, max(0, h-ascent)
+	case "text-bottom":
+		_, descent := faces.metrics(parentStyle).lineMetrics()
+		return max(0, h-descent), descent
+	default:
+		baseline := p.baseline() + alignment.offset
+		return max(0, baseline), max(0, h-baseline)
+	}
+}
+
+func inlineAtomicY(p inlinePart, alignment inlineVerticalAlignment, cursor, baseline, lineHeight int, parentStyle ComputedStyle, faces *faceSet) int {
+	h := p.outerHeight()
+	switch alignment.kind {
+	case "top":
+		return cursor
+	case "bottom":
+		return cursor + lineHeight - h
+	case "middle":
+		xHalf := int(math.Ceil(faces.metrics(parentStyle).size / 4))
+		return baseline - xHalf - h/2
+	case "text-top":
+		ascent, _ := faces.metrics(parentStyle).lineMetrics()
+		return baseline - ascent
+	case "text-bottom":
+		_, descent := faces.metrics(parentStyle).lineMetrics()
+		return baseline + descent - h
+	default:
+		return baseline - p.baseline() - alignment.offset
+	}
+}
+
 func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
 	return layoutInlineAt(parent, parentStyle, nodes, x, y, width, fixed.I(x), faces, containingBlock{})
 }
@@ -1382,29 +1465,17 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			line.ascent, line.descent = faces.metrics(nodes[0].Style).lineMetrics()
 		}
 		for _, p := range line.parts {
-			if p.isTable {
-				// An inline table sits on the line with the baseline of its
-				// first row; content below that baseline hangs beneath it.
-				line.ascent = max(line.ascent, p.tableBaseline)
-				line.descent = max(line.descent, max(0, p.tableH-p.tableBaseline))
-				continue
-			}
 			if !p.atomic() {
 				continue
 			}
-			h := p.outerHeight()
-			switch strings.ToLower(strings.TrimSpace(p.style["vertical-align"])) {
-			case "middle":
-				// The midpoint aligns with the baseline plus half the
-				// parent font's x-height (approximated as half its em).
-				xHalf := int(math.Ceil(faces.metrics(p.style).size / 4))
-				line.ascent = max(line.ascent, (h+2*xHalf+1)/2)
-				line.descent = max(line.descent, max(0, (h-2*xHalf+1)/2))
-			case "top", "bottom":
-				line.height = max(line.height, h)
-			default: // baseline and unsupported values use the baseline.
-				line.ascent = max(line.ascent, h)
+			alignment := resolveInlineVerticalAlign(p, parentStyle, faces)
+			if alignment.kind == "top" || alignment.kind == "bottom" {
+				line.height = max(line.height, p.outerHeight())
+				continue
 			}
+			ascent, descent := inlineVerticalExtents(p, alignment, parentStyle, faces)
+			line.ascent = max(line.ascent, ascent)
+			line.descent = max(line.descent, descent)
 		}
 		line.height = max(line.height, line.ascent+line.descent)
 	}
@@ -1502,7 +1573,9 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 	if len(lines) == 0 {
 		return nil, 0
 	}
-	box := &Box{Node: parent}
+	// Keep the parent node for diagnostics and inherited style lookups, but
+	// distinguish this generated line container from the parent's CSS box.
+	box := &Box{Node: parent, Anonymous: true}
 	cursor := y
 	for _, l := range lines {
 		xpos := x
@@ -1518,7 +1591,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		backgroundFragments := make(map[*Node]int)
 		for _, p := range l.parts {
 			if p.isTable {
-				outerY := baseline - p.tableBaseline
+				alignment := resolveInlineVerticalAlign(p, parentStyle, faces)
+				outerY := inlineAtomicY(p, alignment, cursor, baseline, l.height, parentStyle, faces)
 				translateBox(p.table, penX.Round(), outerY)
 				box.Children = append(box.Children, p.table)
 				xpos = penX.Round() + p.tableW
@@ -1526,17 +1600,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 				continue
 			}
 			if p.atomic() {
-				outerHeight := p.outerHeight()
-				outerY := baseline - outerHeight
-				switch strings.ToLower(strings.TrimSpace(p.style["vertical-align"])) {
-				case "top":
-					outerY = cursor
-				case "bottom":
-					outerY = cursor + l.height - outerHeight
-				case "middle":
-					xHalf := int(math.Ceil(faces.metrics(p.style).size / 4))
-					outerY = baseline - xHalf - outerHeight/2
-				}
+				alignment := resolveInlineVerticalAlign(p, parentStyle, faces)
+				outerY := inlineAtomicY(p, alignment, cursor, baseline, l.height, parentStyle, faces)
 				contentX := penX.Round() + p.imageEdges[3]
 				contentY := outerY + p.imageEdges[0]
 				content := image.Rect(contentX, contentY, contentX+p.imageW, contentY+p.imageH)

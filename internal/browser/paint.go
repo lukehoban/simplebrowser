@@ -504,7 +504,7 @@ func (p *painter) isFloat(box *Box) bool {
 // paintBackground draws a box's background and borders, but not its content
 // or child boxes.
 func (p *painter) paintBackground(box *Box) {
-	if box == nil {
+	if box == nil || box.Anonymous {
 		return
 	}
 	style := p.document.Styles[box.Node]
