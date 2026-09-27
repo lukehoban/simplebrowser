@@ -97,6 +97,11 @@ func parseGradient(s string, w, h int) *linearGradient {
 	}
 	line := math.Abs(dx)*float64(w) + math.Abs(dy)*float64(h)
 	stops := make([]gradientStop, 0, len(parts))
+	type pendingHint struct {
+		left, right int
+		at          float64
+	}
+	hints := make([]pendingHint, 0)
 	hintAt, hintAfter := 0.0, -1
 	for _, part := range parts {
 		tokens := parseValues(strings.TrimSpace(part))
@@ -105,8 +110,8 @@ func parseGradient(s string, w, h int) *linearGradient {
 		}
 		c, ok := parseColor(strings.ToLower(tokens[0].Text))
 		if !ok {
-			// Only one bare percentage, strictly between two color stops, is
-			// supported. Keep all other unsupported image syntax atomic.
+			// A bare percentage is an interpolation hint for the adjacent
+			// color-stop interval. Keep other unsupported image syntax atomic.
 			if hintAfter >= 0 || len(tokens) != 1 || len(stops) == 0 ||
 				!strings.HasSuffix(tokens[0].Text, "%") {
 				return nil
@@ -117,6 +122,10 @@ func parseGradient(s string, w, h int) *linearGradient {
 			}
 			hintAt, hintAfter = n/100, len(stops)-1
 			continue
+		}
+		if hintAfter >= 0 {
+			hints = append(hints, pendingHint{left: hintAfter, right: len(stops), at: hintAt})
+			hintAfter = -1
 		}
 		stop := gradientStop{color: c}
 		if len(tokens) == 2 {
@@ -144,7 +153,7 @@ func parseGradient(s string, w, h int) *linearGradient {
 		}
 		stops = append(stops, stop)
 	}
-	if len(stops) < 2 || hintAfter == len(stops)-1 {
+	if len(stops) < 2 || hintAfter >= 0 {
 		return nil
 	}
 	if !stops[0].set {
@@ -184,12 +193,11 @@ func parseGradient(s string, w, h int) *linearGradient {
 		}
 		i = j + 1
 	}
-	if hintAfter >= 0 {
-		right := hintAfter + 1
-		if !(hintAt > stops[hintAfter].at && hintAt < stops[right].at) {
+	for _, hint := range hints {
+		if !(hint.at > stops[hint.left].at && hint.at < stops[hint.right].at) {
 			return nil
 		}
-		stops[right].hint, stops[right].hasHint = hintAt, true
+		stops[hint.right].hint, stops[hint.right].hasHint = hint.at, true
 	}
 	return &linearGradient{image.Rect(0, 0, w, h), dx, dy, stops, s}
 }
