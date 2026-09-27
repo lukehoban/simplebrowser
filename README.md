@@ -22,15 +22,14 @@ regenerate the committed report and inspect failure diagnostics in
 inline, and table layout; PNG painting of text, borders, images, and a subset of
 SVG. Raster CSS backgrounds paint in layers, and local SVG `<defs>`/`<use>`
 references are supported. Bounded two-color CSS `linear-gradient()` backgrounds
-support directions, angles, percentage stops, and one percentage interpolation
-hint. SVG strokes support bounded dash arrays and offsets. The offline HN
+support directions, angles, percentage stops, and multiple interpolation
+hints. SVG strokes support bounded dash arrays and offsets with CSS lengths
+and percentages. The offline HN
 fixture is rendered in CI, with the result available as a
 [workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
 
-**What's next:** Improve [HN fidelity (#12)](https://github.com/lukehoban/simplebrowser/issues/12),
-including multiple interpolation hints in gradients
-([#129](https://github.com/lukehoban/simplebrowser/issues/129)), and
-[SVG gradients and opacity (#84)](https://github.com/lukehoban/simplebrowser/issues/84).
+**What's next:** Improve [HN fidelity (#12)](https://github.com/lukehoban/simplebrowser/issues/12)
+and [SVG gradients and opacity (#84)](https://github.com/lukehoban/simplebrowser/issues/84).
 See [epic #2](https://github.com/lukehoban/simplebrowser/issues/2) for the live
 checklist and further scope.
 
