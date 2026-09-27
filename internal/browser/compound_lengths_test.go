@@ -153,11 +153,20 @@ func TestCalcInvalidVariableUsesUnsetAndValidSupports(t *testing.T) {
 	if !featureSupported("width", "calc(100% - 20px)") {
 		t.Error("@supports rejected a supported calc() length")
 	}
+
 	if got := supported.Style["width"]; got != "calc(100% - 20px)" {
 		t.Errorf("computed width before layout = %q", got)
 	}
 	invalid := styledElementByID(doc.StyleRoot, "invalid")
 	if invalid.Style["width"] == "calc(var(--bad) + 2px)" || invalid.Style["width"] == "40px" {
 		t.Errorf("invalid substituted width should behave as unset, got %q", invalid.Style["width"])
+	}
+}
+
+func TestCalcExpressionNestingIsBounded(t *testing.T) {
+	expression := "calc(" + strings.Repeat("(", maxCSSMathDepth+1) + "1px" +
+		strings.Repeat(")", maxCSSMathDepth+1) + ")"
+	if validCalcDeclaration("width", expression) {
+		t.Fatal("excessively nested calc() expression was accepted")
 	}
 }

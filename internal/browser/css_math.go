@@ -17,8 +17,11 @@ type cssMathValue struct {
 type cssMathParser struct {
 	s       string
 	i       int
+	depth   int
 	convert func(float64, string) (cssMathValue, bool)
 }
+
+const maxCSSMathDepth = 64
 
 func calcLengthProperty(property string) bool {
 	switch property {
@@ -126,19 +129,29 @@ func (p *cssMathParser) product() (cssMathValue, bool) {
 func (p *cssMathParser) unary() (cssMathValue, bool) {
 	p.space()
 	if p.i < len(p.s) && (p.s[p.i] == '+' || p.s[p.i] == '-') {
+		if p.depth >= maxCSSMathDepth {
+			return cssMathValue{}, false
+		}
 		sign := 1.0
 		if p.s[p.i] == '-' {
 			sign = -1
 		}
 		p.i++
+		p.depth++
 		v, ok := p.unary()
+		p.depth--
 		v.px *= sign
 		v.percent *= sign
 		return v, ok
 	}
 	if p.i < len(p.s) && p.s[p.i] == '(' {
+		if p.depth >= maxCSSMathDepth {
+			return cssMathValue{}, false
+		}
 		p.i++
+		p.depth++
 		v, ok := p.sum()
+		p.depth--
 		p.space()
 		if !ok || p.i >= len(p.s) || p.s[p.i] != ')' {
 			return cssMathValue{}, false
