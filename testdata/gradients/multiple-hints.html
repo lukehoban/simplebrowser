@@ -1,0 +1,15 @@
+<!doctype html>
+<html><head><title>Multiple linear-gradient interpolation hints</title>
+<style>
+body { margin: 18px; font: 16px sans-serif; color: #142334; background: #ecf2f8; }
+h1 { font-size: 22px; }
+.swatch { width: 560px; height: 72px; margin: 10px 0 18px; border: 3px solid #142334; background-color: #d6dee8; }
+.single { background-image: linear-gradient(to right, #e44b44, 20%, #304acb); }
+.multiple { background-image: linear-gradient(to right, red 0%, 10%, blue 25%, green 75%, 90%, white 100%); }
+</style></head><body>
+<h1>Interpolation hints belong to their neighboring color stops</h1>
+<p>Single-hint control:</p>
+<div class="swatch single"></div>
+<p>Two hints remap only the red–blue and green–white intervals:</p>
+<div class="swatch multiple"></div>
+</body></html>
