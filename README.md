@@ -31,7 +31,9 @@ fixture is rendered in CI, with the result available as a
 
 **What's next:** Track [renderer follow-ups (#154)](https://github.com/lukehoban/simplebrowser/issues/154)
 and the [per-area benchmark matrix (#240)](https://github.com/lukehoban/simplebrowser/issues/240)
-for current scope and live checklists.
+for current scope and live checklists. The bounded
+[Wikipedia Moon target (#243)](https://github.com/lukehoban/simplebrowser/issues/243)
+has an [offline baseline, reference and gap inventory](docs/wikipedia-moon-baseline.md).
 
 ## Usage
 
