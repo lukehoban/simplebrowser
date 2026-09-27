@@ -30,19 +30,22 @@ the same command and `-o docs/screenshots/github-vscode-baseline.png`.
   Code · GitHub”; its rendered text included the public badge, Code/Issues/
   Pull requests/Actions/Projects/Wiki navigation, the `main` branch, a
   166,265-commit count, repository file rows, and an About description.
-- The response references GitHub-hosted stylesheets, scripts, icons/fonts and
-  external README images (including shields and a signed user-image URL).
-  They are intentionally not vendored or fetched by this fixture. Scripts,
-  authentication state, user-generated media, external requests, and the
-  rest of the page are excluded. The stand-in has no external asset requests
-  and contains no copied image, font, stylesheet, script, credential, or
-  browser cookie.
+- The inspected HTML response had 27 linked stylesheets, 10 script references,
+  3 `<img>` references, and inline SVG markup. This is a document inventory,
+  not a claim that every resource is visible in the first viewport. It
+  references GitHub-hosted stylesheets/scripts/icons/fonts and external
+  README images (including shields and a signed user-image URL); none are
+  vendored or fetched by this fixture. Scripts, authentication state,
+  user-generated media, external requests, and the rest of the page are
+  excluded. The stand-in has no external asset requests and contains no
+  copied image, font, stylesheet, script, credential, or browser cookie.
 - The `microsoft/vscode` repository declares the MIT license for its project
   code; that does not grant a license to redistribute GitHub's HTML, CSS,
-  brand assets, or the external images referenced by the live page. The
-  fixture uses original markup and neutral, hand-authored CSS, with short
-  repository labels and counts observed in the public response. GitHub's
-  stylesheets and assets are not included.
+  brand assets, or the external images referenced by the live page. No
+  redistribution license for those GitHub page resources was identified, so
+  they are not included. The fixture uses original markup and neutral,
+  hand-authored CSS, with short repository labels and counts observed in the
+  public response.
 - No real-browser screenshot or image comparison is checked in. A browser
   executable was not available in this checkout environment, and copying the
   live page's visual assets/styles was not necessary for this baseline. The
@@ -50,14 +53,20 @@ the same command and `-o docs/screenshots/github-vscode-baseline.png`.
 
 ## Inspected layout and evidence-backed gaps
 
-The public response linked multiple stylesheets for GitHub/Primer and
-repository/code views, with behavior scripts; the markup included responsive
-navigation, button-like controls, repository navigation, a file table, inline
-SVG/icon content, and README images. The hand-authored fixture makes the
-observable layout dependencies explicit using `display:flex`, `gap`,
-`align-items`, flexible sizing, a table, and CSS custom properties (`--...`
-and `var(...)`). These are deliberately exercised rather than presented as
-GitHub's original CSS.
+The public response linked GitHub/Primer and repository/code stylesheets,
+with behavior scripts; the markup included responsive navigation,
+button-like controls, repository navigation, a file table, inline SVG/icon
+content, and README images. In the repository header, the inspected DOM uses
+classes including `d-flex`, `UnderlineNav`, and `UnderlineNav-item`. The
+linked Primer CSS gives `.UnderlineNav` `display:flex` and
+`justify-content:space-between`, and gives `.UnderlineNav-item`
+`display:flex`, `align-items:center`, and
+`color:var(--fgColor-default)`. Thus both flex layout and ordinary CSS
+custom-property substitution are confirmed in actual repository-page
+navigation markup/styles, not inferred from the stand-in. The stand-in uses
+hand-authored `display:flex`, `gap`, `align-items`, flexible sizing, a table,
+and `--...`/`var(...)` declarations to provide a stable local approximation
+of those mechanisms; it is not GitHub's original CSS.
 
 The baseline PNG shows that the current renderer lays the fixture's flex
 containers out as ordinary block flow and does not resolve its custom
