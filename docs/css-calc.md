@@ -33,6 +33,7 @@ supported yet:
   `flex-basis` instead
 - `calc()` mixed with other values in a multi-value shorthand such as
   `margin: calc(10% - 1px) 0`, which is dropped as invalid
+  ([#289](https://github.com/lukehoban/simplebrowser/issues/289))
 - arithmetic in background, transform, grid, or SVG properties
 
 `@supports` accepts only the forms listed above as supported.
