@@ -345,3 +345,64 @@ func TestConcurrentImageRenders(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+var (
+	zRed    = color.RGBA{255, 0, 0, 255}
+	zGreen  = color.RGBA{0, 128, 0, 255}
+	zBlue   = color.RGBA{0, 0, 255, 255}
+	zYellow = color.RGBA{255, 255, 0, 255}
+)
+
+func TestPaintNegativeZIndexBelowInFlowContent(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:red;z-index:-1"></div><div style="width:20px;height:20px;background:green"></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 10, 10, zGreen)
+}
+
+func TestPaintPositiveZIndexOrdering(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green;z-index:3"></div><div style="position:absolute;left:10px;top:10px;width:20px;height:20px;background:red;z-index:1"></div><div style="width:30px;height:30px;background:blue"></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 15, 15, zGreen) // z-index:3 above later z-index:1
+	pixel(t, img, 25, 25, zRed)   // z-index:1 above in-flow content
+	pixel(t, img, 35, 35, color.RGBA{255, 255, 255, 255})
+}
+
+func TestPaintEqualZIndexUsesTreeOrder(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:red;z-index:2"></div><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green;z-index:2"></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 10, 10, zGreen)
+}
+
+func TestPaintZIndexAutoAndZeroUseTreeOrder(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:red;z-index:0"></div><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green"></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 10, 10, zGreen)
+}
+
+func TestPaintZIndexIgnoredOnNonPositionedBoxes(t *testing.T) {
+	// The static block's z-index is ignored, so the positioned box (z-index
+	// auto) still paints above it; a negative z-index on a static box does
+	// not push it under the canvas either.
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green"></div><div style="z-index:10;width:30px;height:30px;background:red"></div><div style="z-index:-5;width:30px;height:10px;background:blue"></div></body>`, image.Rect(0, 0, 40, 50))
+	pixel(t, img, 10, 10, zGreen)
+	pixel(t, img, 25, 25, zRed)
+	pixel(t, img, 10, 35, zBlue)
+}
+
+func TestPaintNestedStackingContextsAreAtomic(t *testing.T) {
+	// A z-index:100 child cannot escape its z-index:1 parent context to rise
+	// above a z-index:2 sibling context.
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:30px;height:30px;z-index:1"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:red;z-index:100"></div></div><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green;z-index:2"></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 10, 10, zGreen)
+}
+
+func TestPaintZIndexAutoDescendantsJoinParentContext(t *testing.T) {
+	// A z-index:auto positioned box does not form a context, so its
+	// z-index:5 child is ordered against the z-index:2 sibling directly.
+	img := painted(t, `<body style="margin:0"><div style="position:absolute;left:0;top:0;width:30px;height:30px;background:yellow"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green;z-index:5"></div></div><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:red;z-index:2"></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 10, 10, zGreen)
+	pixel(t, img, 25, 25, zYellow)
+}
+
+func TestPaintNegativeZIndexAboveContextBackground(t *testing.T) {
+	// Negative layers paint above their own stacking context's background.
+	img := painted(t, `<body style="margin:0"><div style="position:relative;z-index:0;width:30px;height:30px;background:red"><div style="position:absolute;left:0;top:0;width:20px;height:20px;background:green;z-index:-1"></div></div></body>`, image.Rect(0, 0, 40, 40))
+	pixel(t, img, 10, 10, zGreen)
+	pixel(t, img, 25, 25, zRed)
+}

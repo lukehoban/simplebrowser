@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>z-index stacking demo</title>
+<style>
+body { margin: 10px; font: 14px sans-serif; }
+.panel { position: relative; height: 130px; margin-bottom: 10px; }
+.b { position: absolute; width: 90px; height: 90px; }
+.note { margin-left: 150px; padding-top: 40px; }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="b" style="left:0;top:0;background:red;z-index:-1"></div>
+  <div style="width:90px;height:90px;background:green"></div>
+  <p class="note" style="margin-top:-90px">z-index:-1 red box paints below in-flow green block</p>
+</div>
+<div class="panel">
+  <div class="b" style="left:0;top:0;background:#1060d0;z-index:3"></div>
+  <div class="b" style="left:30px;top:30px;background:orange;z-index:1"></div>
+  <p class="note">z-index:3 blue paints above later z-index:1 orange</p>
+</div>
+<div class="panel">
+  <div class="b" style="left:0;top:0;background:purple;z-index:2"></div>
+  <div class="b" style="left:30px;top:30px;background:teal;z-index:2"></div>
+  <p class="note">equal z-index:2 falls back to tree order (teal on top)</p>
+</div>
+<div class="panel">
+  <div class="b" style="left:0;top:0;background:#1060d0"></div>
+  <div style="position:static;z-index:5;width:90px;height:90px;margin-left:30px;background:orange"></div>
+  <p class="note" style="margin-top:-90px">z-index on non-positioned orange is ignored</p>
+</div>
+</body>
+</html>
