@@ -182,8 +182,12 @@ func TestFontFamilyMapping(t *testing.T) {
 	for _, tc := range []struct {
 		value, want string
 	}{
-		{"Verdana, Geneva, sans-serif", "sans"},
+		{"Verdana, Geneva, sans-serif", "verdana"},
+		{`"Missing Face", Geneva, sans-serif`, "verdana"},
+		{`'DejaVu Sans'`, "verdana"},
 		{`"Missing Face", Courier, monospace`, "mono"},
+		{"Arial, Verdana", "sans"}, // first supported family wins.
+		{"sans-serif", "sans"},
 		{"Arial", "sans"},
 		{"Helvetica", "sans"},
 		{"Times New Roman, serif", "sans"}, // Go fonts have no serif face.
@@ -196,7 +200,7 @@ func TestFontFamilyMapping(t *testing.T) {
 
 	faces := newFaceSet()
 	defer faces.close()
-	sans := faces.metrics(ComputedStyle{"font-size": "16px", "font-family": "Verdana"})
+	sans := faces.metrics(ComputedStyle{"font-size": "16px", "font-family": "Arial"})
 	mono := faces.metrics(ComputedStyle{"font-size": "16px", "font-family": "Courier"})
 	if sans.width("iiii") == mono.width("iiii") {
 		t.Fatal("Courier should use Go Mono rather than the sans face")

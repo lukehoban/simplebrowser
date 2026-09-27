@@ -4,6 +4,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/lukehoban/simplebrowser/internal/fonts/dejavu"
+
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/gobolditalic"
@@ -32,6 +34,25 @@ type fontVariant struct {
 	bold, italic bool
 }
 
+// fontSources lists every embedded face by mapped family ("sans" = Go Sans,
+// "mono" = Go Mono, "verdana" = DejaVu Sans) and weight/style.
+var fontSources = map[fontVariant][]byte{
+	{"sans", false, false}: goregular.TTF, {"sans", true, false}: gobold.TTF,
+	{"sans", false, true}: goitalic.TTF, {"sans", true, true}: gobolditalic.TTF,
+	{"mono", false, false}: gomono.TTF, {"mono", true, false}: gomonobold.TTF,
+	{"mono", false, true}: gomonoitalic.TTF, {"mono", true, true}: gomonobolditalic.TTF,
+	{"verdana", false, false}: dejavu.Regular, {"verdana", true, false}: dejavu.Bold,
+	{"verdana", false, true}: dejavu.Oblique, {"verdana", true, true}: dejavu.BoldOblique,
+}
+
+// styleFontVariant is the single family/weight/style mapping shared by layout
+// faces and ex/ch unit resolution.
+func styleFontVariant(style ComputedStyle) fontVariant {
+	fontStyle := strings.TrimSpace(style["font-style"])
+	return fontVariant{family: mappedFontFamily(style["font-family"]), bold: isBold(style["font-weight"]),
+		italic: strings.EqualFold(fontStyle, "italic") || strings.EqualFold(fontStyle, "oblique")}
+}
+
 var (
 	fontRatioOnce  sync.Once
 	fontRatioTable map[fontVariant]fontRatios
@@ -41,9 +62,7 @@ var (
 // for style (same family/weight/style mapping as faceSet.metrics).
 func ratiosFor(style ComputedStyle) fontRatios {
 	fontRatioOnce.Do(loadFontRatios)
-	key := fontVariant{family: mappedFontFamily(style["font-family"]), bold: isBold(style["font-weight"]),
-		italic: strings.EqualFold(strings.TrimSpace(style["font-style"]), "italic") ||
-			strings.EqualFold(strings.TrimSpace(style["font-style"]), "oblique")}
+	key := styleFontVariant(style)
 	if r, ok := fontRatioTable[key]; ok {
 		return r
 	}
@@ -52,12 +71,7 @@ func ratiosFor(style ComputedStyle) fontRatios {
 
 func loadFontRatios() {
 	fontRatioTable = map[fontVariant]fontRatios{}
-	for key, data := range map[fontVariant][]byte{
-		{"sans", false, false}: goregular.TTF, {"sans", true, false}: gobold.TTF,
-		{"sans", false, true}: goitalic.TTF, {"sans", true, true}: gobolditalic.TTF,
-		{"mono", false, false}: gomono.TTF, {"mono", true, false}: gomonobold.TTF,
-		{"mono", false, true}: gomonoitalic.TTF, {"mono", true, true}: gomonobolditalic.TTF,
-	} {
+	for key, data := range fontSources {
 		fontRatioTable[key] = measureFontRatios(data)
 	}
 }

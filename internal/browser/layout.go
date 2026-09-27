@@ -9,14 +9,6 @@ import (
 	"unicode/utf8"
 
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/gobolditalic"
-	"golang.org/x/image/font/gofont/goitalic"
-	"golang.org/x/image/font/gofont/gomono"
-	"golang.org/x/image/font/gofont/gomonobold"
-	"golang.org/x/image/font/gofont/gomonobolditalic"
-	"golang.org/x/image/font/gofont/gomonoitalic"
-	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
@@ -120,15 +112,8 @@ func (m metrics) lineMetrics() (ascent, descent int) {
 // Each layout owns its font faces. opentype faces cache glyph data internally
 // and must not be shared across concurrent renders.
 type faceSet struct {
-	sansRegular    *opentype.Font
-	sansBold       *opentype.Font
-	sansItalic     *opentype.Font
-	sansBoldItalic *opentype.Font
-	monoRegular    *opentype.Font
-	monoBold       *opentype.Font
-	monoItalic     *opentype.Font
-	monoBoldItalic *opentype.Font
-	faces          map[faceKey]font.Face
+	fonts map[fontVariant]*opentype.Font
+	faces map[faceKey]font.Face
 	// images holds the render-scoped decoded resources keyed by DOM node, so
 	// layout never fetches during measurement.
 	images map[*Node]image.Image
@@ -142,17 +127,13 @@ type faceKey struct {
 }
 
 func newFaceSet() *faceSet {
-	parse := func(data []byte) *opentype.Font {
-		result, _ := opentype.Parse(data)
-		return result
+	fonts := make(map[fontVariant]*opentype.Font, len(fontSources))
+	for variant, data := range fontSources {
+		if parsed, err := opentype.Parse(data); err == nil {
+			fonts[variant] = parsed
+		}
 	}
-	return &faceSet{
-		sansRegular: parse(goregular.TTF), sansBold: parse(gobold.TTF),
-		sansItalic: parse(goitalic.TTF), sansBoldItalic: parse(gobolditalic.TTF),
-		monoRegular: parse(gomono.TTF), monoBold: parse(gomonobold.TTF),
-		monoItalic: parse(gomonoitalic.TTF), monoBoldItalic: parse(gomonobolditalic.TTF),
-		faces: make(map[faceKey]font.Face),
-	}
+	return &faceSet{fonts: fonts, faces: make(map[faceKey]font.Face)}
 }
 
 func (f *faceSet) close() {
@@ -165,32 +146,13 @@ func (f *faceSet) close() {
 
 func (f *faceSet) metrics(style ComputedStyle) metrics {
 	size := fontSize(style["font-size"])
-	key := faceKey{size: size, family: mappedFontFamily(style["font-family"]),
-		bold: isBold(style["font-weight"]), italic: strings.EqualFold(strings.TrimSpace(style["font-style"]), "italic") ||
-			strings.EqualFold(strings.TrimSpace(style["font-style"]), "oblique")}
+	variant := styleFontVariant(style)
+	key := faceKey{size: size, family: variant.family, bold: variant.bold, italic: variant.italic}
 	face, ok := f.faces[key]
 	if !ok {
-		fontData := f.sansRegular
-		if key.family == "mono" {
-			switch {
-			case key.bold && key.italic:
-				fontData = f.monoBoldItalic
-			case key.bold:
-				fontData = f.monoBold
-			case key.italic:
-				fontData = f.monoItalic
-			default:
-				fontData = f.monoRegular
-			}
-		} else {
-			switch {
-			case key.bold && key.italic:
-				fontData = f.sansBoldItalic
-			case key.bold:
-				fontData = f.sansBold
-			case key.italic:
-				fontData = f.sansItalic
-			}
+		fontData := f.fonts[variant]
+		if fontData == nil {
+			fontData = f.fonts[fontVariant{family: "sans"}]
 		}
 		if fontData != nil {
 			face, _ = opentype.NewFace(fontData, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
@@ -201,15 +163,19 @@ func (f *faceSet) metrics(style ComputedStyle) metrics {
 }
 
 // mappedFontFamily picks the first supported family in a CSS family list.
-// x/image ships Go Sans and Go Mono but no serif face, so serif/Times
-// intentionally use the sans fallback.
+// Verdana and Geneva (the Hacker News stack) map to bundled DejaVu Sans, whose
+// Bitstream Vera design has Verdana-like wide metrics. x/image ships Go Sans
+// and Go Mono but no serif face, so serif/Times intentionally use the Go Sans
+// fallback, as do Arial/Helvetica and the generic sans-serif family.
 func mappedFontFamily(value string) string {
 	for _, family := range strings.Split(value, ",") {
 		family = strings.ToLower(strings.Trim(strings.TrimSpace(family), `"'`))
 		switch family {
 		case "courier", "courier new", "monospace":
 			return "mono"
-		case "verdana", "geneva", "arial", "helvetica", "sans-serif",
+		case "verdana", "geneva", "dejavu sans":
+			return "verdana"
+		case "arial", "helvetica", "sans-serif",
 			"times", "times new roman", "serif":
 			return "sans"
 		}

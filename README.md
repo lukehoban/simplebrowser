@@ -12,8 +12,9 @@ Hacker News uses for its page structure. Explicitly sized tables honor auto
 side margins and legacy centered containers, so the 85%-wide HN page is
 centered in the viewport. Adjoining vertical block margins collapse (between
 siblings and through parents' first/last children). Typography resolves inherited and
-relative font sizes, maps common sans/serif/monospace family lists to embedded
-Go fonts, and applies CSS line heights. Inline text uses font ascents and descents
+relative font sizes, renders Hacker News's `Verdana, Geneva` stack with bundled
+[DejaVu Sans](internal/fonts/dejavu/README.md) (Verdana-like metrics), maps other
+sans/serif/monospace family lists to embedded Go fonts, and applies CSS line heights. Inline text uses font ascents and descents
 to share a baseline with replaced images (including `vertical-align: top`, `middle`,
 and `bottom`). Painting rasterizes colors, CSS background images
 (GIF/PNG/JPEG/SVG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
@@ -33,8 +34,8 @@ and CSS backgrounds. `<use>`/`<defs>` references and advanced CSS remain future 
 committed report and inspect failed test/reference/diff PNGs in `artifacts/wpt/`.
 
 *Offline Hacker News snapshot generated from the repository's current source
-(2026-09-26), with image painting, fixed-point line wrapping, and the SVG
-logo and vote-arrow backgrounds. This is a progress snapshot, not a
+(2026-09-26), with image painting, fixed-point line wrapping, DejaVu Sans
+for the Verdana stack, and the SVG logo and vote-arrow backgrounds. This is a progress snapshot, not a
 pixel-accurate HN reference.*
 
 **What's next**
