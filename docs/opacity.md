@@ -25,7 +25,7 @@ Live `https://github.com/microsoft/vscode` at 800×600. All three were captured 
 | --- | --- | --- |
 | ![Main: nearly blank](screenshots/opacity/live-main-f955ee4.png) | ![Previous main](screenshots/opacity/live-previous-main-9976c151.png) | ![After](screenshots/opacity/live-after.png) |
 
-The live page changes over time (commit counts, markup, CSS hashes), so the live captures are evidence, not goldens. In this capture, the "after" image differs from previous main only in the updated commit count and a latest-commit skeleton bar, which comes from generated content. Only the repro and the unit tests in `opacity_test.go` are deterministic.
+The live page changes over time (commit counts, markup, CSS hashes), so the live captures are evidence, not goldens. In this capture, the "after" image differs from previous main in exactly one area: 1,427 pixels inside (21,495)–(118,510). That area is the latest-commit skeleton bar, which is drawn by generated content (#312). Only the repro and the unit tests in `opacity_test.go` are deterministic.
 
 To regenerate the repro:
 
