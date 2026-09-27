@@ -2,16 +2,20 @@ package browser
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"mime"
 	"strconv"
 	"strings"
 )
 
 const maxDecodedImagePixels int64 = 16 << 20
+const maxDataImageBytes = 16 << 20
+const maxDataURLHeaderBytes = 4 << 10
 
 // fetchImages loads visible img resources once per render. Individual failures
 // are deliberately non-fatal: layout still reserves the dimensions requested
@@ -25,6 +29,15 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 	cache := make(map[string]image.Image)
 	visited := make(map[string]bool)
 	load := func(base, source string) image.Image {
+		source = strings.TrimSpace(source)
+		if data, ok := decodeDataImageURL(source); ok {
+			return decodeImage(data)
+		}
+		// Never hand a malformed or unsupported data URL to the network
+		// fetcher as a fallback. Data URLs are local resources, even on error.
+		if hasDataURLScheme(source) {
+			return nil
+		}
 		target, err := ResolveCSSURL(base, source)
 		if err != nil {
 			return nil
@@ -68,6 +81,125 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 	}
 	visit(root)
 	return images, backgrounds
+}
+
+// decodeDataImageURL decodes supported image data URLs without network access.
+func decodeDataImageURL(source string) ([]byte, bool) {
+	if len(source) > maxDataImageBytes*2 {
+		return nil, false
+	}
+	if !hasDataURLScheme(source) {
+		return nil, false
+	}
+	// A raw # starts the URL fragment, which is not part of the data payload.
+	if fragment := strings.IndexByte(source, '#'); fragment >= 0 {
+		source = source[:fragment]
+	}
+	comma := strings.IndexByte(source, ',')
+	if comma < 0 {
+		return nil, false
+	}
+	header, payload := source[len("data:"):comma], source[comma+1:]
+	if len(header) > maxDataURLHeaderBytes {
+		return nil, false
+	}
+	base64Encoded := false
+	if separator := strings.LastIndexByte(header, ';'); separator >= 0 &&
+		strings.EqualFold(header[separator+1:], "base64") {
+		base64Encoded = true
+		header = header[:separator]
+	}
+
+	mediaType, _, err := mime.ParseMediaType(header)
+	legacySVGUTF8 := false
+	if err != nil {
+		// Accept the historical data:image/svg+xml;utf8 spelling used by
+		// existing pages, while requiring ordinary parameters to be valid MIME.
+		// Some legacy CSS embeds the SVG as raw text, including literal spaces.
+		if !strings.EqualFold(header, "image/svg+xml;utf8") {
+			return nil, false
+		}
+		mediaType = "image/svg+xml"
+		legacySVGUTF8 = true
+	}
+	switch strings.ToLower(mediaType) {
+	case "image/svg+xml", "image/png", "image/jpeg", "image/gif":
+	default:
+		return nil, false
+	}
+	if base64Encoded {
+		encodedLimit := base64.StdEncoding.EncodedLen(maxDataImageBytes)
+		encoded, ok := percentDecodeBounded(payload, encodedLimit, false)
+		if !ok || len(encoded) > encodedLimit ||
+			base64.StdEncoding.DecodedLen(len(encoded)) > maxDataImageBytes {
+			return nil, false
+		}
+		// Strict base64 still ignores CR and LF. Reject all decoded control
+		// characters in the base64 text before handing it to the decoder.
+		for _, b := range encoded {
+			if b < 0x20 || b == 0x7f {
+				return nil, false
+			}
+		}
+		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(encoded)))
+		n, err := base64.StdEncoding.Strict().Decode(decoded, encoded)
+		if err != nil {
+			return nil, false
+		}
+		return decoded[:n], true
+	}
+	return percentDecodeBounded(payload, maxDataImageBytes, legacySVGUTF8)
+}
+
+func hasDataURLScheme(source string) bool {
+	return len(source) >= len("data:") && strings.EqualFold(source[:len("data:")], "data:")
+}
+
+// percentDecodeBounded validates escapes and computes the decoded length
+// before allocating the output buffer.
+func percentDecodeBounded(source string, limit int, allowSpaces bool) ([]byte, bool) {
+	length := 0
+	for i := 0; i < len(source); i++ {
+		if source[i] == '%' {
+			if i+2 >= len(source) || fromHex(source[i+1]) < 0 || fromHex(source[i+2]) < 0 {
+				return nil, false
+			}
+			i += 2
+		} else if (source[i] < 0x21 && !(allowSpaces && source[i] == ' ')) || source[i] > 0x7e {
+			// Control whitespace and non-ASCII bytes must be percent-encoded;
+			// literal spaces are allowed only for legacy UTF-8 SVG payloads.
+			return nil, false
+		}
+		length++
+		if length > limit {
+			return nil, false
+		}
+	}
+	decoded := make([]byte, length)
+	n := 0
+	for i := 0; i < len(source); i++ {
+		if source[i] == '%' {
+			decoded[n] = byte(fromHex(source[i+1])<<4 | fromHex(source[i+2]))
+			i += 2
+		} else {
+			decoded[n] = source[i]
+		}
+		n++
+	}
+	return decoded, true
+}
+
+func fromHex(b byte) int {
+	switch {
+	case b >= '0' && b <= '9':
+		return int(b - '0')
+	case b >= 'a' && b <= 'f':
+		return int(b-'a') + 10
+	case b >= 'A' && b <= 'F':
+		return int(b-'A') + 10
+	default:
+		return -1
+	}
 }
 
 func decodeImage(data []byte) image.Image {
