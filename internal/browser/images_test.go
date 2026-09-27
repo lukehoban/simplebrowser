@@ -57,8 +57,11 @@ func TestDecodeImageFormatsAndBounds(t *testing.T) {
 			}
 		})
 	}
-	if got := decodeImage([]byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)); got != nil {
-		t.Fatalf("SVG should not decode: %v", got)
+	if got := decodeImage([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"/>`)); got == nil || got.Bounds().Size() != image.Pt(3, 2) {
+		t.Fatalf("SVG subset should decode at its intrinsic size: %v", got)
+	}
+	if got := decodeImage([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><path`)); got != nil {
+		t.Fatalf("malformed SVG should not decode: %v", got)
 	}
 }
 
@@ -211,13 +214,14 @@ func TestFetchImagesResolvesRelativeLocalPaths(t *testing.T) {
 	}
 }
 
-// SVG and other unsupported or corrupt payloads keep a sized placeholder box.
+// Malformed SVG and other unsupported or corrupt payloads keep a sized
+// placeholder box.
 func TestUnsupportedAndCorruptImagesKeepPlaceholders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/logo.svg":
 			w.Header().Set("Content-Type", "image/svg+xml")
-			_, _ = w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"/>`))
+			_, _ = w.Write([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="30" height="10"><path`))
 		case "/broken.png":
 			_, _ = w.Write([]byte("\x89PNG\r\n\x1a\nnot really a png"))
 		default:
@@ -319,7 +323,7 @@ func TestBlockLevelImageProducesImageBox(t *testing.T) {
 	}
 }
 
-// The offline Hacker News fixture exercises SVG placeholders and spacer GIFs.
+// The offline Hacker News fixture exercises the SVG logo and spacer GIFs.
 func TestHackerNewsFixtureImageBoxes(t *testing.T) {
 	page := filepath.Join("..", "..", "testdata", "hn", "news.html")
 	body, err := os.ReadFile(page)
@@ -333,6 +337,9 @@ func TestHackerNewsFixtureImageBoxes(t *testing.T) {
 	logos := 0
 	for _, box := range boxes {
 		if box.Rect.Size() == image.Pt(18, 18) {
+			if _, ok := box.Image.(*svgImage); !ok {
+				t.Errorf("18x18 logo box did not decode as SVG: %T", box.Image)
+			}
 			logos++
 		}
 		if box.Rect.Dx() < 0 || box.Rect.Dy() < 0 {
@@ -340,6 +347,6 @@ func TestHackerNewsFixtureImageBoxes(t *testing.T) {
 		}
 	}
 	if logos == 0 {
-		t.Errorf("expected an 18x18 SVG logo placeholder, got %d boxes", len(boxes))
+		t.Errorf("expected an 18x18 SVG logo, got %d boxes", len(boxes))
 	}
 }

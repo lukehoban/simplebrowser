@@ -177,6 +177,12 @@ func drawBackgroundImage(dst *image.RGBA, box *Box, src image.Image, style Compu
 	if w <= 0 || h <= 0 || w > 4096 || h > 4096 {
 		return
 	}
+	if svg, ok := src.(*svgImage); ok {
+		// Render vector backgrounds at the tile size; sampling is then 1:1.
+		if raster := svg.rasterize(w, h); raster != nil {
+			src = raster
+		}
+	}
 	words := strings.Fields(strings.ToLower(style["background-position"]))
 	x := area.Min.X + backgroundAxis(words, true, area.Dx()-w)
 	y := area.Min.Y + backgroundAxis(words, false, area.Dy()-h)

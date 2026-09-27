@@ -33,7 +33,7 @@ type Box struct {
 // ImageBox exposes a decoded replaced image and its used rectangle to the
 // painting stage without requiring the painter to resolve resources again.
 // Image is nil when the resource failed to load or is an unsupported format
-// such as SVG; the rectangle is still reserved so painting can draw a
+// or malformed SVG; the rectangle is still reserved so painting can draw a
 // placeholder.
 type ImageBox struct {
 	Image image.Image

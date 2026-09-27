@@ -67,6 +67,14 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 
 func decodeImage(data []byte) image.Image {
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil && looksLikeSVG(data) {
+		// The minimal SVG subset (svg.go); unsupported or malformed SVG
+		// returns nil so callers keep their placeholder behavior.
+		if svg, err := decodeSVG(data); err == nil {
+			return svg
+		}
+		return nil
+	}
 	if err != nil || config.Width <= 0 || config.Height <= 0 ||
 		int64(config.Width)*int64(config.Height) > maxDecodedImagePixels {
 		return nil
@@ -74,7 +82,7 @@ func decodeImage(data []byte) image.Image {
 	switch format {
 	case "gif", "png", "jpeg":
 	default:
-		// SVG and unknown formats remain unsupported by design.
+		// Unknown raster formats remain unsupported by design.
 		return nil
 	}
 	decoded, _, err := image.Decode(bytes.NewReader(data))
