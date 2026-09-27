@@ -259,7 +259,7 @@ func TestSVGRasterizesFills(t *testing.T) {
 		<g fill="red"><path d="M0 0h20v20H0z"/><path d="M30 0h10v10h-10z" fill="none"/></g>
 		<path d="M20 10h10v10h-10z"/>
 		<g transform="translate(30 10)"><rect width="10" height="10" style="fill: #0f0"/></g>
-		<circle cx="5" cy="5" r="5" fill="yellow"/>
+		<defs><rect width="40" height="20" fill="yellow"/></defs>
 	</svg>`
 	img, err := decodeSVG([]byte(src))
 	if err != nil {
@@ -273,7 +273,7 @@ func TestSVGRasterizesFills(t *testing.T) {
 		{17, 2, color.RGBA{0, 0, 255, 255}}, // fill="none" leaves the rect beneath
 		{12, 7, color.RGBA{0, 0, 0, 255}},   // implicit black fill
 		{17, 7, color.RGBA{0, 255, 0, 255}}, // transform + style fill
-		{12, 2, color.RGBA{0, 0, 255, 255}}, // unsupported <circle> skipped
+		{12, 2, color.RGBA{0, 0, 255, 255}}, // unsupported <defs> subtree skipped
 	} {
 		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
 			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
@@ -432,6 +432,44 @@ func TestSVGArcVisual(t *testing.T) {
 	}
 }
 
+func TestSVGShapesVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "shapes-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{35, 50, color.RGBA{17, 102, 170, 255}},   // circle fill
+		{35, 26, color.RGBA{102, 68, 85, 255}},    // circle stroke
+		{95, 50, color.RGBA{204, 221, 238, 255}},  // ellipse fill
+		{140, 50, color.RGBA{238, 85, 17, 255}},   // line stroke
+		{175, 70, color.RGBA{255, 221, 136, 255}}, // polyline fill
+		{175, 81, color.RGBA{255, 255, 255, 255}}, // polyline stroke stays open
+		{215, 50, color.RGBA{238, 85, 17, 255}},   // polygon fill
+	} {
+		if got := img.RGBAAt(p.x, p.y); got != p.want {
+			t.Errorf("shapes fixture pixel (%d,%d) = %v, want %v", p.x, p.y, got, p.want)
+		}
+	}
+	if path := os.Getenv("SVG_SHAPES_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if err != nil || closeErr != nil {
+			t.Fatalf("write shapes render: %v, %v", err, closeErr)
+		}
+	}
+}
+
 func TestSVGStrokeJoinsAndNoDoubleAlpha(t *testing.T) {
 	for _, join := range []string{"miter", "round", "bevel"} {
 		src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="none" stroke="red" stroke-opacity=".5" stroke-width="4" stroke-linejoin="` + join + `" d="M3 15L10 5L17 15"/></svg>`
@@ -535,5 +573,125 @@ func TestSVGTransformParsing(t *testing.T) {
 	}
 	if _, ok := parseSVGTransform("wobble(3)"); ok {
 		t.Error("unknown transform accepted")
+	}
+}
+
+func TestSVGBasicShapeGeometry(t *testing.T) {
+	attrs := func(kv ...string) map[string]string {
+		m := map[string]string{}
+		for i := 0; i+1 < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	for _, tc := range []struct {
+		name string
+		got  []svgSegment
+		want string
+	}{
+		{"circle", svgEllipse(attrs("cx", "5", "cy", "5"), 4, 4),
+			"M 9,5;C 9,7.209 7.209,9 5,9;C 2.791,9 1,7.209 1,5;C 1,2.791 2.791,1 5,1;C 7.209,1 9,2.791 9,5;Z;"},
+		{"ellipse", svgEllipseAttrs(attrs("cx", "-1", "rx", "2", "ry", "1")),
+			"M 1,0;C 1,0.552 0.105,1 -1,1;C -2.105,1 -3,0.552 -3,0;C -3,-0.552 -2.105,-1 -1,-1;C 0.105,-1 1,-0.552 1,0;Z;"},
+		// A missing or auto radius takes the other one.
+		{"ellipse auto", svgEllipseAttrs(attrs("rx", "auto", "ry", "1")),
+			"M 1,0;C 1,0.552 0.552,1 0,1;C -0.552,1 -1,0.552 -1,0;C -1,-0.552 -0.552,-1 0,-1;C 0.552,-1 1,-0.552 1,0;Z;"},
+		{"ellipse missing", svgEllipseAttrs(attrs("rx", "1")),
+			"M 1,0;C 1,0.552 0.552,1 0,1;C -0.552,1 -1,0.552 -1,0;C -1,-0.552 -0.552,-1 0,-1;C 0.552,-1 1,-0.552 1,0;Z;"},
+		// Zero, negative, invalid and doubly-missing radii disable rendering.
+		{"zero radius", svgEllipse(attrs(), 0, 4), ""},
+		{"negative rx", svgEllipseAttrs(attrs("rx", "-1", "ry", "2")), ""},
+		{"invalid ry", svgEllipseAttrs(attrs("rx", "1", "ry", "x")), ""},
+		{"no radii", svgEllipseAttrs(attrs()), ""},
+		{"line", svgLine(attrs("x1", "1", "y1", "-2", "x2", "3.5")), "M 1,-2;L 3.5,0;"},
+		{"line invalid", svgLine(attrs("x1", "1", "x2", "a")), ""},
+		{"polyline", svgPolyline("0,0 10,0 10,10", false, 100), "M 0,0;L 10,0;L 10,10;"},
+		{"polygon", svgPolyline("0 0,10 0 10-10", true, 100), "M 0,0;L 10,0;L 10,-10;Z;"},
+		// An odd trailing coordinate is dropped; points before an error render.
+		{"odd points", svgPolyline("0,0 10,0 10", true, 100), "M 0,0;L 10,0;Z;"},
+		{"points error", svgPolyline("0,0 5,5 x 10,10", false, 100), "M 0,0;L 5,5;"},
+		{"single point", svgPolyline("3,4", true, 100), ""},
+		{"empty points", svgPolyline("", true, 100), ""},
+		// The segment budget truncates long lists, including the closing Z.
+		{"points limit", svgPolyline("0 0 1 1 2 2 3 3", true, 3), "M 0,0;L 1,1;L 2,2;"},
+	} {
+		if got := segmentPoints(tc.got); got != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestSVGBasicShapePixels(t *testing.T) {
+	// The black-disc repro from #82.
+	img, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><circle cx="5" cy="5" r="4"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(5, 5); got != (color.RGBA{0, 0, 0, 255}) {
+		t.Errorf("circle center = %v, want opaque black", got)
+	}
+	if got := img.RGBAAt(0, 0); got != (color.RGBA{}) {
+		t.Errorf("circle corner = %v, want transparent", got)
+	}
+
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 20 20">
+		<circle cx="5" cy="5" r="-3" fill="red"/>
+		<ellipse cx="15" cy="5" rx="4" ry="2" fill="none" stroke="#00f" stroke-width="1"/>
+		<line x1="0" y1="10" x2="20" y2="10" stroke="#0f0" stroke-width="2"/>
+		<line x1="0" y1="12" x2="20" y2="12"/>
+		<g transform="translate(0 10)" fill="#f00">
+			<polygon points="0,4 10,4 10,10 0,10"/>
+			<polyline points="12,4 20,4 20,10" fill="none" stroke="#000" stroke-width="1"/>
+		</g>
+	</svg>`
+	img, err = decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{10, 10, color.RGBA{}},               // negative radius disables rendering
+		{30, 10, color.RGBA{}},               // stroked ellipse interior stays unfilled
+		{37, 10, color.RGBA{0, 0, 255, 255}}, // ellipse stroke at (rx, 0), viewBox-scaled
+		{20, 20, color.RGBA{0, 255, 0, 255}}, // line stroke
+		{20, 24, color.RGBA{}},               // a line's fill has no area
+		{10, 34, color.RGBA{255, 0, 0, 255}}, // transformed polygon fill
+		{30, 28, color.RGBA{0, 0, 0, 255}},   // polyline stroke
+		{24, 38, color.RGBA{}},               // open polyline stroke is not closed
+		{34, 32, color.RGBA{}},               // fill="none" polyline
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
+func TestSVGBasicShapeResourceLimits(t *testing.T) {
+	// Every emitted segment counts against the document budget.
+	var b strings.Builder
+	b.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><polygon points="`)
+	for i := 0; i < maxSVGPathSegs; i++ {
+		b.WriteString("1 1 ")
+	}
+	b.WriteString(`"/></svg>`)
+	if _, err := decodeSVG([]byte(b.String())); err == nil {
+		t.Error("oversized polygon accepted")
+	}
+	// A polygon just under the budget plus one circle exceeds it.
+	b.Reset()
+	b.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><polygon points="`)
+	for i := 0; i < maxSVGPathSegs-4; i++ {
+		b.WriteString("1 1 ")
+	}
+	b.WriteString(`"/>`)
+	underBudget := b.String() + `</svg>`
+	if _, err := decodeSVG([]byte(underBudget)); err != nil {
+		t.Fatalf("polygon under the budget rejected: %v", err)
+	}
+	b.WriteString(`<circle r="1"/></svg>`)
+	if _, err := decodeSVG([]byte(b.String())); err == nil {
+		t.Error("circle segments not counted against the budget")
 	}
 }

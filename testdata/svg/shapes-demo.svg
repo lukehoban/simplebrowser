@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100">
+  <rect width="240" height="100" fill="white"/>
+  <!-- Filled and stroked circle. -->
+  <circle cx="35" cy="50" r="25" fill="#16a" stroke="#645" stroke-width="4"/>
+  <!-- Rotated ellipse through the transform pipeline. -->
+  <ellipse cx="95" cy="50" rx="28" ry="14" fill="#cde" stroke="#16a" stroke-width="2" transform="rotate(-30 95 50)"/>
+  <!-- Thick line with round caps. -->
+  <line x1="130" y1="85" x2="150" y2="15" stroke="#e51" stroke-width="6" stroke-linecap="round"/>
+  <!-- Open polyline: fill is implicitly closed, stroke is not. -->
+  <polyline points="160,80 175,20 190,80" fill="#fd8" stroke="#645" stroke-width="3"/>
+  <!-- Closed polygon (star) with an odd trailing coordinate that is dropped. -->
+  <polygon points="215,12 223,38 235,40 225,55 229,82 215,68 201,82 205,55 195,40 207,38 99" fill="#e51" stroke="#645" stroke-width="2" stroke-linejoin="round"/>
+</svg>
