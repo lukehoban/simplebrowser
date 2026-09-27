@@ -102,6 +102,58 @@ func TestFixedPositionOffsetsUseViewport(t *testing.T) {
 	}
 }
 
+func TestPositionedTextStaysInFlowInsidePositionedContainer(t *testing.T) {
+	tests := []struct {
+		name, markup, id string
+		wantX, wantY     int
+	}{
+		{"absolute", `<div id="target" style="position:absolute;left:7px;top:9px;color:red">hello</div>`, "target", 7, 9},
+		{"fixed", `<div id="target" style="position:fixed;left:7px;top:9px;color:red">hello</div>`, "target", 7, 9},
+		{"nested absolute", `<div style="position:relative;margin:0;width:100px;height:20px"><div id="target" style="position:absolute;left:7px;top:9px;color:red">hello</div></div>`, "target", 7, 9},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := styledForLayout(t, tt.markup)
+			got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 120))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The anonymous inline line box carries its parent's DOM node;
+			// select the enclosing positioned box, not that line box.
+			var box *Box
+			var find func(*Box)
+			find = func(b *Box) {
+				if box == nil && b.Node != nil {
+					if id, ok := b.Node.Attribute("id"); ok && id.Value == tt.id {
+						box = b
+					}
+				}
+				for _, child := range b.Children {
+					find(child)
+				}
+			}
+			find(got.Root)
+			if box == nil {
+				t.Fatal("missing positioned box")
+			}
+			if box.Rect.Min != image.Pt(tt.wantX, tt.wantY) || box.Rect.Dy() <= 0 {
+				t.Fatalf("positioned box = %v, want origin (%d,%d) and nonzero height", box.Rect, tt.wantX, tt.wantY)
+			}
+			if len(box.Children) != 1 || len(box.Children[0].Text) != 1 {
+				t.Fatalf("positioned text missing: %#v", box.Children)
+			}
+			run := box.Children[0].Text[0]
+			if run.Text != "hello" || run.Rect.Min.Y != box.Content.Min.Y ||
+				run.Rect.Max.Y > box.Content.Max.Y {
+				t.Fatalf("text run = %#v, container content = %v", run, box.Content)
+			}
+			if run.Style["position"] != "" || run.Style["color"] != "red" {
+				t.Fatalf("text leaf style = %v; want inherited color but no position", run.Style)
+			}
+		})
+	}
+}
+
 func TestPositionedAutoOffsetsUseStaticPosition(t *testing.T) {
 	doc := styledForLayout(t, `<div id="parent" style="margin:0">
 		<div id="before" style="width:20px;height:11px"></div>
