@@ -1400,6 +1400,9 @@ func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 	if n == nil {
 		return 0, 0
 	}
+	if n.Node != nil && n.Node.Type == ElementNode && isFlexContainer(n) {
+		return flexIntrinsicWidths(n, faces)
+	}
 	minWidth, maxWidth := 0, 0
 	inlineMin, inlineMax := 0, 0
 	flush := func() {

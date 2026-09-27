@@ -228,6 +228,49 @@ func TestFlexSupportsClaimsOnlyImplementedAlignment(t *testing.T) {
 	if !supportsConditionMatches("(align-items: center)") {
 		t.Fatal("center alignment is implemented")
 	}
+	for _, query := range []string{"(flex-wrap: wrap)", "(flex-wrap: wrap-reverse)", "(align-content: center)", "(align-content: space-between)"} {
+		if !supportsConditionMatches(query) {
+			t.Errorf("implemented value not reported: %s", query)
+		}
+	}
+	for _, query := range []string{"(flex-wrap: balance)", "(align-content: baseline)", "(align-content: safe center)"} {
+		if supportsConditionMatches(query) {
+			t.Errorf("unsupported value reported: %s", query)
+		}
+	}
+}
+
+func TestFlexColumnWrapAutoCrossWidthAndAnonymousIntrinsic(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		wantX        int
+	}{
+		{"stretch", `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap;height:70px;width:180px"><div id="a" style="height:40px;background:red"></div><div id="b" style="height:40px;background:blue"></div></div>`, 90},
+		{"start text", `<div id="c" style="display:flex;flex-direction:column;flex-wrap:wrap;align-items:flex-start;height:70px;width:180px;font:20px monospace"><div id="a" style="height:40px;background:red">Hello</div><div id="b" style="height:40px;background:blue">World</div></div>`, 90},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `<body style="margin:0">` + tc.source + `</body>`
+			layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 220, 120))
+			if err != nil {
+				t.Fatal(err)
+			}
+			boxes := boxesByID(layout.Root, "a", "b")
+			if boxes["b"].Rect.Min.X != tc.wantX || boxes["b"].Rect.Min.Y != 0 {
+				t.Fatalf("column lines: first=%v second=%v, want second x=%d", boxes["a"].Rect, boxes["b"].Rect, tc.wantX)
+			}
+			img := painted(t, source, image.Rect(0, 0, 220, 120))
+			pixel(t, img, tc.wantX+55, 5, color.RGBA{0, 0, 255, 255})
+		})
+	}
+	const floatText = `<body style="margin:0;font:20px monospace"><div id="f" style="float:left;display:flex;flex-wrap:wrap">Hello</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, floatText), image.Rect(0, 0, 220, 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	float := boxesByID(layout.Root, "f")["f"]
+	if float.Rect.Dx() < 50 || len(float.Children) != 1 || !float.Children[0].Anonymous {
+		t.Fatalf("text-only float flex width/item: %+v", float)
+	}
 }
 
 func TestFlexRowGapAlignmentAndPixels(t *testing.T) {
@@ -356,4 +399,76 @@ func TestFlexMainAxisPercentMinMaxResolveAgainstMainSize(t *testing.T) {
 	img := painted(t, source, image.Rect(0, 0, 120, 300))
 	pixel(t, img, 10, 20, color.RGBA{0, 0, 255, 255})
 	pixel(t, img, 10, 30, color.RGBA{255, 0, 0, 255})
+}
+
+func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
+	red, blue, green := color.RGBA{255, 0, 0, 255}, color.RGBA{0, 0, 255, 255}, color.RGBA{0, 128, 0, 255}
+	cases := []struct {
+		name, source string
+		want         map[string]image.Rectangle
+		pixels       map[image.Point]color.RGBA
+	}{{
+		name:   "issue repro starts a second line",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap;width:100px;gap:10px"><div id="a" style="flex:none;width:60px;height:20px;background:red"></div><div id="b" style="flex:none;width:60px;height:20px;background:blue"></div></div><div id="after" style="height:5px"></div>`,
+		want: map[string]image.Rectangle{"c": image.Rect(0, 0, 100, 50), "a": image.Rect(0, 0, 60, 20),
+			"b": image.Rect(0, 30, 60, 50), "after": image.Rect(0, 50, 200, 55)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: red, {5, 35}: blue, {70, 5}: {255, 255, 255, 255}, {5, 25}: {255, 255, 255, 255}},
+	}, {
+		name:   "per-line flexing and wrap-reverse cross placement",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap-reverse;width:180px;gap:6px 10px"><div id="a" style="width:50px;height:20px;background:red"></div><div id="b" style="width:50px;height:30px;background:green"></div><div id="d" style="width:50px;height:20px"></div><div id="grow" style="flex:1 1 60px;height:20px;background:blue"></div></div>`,
+		want: map[string]image.Rectangle{"c": image.Rect(0, 0, 180, 56), "grow": image.Rect(0, 0, 180, 20),
+			"a": image.Rect(0, 36, 50, 56), "b": image.Rect(60, 26, 110, 56), "d": image.Rect(120, 36, 170, 56)},
+		pixels: map[image.Point]color.RGBA{{175, 5}: blue, {5, 40}: red, {5, 30}: {255, 255, 255, 255}, {65, 30}: green},
+	}, {
+		name:   "column wrap with stretched align-content lines",
+		source: `<div style="display:flex;flex-direction:column;flex-wrap:wrap;height:70px;width:180px;gap:10px"><div id="a" style="height:30px;width:40px;background:red"></div><div id="b" style="height:30px;width:40px"></div><div id="d" style="height:30px;width:40px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 40, 30), "b": image.Rect(0, 40, 40, 70), "d": image.Rect(95, 0, 135, 30)},
+		pixels: map[image.Point]color.RGBA{{100, 5}: blue, {90, 5}: {255, 255, 255, 255}},
+	}, {
+		name:   "align-content center on a definite row height",
+		source: `<div style="display:flex;flex-wrap:wrap;align-content:center;width:100px;height:100px;row-gap:10px"><div id="a" style="width:60px;height:20px"></div><div id="b" style="width:60px;height:20px"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 25, 60, 45), "b": image.Rect(0, 55, 60, 75)},
+	}, {
+		name:   "wrapped line stretches auto-height items",
+		source: `<div style="display:flex;flex-wrap:wrap;width:100px"><div id="a" style="width:60px;height:15px"></div><div id="e" style="width:30px"></div><div id="b" style="width:60px;height:20px"></div><div id="d" style="width:30px"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 60, 15), "e": image.Rect(60, 0, 90, 15), "b": image.Rect(0, 15, 60, 35), "d": image.Rect(60, 15, 90, 35)},
+	}, {
+		name:   "auto-height column never wraps",
+		source: `<div style="display:flex;flex-direction:column;flex-wrap:wrap;width:50px"><div id="a" style="height:30px"></div><div id="b" style="height:30px"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 50, 30), "b": image.Rect(0, 30, 50, 60)},
+	}, {
+		name:   "shrink-to-fit wrapping row sizes to its items on one line",
+		source: `<div id="c" style="float:left;display:flex;flex-wrap:wrap;column-gap:8px"><div id="a" style="width:20px;height:20px;background:red"></div><div id="b" style="width:20px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 48, 20), "a": image.Rect(0, 0, 20, 20), "b": image.Rect(28, 0, 48, 20)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: red, {40, 5}: blue},
+	}, {
+		name:   "nowrap keeps shrinking on one line",
+		source: `<div style="display:flex;width:100px"><div id="a" style="width:60px;height:10px"></div><div id="b" style="width:60px;height:10px"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 50, 10), "b": image.Rect(50, 0, 100, 10)},
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `<body style="margin:0">` + tc.source + `</body>`
+			layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 200, 120))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := make([]string, 0, len(tc.want))
+			for id := range tc.want {
+				ids = append(ids, id)
+			}
+			b := boxesByID(layout.Root, ids...)
+			for id, rect := range tc.want {
+				if b[id] == nil || b[id].Rect != rect {
+					t.Errorf("%s: got %v want %v", id, b[id], rect)
+				}
+			}
+			if len(tc.pixels) > 0 {
+				img := painted(t, source, image.Rect(0, 0, 200, 120))
+				for p, c := range tc.pixels {
+					pixel(t, img, p.X, p.Y, c)
+				}
+			}
+		})
+	}
 }

@@ -33,7 +33,7 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(display: inline-flex)", true},
 		{"(flex: 1 1 50%)", true},
 		{"(flex-wrap: nowrap)", true},
-		{"(flex-wrap: wrap)", false},
+		{"(flex-wrap: wrap)", true},
 		{"(gap: 8px 12px)", true},
 		{"(justify-content: space-between)", true},
 		{"(align-items: center)", true},
