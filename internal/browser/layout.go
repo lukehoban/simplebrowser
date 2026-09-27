@@ -1260,6 +1260,10 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		n = &StyledNode{Node: n.Node, Style: style, Children: n.Children}
 	}
 	positionX, positionY := staticX, staticY
+	// CSS 2.1 §9.3.2: left/right percentages refer to the containing block's
+	// width and top/bottom percentages to its height. cb.height is the
+	// padding-box height of the positioned ancestor (the viewport for fixed
+	// boxes and the initial containing block).
 	left := strings.TrimSpace(n.Style["left"])
 	top := strings.TrimSpace(n.Style["top"])
 	bottom := strings.TrimSpace(n.Style["bottom"])
@@ -1267,7 +1271,7 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		positionX = cb.x + int(math.Round(px(left, float64(width), 0)))
 	}
 	if top != "" && !strings.EqualFold(top, "auto") {
-		positionY = cb.y + int(math.Round(px(top, float64(width), 0)))
+		positionY = cb.y + int(math.Round(px(top, float64(cb.height), 0)))
 	}
 	box, _ := layoutBlock(n, positionX, positionY, width, faces, cb)
 	cssHeight := strings.TrimSpace(n.Style["height"])
@@ -1288,8 +1292,8 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		bottom != "" && !strings.EqualFold(bottom, "auto") &&
 		cssHeight != "" && !strings.EqualFold(cssHeight, "auto") &&
 		(marginTopAuto || marginBottomAuto) {
-		topOffset := int(math.Round(px(top, float64(width), 0)))
-		bottomOffset := int(math.Round(px(bottom, float64(width), 0)))
+		topOffset := int(math.Round(px(top, float64(cb.height), 0)))
+		bottomOffset := int(math.Round(px(bottom, float64(cb.height), 0)))
 		remaining := cb.height - topOffset - bottomOffset - box.Rect.Dy() - topMargin - bottomMargin
 		switch {
 		case marginTopAuto && marginBottomAuto:
@@ -1320,7 +1324,7 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		box = translatePositionedBox(box, cb.x+width-offset-margins[1]-box.Rect.Max.X, 0)
 	}
 	if bottom != "" && !strings.EqualFold(bottom, "auto") && (top == "" || strings.EqualFold(top, "auto")) {
-		offset := int(math.Round(px(bottom, float64(width), 0)))
+		offset := int(math.Round(px(bottom, float64(cb.height), 0)))
 		box = translatePositionedBox(box, 0, cb.y+cb.height-offset-bottomMargin-box.Rect.Max.Y)
 	}
 	box.Positioned = true

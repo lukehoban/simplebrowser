@@ -1,6 +1,6 @@
 # Compatibility coverage matrix
 
-**Blocking regression set: 39/39 pinned WPT reference assertions passing.** New coverage is diagnostic: WPT 3/6, repo-owned references 3/5.
+**Blocking regression set: 40/40 pinned WPT reference assertions passing.** New coverage is diagnostic: WPT 3/5, repo-owned references 3/5.
 
 Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels. The selected tests are a bounded coverage matrix, not a general conformance score. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
 
@@ -16,7 +16,7 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | WPT | Tables | 8 | 0 | 0 | 8 |
 | WPT | Box direction | 4 | 0 | 0 | 4 |
 | WPT | Margins | 5 | 0 | 0 | 5 |
-| WPT | Positioning | 6 | 2 | 0 | 8 |
+| WPT | Positioning | 7 | 1 | 0 | 8 |
 | WPT | Floats and clear | 1 | 1 | 0 | 2 |
 | WPT | Line boxes | 1 | 0 | 0 | 1 |
 | Local | Backgrounds | 1 | 0 | 0 | 1 |
@@ -66,9 +66,9 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | WPT | Colors | `colors/color-applies-to-002.xht` | `colors/color-applies-to-001-ref.xht` (match) | **pass** | 0 | Color application outside the element exercised here. |
 | WPT | Colors | `colors/color-applies-to-003.xht` | `colors/color-applies-to-001-ref.xht` (match) | **pass** | 0 | Color application outside the element exercised here. |
 | WPT | Floats and clear | `floats-clear/clear-001.xht` | `floats-clear/clear-001-ref.xht` (match) | **pass** | 0 | Right floats, multiple floats, and margin-collapse interactions. |
+| WPT | Positioning | `positioning/bottom-offset-percentage-001.xht` | `positioning/bottom-offset-percentage-001-ref.xht` (match) | **pass** | 0 | Auto offsets, replaced elements, and indefinite (auto-height) containing blocks (#217). |
 | WPT | Margins | `margin-padding-clear/margin-collapse-003.xht` | `margin-padding-clear/margin-collapse-003-ref.xht` (match) | **pass** | 0 | Floats, clearance, negative margins, and margin trimming. |
 | WPT | Floats and clear | `floats-clear/clear-002.xht` ([#76](https://github.com/lukehoban/simplebrowser/issues/76)) | `floats-clear/clear-002-ref.xht` (match) | **fail** | 36864 | Nested formatting contexts and negative clearance; the reference needs inline relative offsets. |
-| WPT | Positioning | `positioning/bottom-offset-percentage-001.xht` ([#216](https://github.com/lukehoban/simplebrowser/issues/216)) | `positioning/bottom-offset-percentage-001-ref.xht` (match) | **fail** | 5000 | Auto offsets, replaced elements, and indefinite containing-block heights. |
 | WPT | Positioning | `positioning/position-relative-004.xht` ([#76](https://github.com/lukehoban/simplebrowser/issues/76)) | `positioning/position-relative-004-ref.xht` (match) | **fail** | 36864 | Writing modes, bidi reordering, and positioned descendants. |
 | WPT | Backgrounds | `backgrounds/background-body-001.xht` | `backgrounds/background-body-001-ref.xht` (match) | **pass** | 0 | Background images, repeat, position, size, and multiple layers. |
 | WPT | Line boxes | `linebox/line-box-height-002.xht` | `linebox/line-box-height-002-ref.xht` (match) | **pass** | 0 | Mixed fonts, vertical-align variants, bidi, and vertical writing modes. |
