@@ -10,12 +10,13 @@ import (
 
 // Local SVG paint servers and group opacity.
 //
-// fill/stroke may reference a same-document <linearGradient> or
-// <radialGradient> with url(#id) and an optional fallback paint. Gradients
+// fill/stroke may reference a same-document gradient or pattern with url(#id)
+// and an optional fallback paint. Gradients
 // support explicit <stop>s (offset, stop-color, stop-opacity), gradientUnits,
 // gradientTransform, spreadMethod, and attribute/stop inheritance through a
-// bounded href chain. Patterns and other paint servers are not supported; a
-// reference to them paints the fallback (or nothing), like a missing ID.
+// bounded href chain. Patterns support bounded userSpaceOnUse tiles, transforms,
+// inherited content, and the same fallback/cycle behavior. Other paint servers
+// paint the fallback (or nothing), like a missing ID.
 //
 // Element opacity is not inherited: it composites the element and its
 // descendants as one group. The expansion emits push/pop markers around such
@@ -27,6 +28,7 @@ const (
 	maxSVGLayerDepth     = 8
 	maxSVGLayerPixels    = 1 << 27 // total offscreen layer pixels per rasterize
 	maxSVGGradientPixels = 1 << 27 // total gradient source pixels per rasterize
+	maxSVGPatternPixels  = 1 << 24 // total cached pattern tile pixels per document
 )
 
 type svgStop struct {
@@ -45,24 +47,32 @@ type svgGradient struct {
 	r, fx, fy      float64
 }
 
-// svgPaintServer is a gradient bound to one shape: toLocal maps gradient
-// space into the shape's local coordinates (gradientTransform, then the
-// bounding box for objectBoundingBox units).
+// svgPaintServer is a server bound to one shape: toLocal maps paint-server
+// space into the shape's local coordinates (the server transform, then the
+// bounding box for objectBoundingBox gradient units). Patterns currently
+// support userSpaceOnUse tiles.
 type svgPaintServer struct {
 	gradient *svgGradient
+	pattern  *svgPattern
 	toLocal  svgAffine
+}
+
+type svgPattern struct {
+	x, y, width, height float64
+	transform           svgAffine
+	tile                *image.RGBA
 }
 
 // svgPaintValue is the computed value of fill or stroke.
 type svgPaintValue struct {
-	color    color.NRGBA
-	gradient *svgGradient
-	ok       bool
+	color  color.NRGBA
+	server *svgPaintServer
+	ok     bool
 }
 
-// parseSVGPaint parses a fill or stroke value. resolve looks up a local
-// gradient; it returns nil for missing or unsupported references.
-func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRGBA, resolve func(string) *svgGradient) svgPaintValue {
+// parseSVGPaint parses a fill or stroke value. resolve looks up a supported
+// local paint server; it returns nil for missing or unsupported references.
+func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRGBA, resolve func(string) *svgPaintServer) svgPaintValue {
 	trimmed := strings.TrimSpace(value)
 	if len(trimmed) >= 4 && strings.EqualFold(trimmed[:4], "url(") {
 		end := strings.IndexByte(trimmed, ')')
@@ -72,17 +82,18 @@ func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRG
 		ref := strings.Trim(strings.TrimSpace(trimmed[4:end]), `"'`)
 		fallback := strings.TrimSpace(trimmed[end+1:])
 		if strings.HasPrefix(ref, "#") && len(ref) > 1 && resolve != nil {
-			if g := resolve(ref[1:]); g != nil {
-				if len(g.stops) == 0 {
+			if server := resolve(ref[1:]); server != nil {
+				if g := server.gradient; g != nil && len(g.stops) == 0 {
 					return svgPaintValue{} // a gradient without stops paints nothing
 				}
-				if len(g.stops) == 1 {
+				if g := server.gradient; g != nil && len(g.stops) == 1 {
 					c := g.stops[0].color
 					return svgPaintValue{color: c, ok: c.A > 0}
 				}
-				return svgPaintValue{color: color.NRGBA{A: 255}, gradient: g, ok: true}
+				return svgPaintValue{color: color.NRGBA{A: 255}, server: server, ok: true}
 			}
 		}
+
 		// Missing, external, or unsupported paint servers use the fallback
 		// paint, or none when no fallback is given.
 		if fallback == "" || strings.HasPrefix(strings.ToLower(fallback), "url(") {
@@ -95,6 +106,16 @@ func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRG
 		return inherited
 	}
 	return svgPaintValue{color: c, ok: ok}
+}
+
+func (s *svgExpansion) resolvePaintServer(id string) *svgPaintServer {
+	if g := s.resolveGradient(id); g != nil {
+		return &svgPaintServer{gradient: g, toLocal: svgIdentity}
+	}
+	if p := s.resolvePattern(id); p != nil {
+		return &svgPaintServer{pattern: p, toLocal: p.transform}
+	}
+	return nil
 }
 
 // svgOpacityValue parses an <alpha-value>: a number or a percentage, clamped
@@ -119,6 +140,7 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 	if node == nil || !node.valid || node.name != "linearGradient" && node.name != "radialGradient" {
 		return nil
 	}
+
 	if g, ok := s.gradients[node]; ok {
 		return g
 	}
@@ -213,6 +235,111 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 	return g
 }
 
+// resolvePattern builds a bounded raster tile for a user-space pattern.
+// A nil cache entry is installed before expansion so self-references and
+// mutually recursive pattern paints use the URL fallback instead of recursing.
+func (s *svgExpansion) resolvePattern(id string) *svgPattern {
+	node := s.ids[id]
+	if node == nil || !node.valid || node.name != "pattern" {
+		return nil
+	}
+	if p, ok := s.patterns[node]; ok {
+		return p
+	}
+	s.patterns[node] = nil
+
+	chain := []*svgNode{node}
+	seen := map[*svgNode]bool{node: true}
+	for cur := node; len(chain) < maxSVGGradientChain; {
+		if !strings.HasPrefix(cur.href, "#") || len(cur.href) < 2 {
+			break
+		}
+		next := s.ids[cur.href[1:]]
+		if next == nil || seen[next] || !next.valid || next.name != "pattern" {
+			break
+		}
+		seen[next] = true
+		chain = append(chain, next)
+		cur = next
+	}
+	attr := func(name string) (string, bool) {
+		for _, n := range chain {
+			if v, ok := s.cascadedAttributes(n)[name]; ok {
+				return v, true
+			}
+		}
+		return "", false
+	}
+	// objectBoundingBox geometry/content needs shape-specific binding and is
+	// deliberately left to the focused follow-up. Do not mistake it for a
+	// missing reference: parseSVGPaint will apply the declared fallback.
+	units, _ := attr("patternUnits")
+	if strings.TrimSpace(units) != "userSpaceOnUse" {
+		return nil
+	}
+	if units, ok := attr("patternContentUnits"); ok && strings.TrimSpace(units) != "userSpaceOnUse" {
+		return nil
+	}
+	vw, vh := s.img.userWidth, s.img.userHeight
+	length := func(name string, basis float64) (float64, bool) {
+		v, present := attr(name)
+		if !present {
+			v = "0"
+		}
+		return svgGradientLength(v, basis, true)
+	}
+	x, okX := length("x", vw)
+	y, okY := length("y", vh)
+	width, okW := length("width", vw)
+	height, okH := length("height", vh)
+	if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
+		return nil
+	}
+	tw, th := int(math.Ceil(width)), int(math.Ceil(height))
+	area := int64(tw) * int64(th)
+	if tw <= 0 || th <= 0 || tw > maxSVGRasterSide || th > maxSVGRasterSide ||
+		area > maxDecodedImagePixels || s.patternPixels+area > maxSVGPatternPixels {
+		return nil
+	}
+	transform := svgIdentity
+	if v, ok := attr("patternTransform"); ok {
+		if parsed, valid := parseSVGTransform(v); valid {
+			transform = parsed
+		}
+	}
+	content := node
+	for _, n := range chain {
+		if len(n.children) > 0 {
+			content = n
+			break
+		}
+	}
+
+	oldImg := s.img
+	tile := &svgImage{
+		width: width, height: height, userWidth: vw, userHeight: vh,
+		dashBasis: oldImg.dashBasis, rootFontSize: oldImg.rootFontSize,
+		align: "none",
+	}
+	s.img = tile
+	frame := svgDefaultFrame()
+	frame.userWidth, frame.userHeight, frame.dashBasis = vw, vh, oldImg.dashBasis
+	frame.transform = svgAffine{a: 1, d: 1, e: -x, f: -y}
+	err := s.walk(content, frame, true, 0)
+	s.img = oldImg
+	if err != nil {
+		return nil
+	}
+	raster := tile.rasterize(tw, th)
+	if raster == nil {
+		return nil
+	}
+	s.patternPixels += area
+	p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform, tile: raster}
+	s.patterns[node] = p
+	return p
+}
+
 func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
 	if c, ok := s.colors[node]; ok {
 		return c
@@ -275,13 +402,18 @@ func svgGradientLength(v string, basis float64, userSpace bool) (float64, bool) 
 	return n * scale, true
 }
 
-// bindSVGPaint binds a gradient to a shape's geometry. It returns ok=false
+// bindSVGPaint binds a paint server to a shape's geometry. It returns ok=false
 // when an objectBoundingBox gradient is applied to geometry with zero width
 // or height, which then paints nothing.
-func bindSVGPaint(g *svgGradient, segments []svgSegment) (*svgPaintServer, bool) {
-	if g == nil {
+func bindSVGPaint(server *svgPaintServer, segments []svgSegment) (*svgPaintServer, bool) {
+	if server == nil {
 		return nil, true
 	}
+	bound := *server
+	if server.pattern != nil {
+		return &bound, true
+	}
+	g := server.gradient
 	m := g.transform
 	if !g.userSpace {
 		x0, y0, x1, y1, ok := svgSegmentsBounds(segments)
@@ -290,7 +422,8 @@ func bindSVGPaint(g *svgGradient, segments []svgSegment) (*svgPaintServer, bool)
 		}
 		m = m.then(svgAffine{a: x1 - x0, d: y1 - y0, e: x0, f: y0})
 	}
-	return &svgPaintServer{gradient: g, toLocal: m}, true
+	bound.toLocal = m
+	return &bound, true
 }
 
 // svgSegmentsBounds returns the exact geometry bounds of a path, including
@@ -445,23 +578,54 @@ func (g *svgGradient) colorAt(t float64) color.NRGBA {
 	return last.color
 }
 
-// svgPaintRaster holds per-rasterize budgets for layers and gradient sources.
+// svgPaintRaster holds per-rasterize budgets for layers and paint sources.
 type svgPaintRaster struct {
 	layerPixels, gradientPixels int64
 }
 
-// source returns the image to paint for a shape: a uniform colour or a
-// gradient rendered over bounds (device space). alpha scales the paint.
+// source returns the image to paint for a shape: a uniform colour, gradient,
+// or repeating pattern rendered over device-space bounds. alpha scales it.
 func (p *svgPaintRaster) source(c color.NRGBA, server *svgPaintServer, toDevice svgAffine, bounds image.Rectangle, alpha float64) image.Image {
 	c.A = uint8(math.Round(float64(c.A) * alpha))
 	if server == nil {
 		return image.NewUniform(c)
 	}
+	inv, invertible := server.toLocal.then(toDevice).invert()
+	area := int64(bounds.Dx()) * int64(bounds.Dy())
+	if server.pattern != nil {
+		if !invertible || area <= 0 || p.gradientPixels+area > maxSVGGradientPixels {
+			return image.NewUniform(color.NRGBA{})
+		}
+		p.gradientPixels += area
+		pattern := server.pattern
+		src := image.NewRGBA(bounds)
+		scale := uint32(c.A)
+		mod := func(v, size float64) float64 {
+			v = math.Mod(v, size)
+			if v < 0 {
+				v += size
+			}
+			return v
+		}
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			i := src.PixOffset(bounds.Min.X, y)
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				px, py := inv.apply(float64(x)+0.5, float64(y)+0.5)
+				tx := int(mod(px-pattern.x, pattern.width) / pattern.width * float64(pattern.tile.Bounds().Dx()))
+				ty := int(mod(py-pattern.y, pattern.height) / pattern.height * float64(pattern.tile.Bounds().Dy()))
+				col := pattern.tile.RGBAAt(tx, ty)
+				src.Pix[i+0] = uint8((uint32(col.R)*scale + 127) / 255)
+				src.Pix[i+1] = uint8((uint32(col.G)*scale + 127) / 255)
+				src.Pix[i+2] = uint8((uint32(col.B)*scale + 127) / 255)
+				src.Pix[i+3] = uint8((uint32(col.A)*scale + 127) / 255)
+				i += 4
+			}
+		}
+		return src
+	}
 	g := server.gradient
 	scale := float64(c.A) / 255
 	last := g.stops[len(g.stops)-1].color
-	inv, invertible := server.toLocal.then(toDevice).invert()
-	area := int64(bounds.Dx()) * int64(bounds.Dy())
 	if !invertible || g.degenerate() || area <= 0 || p.gradientPixels+area > maxSVGGradientPixels {
 		last.A = uint8(math.Round(float64(last.A) * scale))
 		return image.NewUniform(last)
