@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <title>Viewport variants at 800 x 600</title>
+  <style>
+    body { margin: 0; background: #f8fafc; color: #0f172a; font: 16px sans-serif; }
+    h1 { margin: 18px 24px 8px; font-size: 24px; }
+    p { margin: 0 24px 16px; }
+    .row { width: 75vw; height: 12vh; margin: 2vmin 3vmin; background: #e2e8f0; }
+    .sample { height: 8vh; padding: 2vmin; color: white; }
+    .small { width: 45svw; background: #2563eb; font-size: 3svmin; }
+    .large { width: 55lvw; background: #7c3aed; font-size: 3lvmin; }
+    .dynamic { width: 65dvw; background: #0f766e; font-size: 3dvmin; }
+  </style>
+</head>
+<body>
+  <h1>Small, large, and dynamic viewport units</h1>
+  <p>Static 800 x 600 viewport: bars are 360, 440, and 520px wide; type is 18px.</p>
+  <div class="row"><div class="sample small">small viewport (sv*)</div></div>
+  <div class="row"><div class="sample large">large viewport (lv*)</div></div>
+  <div class="row"><div class="sample dynamic">dynamic viewport (dv*)</div></div>
+</body>
+</html>

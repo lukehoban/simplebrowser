@@ -21,11 +21,73 @@ func TestClassifyViewportLengths(t *testing.T) {
 	}{
 		{"50vw", "vw", 50}, {"10VH", "vh", 10},
 		{".25vmin", "vmin", .25}, {"-2.5VMAX", "vmax", -2.5},
+		{"1svw", "svw", 1}, {"2SVH", "svh", 2},
+		{"3svmin", "svmin", 3}, {"4SVMAX", "svmax", 4},
+		{"5lvw", "lvw", 5}, {"6LVH", "lvh", 6},
+		{"7lvmin", "lvmin", 7}, {"8LVMAX", "lvmax", 8},
+		{"9dvw", "dvw", 9}, {"10DVH", "dvh", 10},
+		{"11dvmin", "dvmin", 11}, {"12DVMAX", "dvmax", 12},
 		{"0vw", "vw", 0},
 	} {
 		v := classifyValue(tc.text)
 		if v.Kind != "length" || v.Unit != tc.unit || v.Number != tc.number {
 			t.Errorf("classifyValue(%q) = %+v", tc.text, v)
+		}
+	}
+}
+
+func TestViewportVariantLengthsGeometryAndComputedFontSize(t *testing.T) {
+	viewport := image.Rect(17, 29, 817, 629)
+	for _, family := range []string{"s", "l", "d"} {
+		for _, suffix := range []string{"vw", "vh", "vmin", "vmax"} {
+			unit := family + suffix
+			t.Run(unit, func(t *testing.T) {
+				basis, ok := viewportLengthBasis(unit, viewport.Size())
+				if !ok {
+					t.Fatalf("viewportLengthBasis(%q) was not recognized", unit)
+				}
+				source := fmt.Sprintf(`<body style="margin:0"><div id="box"
+					style="width:50%[1]s;height:10%[1]s;font-size:2%[1]s"></div></body>`, unit)
+				got, err := LayoutWithViewport(styledForLayout(t, source), viewport)
+				if err != nil {
+					t.Fatal(err)
+				}
+				box := boxesByID(got.Root, "box")["box"]
+				if box == nil || box.Content.Dx() != basis/2 || box.Content.Dy() != basis/10 {
+					t.Fatalf("box = %+v, want %dx%d content", box, basis/2, basis/10)
+				}
+				style := got.Document.Styles[box.Node]
+				if want := formatPixels(float64(basis) * .02); style["font-size"] != want {
+					t.Errorf("computed font-size = %q, want %q", style["font-size"], want)
+				}
+			})
+		}
+	}
+}
+
+func TestViewportVariantIssue115ReproAndCompoundValues(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0">
+		<div id="box" style="width:50svw;height:10dvh;border:1lvw solid red;
+			background:linear-gradient(red,red) no-repeat 2dvw 3svh/10lvw 10dvh"></div>
+		</body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := boxesByID(got.Root, "box")["box"]
+	if box == nil || box.Content != image.Rect(8, 8, 408, 68) {
+		t.Fatalf("box content = %+v, want (8,8)-(408,68)", box)
+	}
+	style := got.Document.Styles[box.Node]
+	for property, want := range map[string]string{
+		"width":               "400px",
+		"height":              "60px",
+		"border-left":         "8px solid red",
+		"background-position": "16px 18px",
+		"background-size":     "80px 60px",
+	} {
+		if style[property] != want {
+			t.Errorf("%s = %q, want %q", property, style[property], want)
 		}
 	}
 }
