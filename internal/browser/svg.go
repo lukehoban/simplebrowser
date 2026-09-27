@@ -72,6 +72,8 @@ type svgShape struct {
 	width      float64
 	cap, join  string
 	miterLimit float64
+	dashArray  []float64
+	dashOffset float64
 }
 
 // svgImage is an image.Image rasterized at its intrinsic size. Painters that
@@ -117,6 +119,8 @@ type svgFrame struct {
 	width         float64
 	cap, join     string
 	miterLimit    float64
+	dashArray     []float64
+	dashOffset    float64
 	transform     svgAffine
 }
 
@@ -269,6 +273,14 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	if n, err := strconv.ParseFloat(strings.TrimSpace(a["stroke-miterlimit"]), 64); err == nil && n >= 1 && n <= maxSVGStrokeWidth {
 		current.miterLimit = n
 	}
+	if value, ok := a["stroke-dasharray"]; ok {
+		if pattern, valid := parseSVGStrokeDashArray(value); valid {
+			current.dashArray = pattern
+		}
+	}
+	if n, valid := parseSVGStrokeDashOffset(a["stroke-dashoffset"]); valid {
+		current.dashOffset = n
+	}
 	if value, ok := a["transform"]; ok {
 		transform, ok := parseSVGTransform(value)
 		if !ok {
@@ -330,7 +342,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 			if !current.hasStroke {
 				stroke = color.NRGBA{}
 			}
-			s.img.shapes = append(s.img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit})
+			s.img.shapes = append(s.img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit, dashArray: current.dashArray, dashOffset: current.dashOffset})
 		}
 	}
 	for _, child := range node.children {
@@ -342,6 +354,44 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 }
 
 const maxSVGStrokeWidth = 4096
+const maxSVGStrokeDashEntries = 64
+const maxSVGStrokeDashLength = 1e7
+
+// An empty dash array means a solid stroke. Invalid values are ignored by the
+// caller, preserving the inherited value just like other presentation styles.
+func parseSVGStrokeDashArray(value string) ([]float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "none" {
+		return nil, true
+	}
+	values, ok := svgNumberList(value)
+	if !ok || len(values) == 0 || len(values) > maxSVGStrokeDashEntries {
+		return nil, false
+	}
+	total := 0.0
+	for _, n := range values {
+		if n < 0 || math.IsNaN(n) || math.IsInf(n, 0) || n > maxSVGStrokeDashLength {
+			return nil, false
+		}
+		total += n
+	}
+	if total > maxSVGStrokeDashLength || math.IsInf(total, 0) {
+		return nil, false
+	}
+	if total == 0 {
+		return nil, true
+	}
+	if len(values)%2 != 0 {
+		values = append(append([]float64(nil), values...), values...)
+	}
+	return values, true
+}
+
+func parseSVGStrokeDashOffset(value string) (float64, bool) {
+	value = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(value), "px"))
+	n, err := strconv.ParseFloat(value, 64)
+	return n, err == nil && !math.IsNaN(n) && !math.IsInf(n, 0) && math.Abs(n) <= maxSVGStrokeDashLength
+}
 
 func svgUnitInterval(s string) (float64, bool) {
 	n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)

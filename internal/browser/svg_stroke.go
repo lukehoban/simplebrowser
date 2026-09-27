@@ -19,9 +19,10 @@ func (p svgPoint) mul(n float64) svgPoint  { return svgPoint{p.x * n, p.y * n} }
 func strokeSVGPath(r *vector.Rasterizer, shape svgShape, m svgAffine) {
 	var points []svgPoint
 	used := 0
+	dashBudget := maxSVGPathSegs
 	flush := func(closed bool) {
 		if len(points) > 1 {
-			strokeSVGSubpath(r, points, closed, shape, m)
+			strokeSVGSubpath(r, points, closed, shape, m, &dashBudget)
 		}
 		points = nil
 	}
@@ -64,7 +65,143 @@ func strokeSVGPath(r *vector.Rasterizer, shape svgShape, m svgAffine) {
 	flush(false)
 }
 
-func strokeSVGSubpath(r *vector.Rasterizer, pts []svgPoint, closed bool, shape svgShape, m svgAffine) {
+func strokeSVGSubpath(r *vector.Rasterizer, pts []svgPoint, closed bool, shape svgShape, m svgAffine, dashBudget *int) {
+	if len(shape.dashArray) == 0 {
+		strokeSVGSolidSubpath(r, pts, closed, shape, m)
+		return
+	}
+	if closed && len(pts) > 2 && pts[len(pts)-1] == pts[0] {
+		pts = pts[:len(pts)-1]
+	}
+	n := len(pts)
+	if n < 2 {
+		return
+	}
+
+	pattern := shape.dashArray
+	total := 0.0
+	for _, length := range pattern {
+		total += length
+	}
+	if total <= 0 || math.IsInf(total, 0) || math.IsNaN(total) {
+		strokeSVGSolidSubpath(r, pts, closed, shape, m)
+		return
+	}
+	// Positive offsets move the pattern backwards along the path, so the
+	// distance into the repeated pattern at the path origin is -offset.
+	phase := math.Mod(-shape.dashOffset, total)
+	if phase < 0 {
+		phase += total
+	}
+	index, draw := 0, true
+	advance := func() float64 {
+		for i := 0; i < len(pattern); i++ {
+			index = (index + 1) % len(pattern)
+			draw = index%2 == 0
+			if pattern[index] > 0 {
+				return pattern[index]
+			}
+		}
+		return 0
+	}
+	remaining := 0.0
+	for i := 0; i < len(pattern); i++ {
+		length := pattern[index]
+		if length > 0 && phase < length {
+			remaining = length - phase
+			break
+		}
+		phase -= length
+		remaining = advance()
+	}
+	if remaining <= 0 {
+		strokeSVGSolidSubpath(r, pts, closed, shape, m)
+		return
+	}
+
+	var runs [][]svgPoint
+	var run []svgPoint
+	flushRun := func() {
+		if len(run) > 1 {
+			runs = append(runs, run)
+		}
+		run = nil
+	}
+	count := n - 1
+	if closed {
+		count = n
+	}
+	truncated := false
+	for i := 0; i < count && !truncated; i++ {
+		start := pts[i]
+		delta := pts[(i+1)%n].sub(start)
+		length := math.Hypot(delta.x, delta.y)
+		if length == 0 {
+			continue
+		}
+		direction := delta.mul(1 / length)
+		position := 0.0
+		for position < length {
+			if *dashBudget <= 0 {
+				truncated = true
+				break
+			}
+			step := math.Min(remaining, length-position)
+			if step <= 0 {
+				remaining = advance()
+				if remaining <= 0 {
+					truncated = true
+				}
+				continue
+			}
+			from := start.add(direction.mul(position))
+			position += step
+			to := start.add(direction.mul(position))
+			(*dashBudget)--
+			if draw {
+				if len(run) == 0 {
+					run = append(run, from)
+				}
+				if run[len(run)-1] != to {
+					run = append(run, to)
+				}
+			}
+			remaining -= step
+			if remaining <= 1e-12*math.Max(1, total) {
+				wasDrawing := draw
+				remaining = advance()
+				if wasDrawing && !draw {
+					flushRun()
+				}
+				if remaining <= 0 {
+					truncated = true
+					break
+				}
+			}
+		}
+	}
+	flushRun()
+	if len(runs) == 0 {
+		return
+	}
+	// A dash that crosses the closed-path seam is one joined run, not two
+	// separately capped strokes. All polygons still share one rasterizer pass.
+	if closed && len(runs) > 1 && runs[0][0] == pts[0] && runs[len(runs)-1][len(runs[len(runs)-1])-1] == pts[0] {
+		last, first := runs[len(runs)-1], runs[0]
+		joined := append(last, first[1:]...)
+		runs[0] = joined
+		runs = runs[:len(runs)-1]
+	}
+	for _, dashed := range runs {
+		allClosed := closed && len(runs) == 1 && len(dashed) > 2 && dashed[0] == dashed[len(dashed)-1] && !truncated
+		if allClosed {
+			dashed = dashed[:len(dashed)-1]
+		}
+		strokeSVGSolidSubpath(r, dashed, allClosed, shape, m)
+	}
+}
+
+func strokeSVGSolidSubpath(r *vector.Rasterizer, pts []svgPoint, closed bool, shape svgShape, m svgAffine) {
 	if closed && len(pts) > 2 && pts[len(pts)-1] == pts[0] {
 		pts = pts[:len(pts)-1]
 	}

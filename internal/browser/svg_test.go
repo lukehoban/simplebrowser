@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -350,6 +351,122 @@ func TestSVGStrokePixels(t *testing.T) {
 				t.Errorf("pixel (%d,%d) = %v; want %v", tc.x, tc.y, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSVGStrokeDashArray(t *testing.T) {
+	render := func(body string) *svgImage {
+		t.Helper()
+		img, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="40" height="12">` + body + `</svg>`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return img
+	}
+	red := color.RGBA{A: 255}
+	clear := color.RGBA{}
+	for _, tc := range []struct {
+		name, attrs string
+		x           int
+		want        color.RGBA
+	}{
+		{"issue repro 4/4 dash", `stroke-dasharray="4 4"`, 6, clear},
+		{"dash start", `stroke-dasharray="4 4"`, 2, red},
+		{"positive offset starts in gap", `stroke-dasharray="4 4" stroke-dashoffset="4"`, 1, clear},
+		{"positive offset advances to next dash", `stroke-dasharray="4 4" stroke-dashoffset="4"`, 5, red},
+		{"negative offset starts later in dash", `stroke-dasharray="4 4" stroke-dashoffset="-2"`, 1, red},
+		{"negative offset moves gap earlier", `stroke-dasharray="4 4" stroke-dashoffset="-2"`, 3, clear},
+		{"style overrides dash array attribute", `stroke-dasharray="4 4" style="stroke-dasharray: 8 2"`, 6, red},
+		{"style overrides dash offset attribute", `stroke-dasharray="4 4" stroke-dashoffset="0" style="stroke-dashoffset: 4"`, 5, red},
+		{"odd array repeats", `stroke-dasharray="3"`, 4, clear},
+		{"zero total means solid", `stroke-dasharray="0 0"`, 6, red},
+		{"zero gap is skipped", `stroke-dasharray="4 0 4 4"`, 6, red},
+		{"none means solid", `stroke-dasharray="none"`, 6, red},
+		{"negative value is ignored", `stroke-dasharray="-4 4"`, 6, red},
+		{"inherited pattern", ``, 6, clear},
+		{"invalid child preserves inherited pattern", `stroke-dasharray="-4 4"`, 6, clear},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prefix, suffix := "", ""
+			if strings.Contains(tc.name, "inherited") {
+				prefix, suffix = `<g stroke-dasharray="4 4">`, `</g>`
+			}
+			img := render(prefix + `<path fill="none" stroke="red" ` + tc.attrs + ` d="M0 6H40"/>` + suffix)
+			got := img.RGBAAt(tc.x, 6)
+			if (got.A == 0) != (tc.want.A == 0) {
+				t.Errorf("pixel (%d,6) = %v, want painted=%v", tc.x, got, tc.want.A != 0)
+			}
+		})
+	}
+
+	joined := render(`<path fill="none" stroke="red" stroke-dasharray="7 3" d="M1 2H5V8"/>`)
+	if got := joined.RGBAAt(5, 4); got.A == 0 {
+		t.Errorf("dash continuing around joined corner = %v, want painted", got)
+	}
+	if got := joined.RGBAAt(5, 7); got != clear {
+		t.Errorf("gap after joined dash = %v, want transparent", got)
+	}
+
+	closed := render(`<path fill="none" stroke="red" stroke-dasharray="4 4" stroke-dashoffset="2" d="M2 2H10V10H2Z"/>`)
+	if got := closed.RGBAAt(2, 2); got != clear {
+		t.Errorf("closed path offset gap at seam = %v, want transparent", got)
+	}
+	if got := closed.RGBAAt(5, 2); got.A == 0 {
+		t.Errorf("closed path dash after seam = %v, want painted", got)
+	}
+}
+
+func TestSVGStrokeDashParsingBounds(t *testing.T) {
+	for _, value := range []string{
+		"1,2,3", "0 4", "1e2 3.5",
+	} {
+		if _, ok := parseSVGStrokeDashArray(value); !ok {
+			t.Errorf("parseSVGStrokeDashArray(%q) rejected a valid pattern", value)
+		}
+	}
+	for _, value := range []string{
+		"-1 2", "NaN 1", "Inf 1", "1e8 1", strings.TrimSpace(strings.Repeat("1 ", maxSVGStrokeDashEntries+1)),
+	} {
+		if _, ok := parseSVGStrokeDashArray(value); ok {
+			t.Errorf("parseSVGStrokeDashArray(%q) accepted an invalid pattern", value)
+		}
+	}
+	if got, ok := parseSVGStrokeDashOffset("-2.5px"); !ok || got != -2.5 {
+		t.Errorf("parse negative dash offset = %v, %v; want -2.5, true", got, ok)
+	}
+	if _, ok := parseSVGStrokeDashOffset("1e8"); ok {
+		t.Error("accepted an unbounded dash offset")
+	}
+}
+
+// The paired fixture is a visual regression for alternating dash runs, offsets
+// and dash continuity through path corners.
+func TestSVGStrokeDashVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "dash-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("SVG_DASH_VISUAL_DIR"); path != "" {
+		withoutDash := regexp.MustCompile(`\s+stroke-dash(?:array|offset)="[^"]*"`).ReplaceAll(data, nil)
+		before, err := decodeSVG(withoutDash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, img := range map[string]*svgImage{"svg-dashes-before.png": before, "svg-dashes-after.png": after} {
+			f, err := os.Create(filepath.Join(path, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(f, img.RGBA)
+			closeErr := f.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("write %s: %v, %v", name, err, closeErr)
+			}
+		}
 	}
 }
 
