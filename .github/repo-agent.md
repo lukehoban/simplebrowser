@@ -5,6 +5,7 @@ Use the following:
 * PRs into main branch to implement changes
 * Actions for CI and CD
 * README as a quick look at current state (including visuals, links to live previews, etc.)
+* Project boards to visually keep track of the work for external viewers.
 
 Keep them up to date as progress is made.  Work incrementally and show progress as you go so that other participants can follow along and guide the work if needed.
 
