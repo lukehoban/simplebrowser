@@ -31,8 +31,9 @@ import (
 //   - `border-collapse: collapse` is partial: border-spacing is dropped,
 //     outer cell borders contribute their trailing half-width when aligning
 //     the anonymous wrapper with a caption, and row-group top/bottom borders
-//     collapse (wider wins) into gaps between rows. Conflicts between cell,
-//     row and table borders still use the separated model.
+//     collapse (wider wins) into gaps between rows. Rows without cells are
+//     bridged by the outer halves of the adjacent cells' borders. Conflicts
+//     between cell, row and table borders still use the separated model.
 //   - The first header group renders first and the first footer group last.
 //   - `rowspan` is honored for geometry: a spanning cell covers its rows and
 //     any extra height it needs is added to the last row it spans.
@@ -1149,6 +1150,10 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		}
 	}
 
+	if grid.collapse {
+		grid.bridgeEmptyRows()
+	}
+
 	content := image.Rect(originX, originY, originX+tableWidth, originY+tableHeight)
 	rect := image.Rect(x+margin[3], y+margin[0], content.Max.X+border[1], content.Max.Y+border[2])
 	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: rowBoxes}
@@ -1285,4 +1290,88 @@ func tableIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
 		return max(fixed+extra, captionMinWidth), max(max(fixed, minWidth)+extra, captionMinWidth)
 	}
 	return max(minWidth+extra, captionMinWidth), max(max(minWidth, maxWidth)+extra, captionMinWidth)
+}
+
+// bridgeEmptyRows paints the collapsed borders that span rows without cells.
+// In the collapsing model half of a cell's bottom (top) border lies outside
+// the cell, in the row below (above). When that row has no cells of its own,
+// nothing else paints there, so the partial model would otherwise leave a
+// background-colored gap across every column (WPT
+// tables/border-collapse-empty-row). Each run of consecutive empty rows gets
+// border-only bands: the upper half-border of the cell above hangs down from
+// the run's top edge and the lower half-border of the cell below rises from
+// its bottom edge, each clipped to the run. Rows taller than both halves keep
+// a gap in between, as they do with genuinely collapsed borders.
+func (g *tableGrid) bridgeEmptyRows() {
+	occupant := map[[2]int]*tableCellBox{}
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			for r := cell.row; r < min(len(g.rows), cell.row+cell.rowspan); r++ {
+				for c := cell.col; c < min(g.columns, cell.col+cell.colspan); c++ {
+					occupant[[2]int{r, c}] = cell
+				}
+			}
+		}
+	}
+	empty := func(r int) bool {
+		for c := 0; c < g.columns; c++ {
+			if occupant[[2]int{r, c}] != nil {
+				return false
+			}
+		}
+		return true
+	}
+	for first := 0; first < len(g.rows); first++ {
+		if !empty(first) {
+			continue
+		}
+		last := first
+		for last+1 < len(g.rows) && empty(last+1) {
+			last++
+		}
+		host := g.rows[first].box
+		top, bottom := g.rows[first].y, g.rows[last].y+g.rows[last].height
+		if first > 0 && last+1 < len(g.rows) && host != nil && bottom > top {
+			seen := map[*tableCellBox]bool{}
+			for c := 0; c < g.columns; c++ {
+				if above := occupant[[2]int{first - 1, c}]; above != nil && !seen[above] {
+					seen[above] = true
+					if band := collapsedBorderBand(above, "bottom", top, bottom, false); band != nil {
+						host.Children = append(host.Children, band)
+					}
+				}
+				if below := occupant[[2]int{last + 1, c}]; below != nil && !seen[below] {
+					seen[below] = true
+					if band := collapsedBorderBand(below, "top", top, bottom, true); band != nil {
+						host.Children = append(host.Children, band)
+					}
+				}
+			}
+		}
+		first = last
+	}
+}
+
+// collapsedBorderBand returns a border-only box covering the outer half of a
+// cell's collapsed top or bottom border within [top, bottom). fromBottom
+// anchors the band to bottom (a top border rising from the next cell).
+func collapsedBorderBand(cell *tableCellBox, side string, top, bottom int, fromBottom bool) *Box {
+	if cell == nil || cell.box == nil || cell.node == nil {
+		return nil
+	}
+	extent := min(bottom-top, borderWidth(cell.node.Style, side)/2)
+	if extent <= 0 {
+		return nil
+	}
+	rect := image.Rect(cell.box.Rect.Min.X, top, cell.box.Rect.Max.X, top+extent)
+	if fromBottom {
+		rect = image.Rect(cell.box.Rect.Min.X, bottom-extent, cell.box.Rect.Max.X, bottom)
+	}
+	widths := [4]int{}
+	if side == "top" {
+		widths[0] = extent
+	} else {
+		widths[2] = extent
+	}
+	return &Box{Node: cell.node.nodeOrNil(), Rect: rect, Content: rect, BorderWidths: &widths, BorderOnly: true}
 }
