@@ -207,7 +207,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 		if containsVarFunction(candidate.d.Value) {
 			resolved, ok := substituteVars(candidate.d.Value, values, nil)
-			if ok {
+			if ok && strings.TrimSpace(resolved) != "" {
 				candidate.d.Value = strings.TrimSpace(resolved)
 				candidate.d.Values = parseValues(candidate.d.Value)
 			} else {
