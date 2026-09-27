@@ -30,6 +30,9 @@ type Box struct {
 	// BorderWidths overrides the widths from the node's computed style when
 	// table border collapsing allocates a shared edge to another box.
 	BorderWidths *[4]int // top, right, bottom, left
+	// BorderOnly marks a paint-only fragment of another box's collapsed
+	// border: it paints no background and has no content of its own.
+	BorderOnly bool
 }
 
 // InlineBackground is one painted fragment of a text-bearing inline element.

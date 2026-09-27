@@ -455,6 +455,12 @@ func (p *painter) paintBackground(box *Box) {
 	}
 	style := p.document.Styles[box.Node]
 	if box.Node != nil && box.Node.Type == ElementNode && style != nil {
+		if box.BorderOnly {
+			if box.BorderWidths != nil {
+				drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
+			}
+			return
+		}
 		propagated := box.Node == p.canvasRoot || (p.bodyBackgroundPropagated && box.Node == p.canvasBody)
 		if !propagated {
 			if c, ok := backgroundColor(style); ok {
