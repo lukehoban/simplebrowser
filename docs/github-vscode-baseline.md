@@ -128,13 +128,19 @@ visible; this remains a diagnostic, not parity evidence.
 
 CSS box `border-radius` now rounds backgrounds and borders (#316). The
 [before/after diagnostic](screenshots/github-vscode/border-radius-before-after.png)
-compares current main before this fix with this renderer output at 800×600.
+compares main a6d8a8c (top) with this renderer output (bottom) at 800×600.
 The HN and Moon baselines do not change. Rounded overflow clipping of child
 content is tracked separately in #323.
 
 The isolated flex repro before and after the formatter:
 
 ![Flex row before and after](screenshots/github-vscode/flex-row-before-after.png)
+
+Negative horizontal margins ([#285](https://github.com/lukehoban/simplebrowser/issues/285))
+let the tab row's `margin: 0 -28px` reach the page edges, so the tabs start
+at x=28 and the bottom border spans the viewport, as in the Chrome reference:
+
+![Tabs before and after negative margins](screenshots/github-vscode/tabs-negative-margin-before-after.png)
 
 [The focused `var()` repro after rendering](screenshots/github-vscode/custom-property-after.png)
 shows the resolved blue text; compare the
