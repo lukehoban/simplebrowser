@@ -404,21 +404,21 @@ func resolveLengthTokens(property, text string, resolve func(CSSValue) (string, 
 }
 
 func beats(a, b winningDeclaration) bool {
-	// Important author declarations outrank all normal declarations. Inline is
-	// only a specificity tie breaker, as it is in the author origin.
+	// Importance and origin come first. Within an origin, inline declarations
+	// outrank every selector specificity, not just a single ID selector.
 	if a.important != b.important {
 		return a.important
 	}
 	if a.origin != b.origin {
 		return a.origin > b.origin
 	}
+	if a.inline != b.inline {
+		return a.inline
+	}
 	for i := range a.spec {
 		if a.spec[i] != b.spec[i] {
 			return a.spec[i] > b.spec[i]
 		}
-	}
-	if a.inline != b.inline {
-		return a.inline
 	}
 	return a.order > b.order
 }
