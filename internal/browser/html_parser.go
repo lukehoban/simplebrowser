@@ -26,6 +26,10 @@ type Node struct {
 	Attributes []Attribute
 	Parent     *Node
 	Children   []*Node
+	// Content holds a <template> element's parsed contents as a detached
+	// DocumentNode fragment (HTML "template contents"). They are not
+	// children, so style, resource loading and layout never see them.
+	Content *Node
 }
 
 // Attribute returns the first matching attribute (including boolean ones).
@@ -36,6 +40,15 @@ func (n *Node) Attribute(name string) (Attribute, bool) {
 		}
 	}
 	return Attribute{}, false
+}
+
+// insertionTarget is where parsed children of n are attached: a template's
+// contents fragment, or n itself.
+func (n *Node) insertionTarget() *Node {
+	if n.Content != nil {
+		return n.Content
+	}
+	return n
 }
 
 func (n *Node) append(child *Node) {
@@ -69,6 +82,11 @@ func parseMarkup(t *Tokenizer) *Node {
 					stack = stack[:i]
 					break
 				}
+				// A template is a scope marker: end tags inside it never
+				// close elements outside it.
+				if stack[i].Name == "template" {
+					break
+				}
 				// Do not let a stray inline closing tag destroy an unrelated
 				// table/list context. Matching an ancestor is still tolerated.
 			}
@@ -78,7 +96,10 @@ func parseMarkup(t *Tokenizer) *Node {
 			name := token.Name
 			closeImplied(&stack, name)
 			node := &Node{Type: ElementNode, Name: name, Attributes: token.Attributes}
-			stack[len(stack)-1].append(node)
+			if name == "template" {
+				node.Content = &Node{Type: DocumentNode}
+			}
+			stack[len(stack)-1].insertionTarget().append(node)
 			if !token.SelfClosing && !voidElement(name) {
 				stack = append(stack, node)
 			}
@@ -91,7 +112,7 @@ func parseMarkup(t *Tokenizer) *Node {
 				continue
 			}
 			node.Type = TextNode
-			parent := stack[len(stack)-1]
+			parent := stack[len(stack)-1].insertionTarget()
 			if count := len(parent.Children); count > 0 && parent.Children[count-1].Type == TextNode {
 				parent.Children[count-1].Data += node.Data
 				continue
@@ -101,7 +122,7 @@ func parseMarkup(t *Tokenizer) *Node {
 		case DoctypeToken:
 			node.Type = DoctypeNode
 		}
-		stack[len(stack)-1].append(node)
+		stack[len(stack)-1].insertionTarget().append(node)
 	}
 	return root
 }
@@ -157,6 +178,9 @@ func closeImplied(stack *[]*Node, name string) {
 				nodes = nodes[:i]
 				break
 			}
+			if nodes[i].Name == "template" {
+				break
+			}
 		}
 	}
 	target := ""
@@ -179,7 +203,7 @@ func closeImplied(stack *[]*Node, name string) {
 			}
 			// Scope boundaries prevent closing a list item in a nested list,
 			// or a table row/cell in a nested table.
-			if n == "table" || (target == "li" && (n == "ul" || n == "ol")) ||
+			if n == "table" || n == "template" || (target == "li" && (n == "ul" || n == "ol")) ||
 				(target == "cell" && n == "tr") || (target == "tr" && n == "tbody") ||
 				((name == "dt" || name == "dd") && n == "dl") {
 				break
