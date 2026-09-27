@@ -1,5 +1,35 @@
 # Live GitHub first-viewport check (2026-09-27)
 
+## Post-Cascade-Layers recheck on `main` `1b703413` (23:10 UTC)
+
+This fresh 800×600 capture renders the public, logged-out
+`https://github.com/microsoft/vscode` response from merge commit
+[`1b703413e8eaab9d0db16186db962ce97d04d8ef`](https://github.com/lukehoban/simplebrowser/commit/1b703413e8eaab9d0db16186db962ce97d04d8ef),
+after CSS Cascade Layers landed in
+[#364](https://github.com/lukehoban/simplebrowser/pull/364). The CLI does not
+execute JavaScript.
+
+![Live CLI capture after Cascade Layers merged](screenshots/live-github-330/simplebrowser-1b703413-2026-09-27.png)
+
+The former 8px white outer inset is gone: the black header reaches the top,
+left, and right viewport edges, resolving the observed behavior in
+[#350](https://github.com/lukehoban/simplebrowser/issues/350). The persistent
+“Appearance settings” tooltip text is also absent, but the expected compact
+appearance icon is not clearly visible at the right edge, so
+[#351](https://github.com/lukehoban/simplebrowser/issues/351) remains open.
+
+Repository identity, tabs, controls, file rows, and the About sidebar are
+visible. The tabs still wrap over roughly y=160–232 and the first file row
+begins around y=368, so this capture does not establish the broader first-
+viewport acceptance for [#330](https://github.com/lukehoban/simplebrowser/issues/330).
+The page is changing production content and no same-moment Chrome reference was
+captured; this is diagnostic evidence, not a golden or parity assertion.
+
+CLI command:
+`go run ./cmd/simplebrowser -o docs/screenshots/live-github-330/simplebrowser-1b703413-2026-09-27.png https://github.com/microsoft/vscode`.
+The PNG is 800×600 RGB with SHA-256
+`71743cbf525e2e0577acf2a61d4677f702f15038f712156d8f563aad7a883d8f`.
+
 ## Fresh recheck on `main` `3588c1f` (21:36 UTC)
 
 These paired 800×600 captures show the public, logged-out
