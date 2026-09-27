@@ -28,9 +28,11 @@ import (
 //     inside a table) gets an anonymous cell.
 //   - Cell content is top aligned; `valign` and vertical centering are not
 //     implemented yet.
-//   - `border-collapse: collapse` is partial: border-spacing is dropped and
-//     row-group top/bottom borders collapse (wider wins) into gaps between
-//     rows. Cell, row and table borders still use the separated model.
+//   - `border-collapse: collapse` is partial: border-spacing is dropped,
+//     outer cell borders contribute their trailing half-width when aligning
+//     the anonymous wrapper with a caption, and row-group top/bottom borders
+//     collapse (wider wins) into gaps between rows. Conflicts between cell,
+//     row and table borders still use the separated model.
 //   - The first header group renders first and the first footer group last.
 //   - `rowspan` is honored for geometry: a spanning cell covers its rows and
 //     any extra height it needs is added to the last row it spans.
@@ -79,6 +81,7 @@ type tableGrid struct {
 	hspacing int    // horizontal border-spacing between/around columns
 	vspacing int    // vertical border-spacing between/around rows
 	collapse bool   // border-collapse: collapse
+	caption  bool   // a direct caption participates in the anonymous wrapper
 	padding  [4]int // default cell padding contributed by cellpadding
 }
 
@@ -371,6 +374,7 @@ func (g *tableGrid) addRow(node *StyledNode, children []*StyledNode, group *tabl
 		}
 		anonymous := &StyledNode{Node: node.nodeOrNil(), Style: ComputedStyle{}, Children: loose}
 		caption := len(loose) == 1 && isTableCaptionNode(loose[0])
+		g.caption = g.caption || caption
 		row.cells = append(row.cells, &tableCellBox{node: anonymous, colspan: 1, rowspan: 1, caption: caption})
 		loose = nil
 	}
@@ -450,11 +454,32 @@ func (g *tableGrid) cellEdges(cell *tableCellBox) (padding, border [4]int) {
 	return padding, border
 }
 
+// collapsedCellTrailingEdges accounts for the half of an outer collapsed cell
+// border by which a caption's anonymous table wrapper is widened and extended.
+// Borders are still painted inside Box.Rect by the partial border model, so
+// reserving that space on the trailing edges keeps the painted cell and text
+// aligned with the caption without changing conflict behavior for internal
+// edges or uncaptioned tables.
+func (g *tableGrid) collapsedCellTrailingEdges(cell *tableCellBox, border [4]int) (right, bottom int) {
+	if !g.collapse || !g.caption {
+		return 0, 0
+	}
+	if cell.col+cell.colspan >= g.columns {
+		right = border[1] / 2
+	}
+	if cell.row+cell.rowspan >= len(g.rows) {
+		bottom = border[2] / 2
+	}
+	return right, bottom
+}
+
 func (g *tableGrid) measureCells(faces *faceSet) {
 	for _, row := range g.rows {
 		for _, cell := range row.cells {
 			padding, border := g.cellEdges(cell)
 			extra := padding[1] + padding[3] + border[1] + border[3]
+			trailingRight, _ := g.collapsedCellTrailingEdges(cell, border)
+			extra += trailingRight
 			minWidth, maxWidth := contentIntrinsicWidths(cell.node, faces)
 			cell.minWidth = minWidth + extra
 			cell.maxWidth = max(minWidth, maxWidth) + extra
@@ -808,6 +833,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				columnX[min(cell.col, grid.columns)]+cellWidth, 0)
 			cell.box.Content = image.Rect(contentX, 0, contentX+innerWidth, height)
 			cell.height = height + padding[0] + padding[2] + cellBorder[0] + cellBorder[2]
+			_, trailingBottom := grid.collapsedCellTrailingEdges(cell, cellBorder)
+			cell.height += trailingBottom
 		}
 	}
 

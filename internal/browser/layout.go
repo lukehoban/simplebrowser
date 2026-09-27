@@ -408,6 +408,12 @@ const (
 )
 
 func childFlowKind(child *StyledNode) flowKind {
+	// Comments, doctypes, and other non-rendered DOM nodes never generate
+	// boxes, even when their computed style map inherited a block display.
+	if child == nil || child.Node == nil ||
+		(child.Node.Type != ElementNode && child.Node.Type != TextNode) {
+		return flowSkip
+	}
 	if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
 		return flowSkip
 	}
@@ -628,6 +634,20 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 	var inline []*StyledNode
 	flush := func() {
 		if len(inline) == 0 {
+			return
+		}
+		// Comments and surrounding collapsible whitespace do not create a
+		// line box. In particular, they must not move the static position of
+		// a following absolutely positioned box.
+		visible := false
+		for _, child := range inline {
+			if !emptyInline(child) {
+				visible = true
+				break
+			}
+		}
+		if !visible {
+			inline = nil
 			return
 		}
 		inlineX := fixed.I(x)
