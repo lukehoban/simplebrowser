@@ -43,7 +43,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | viewport media conditions and nested rules supported → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
 | `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | evaluated against the features this engine actually renders → [#251](https://github.com/lukehoban/simplebrowser/issues/251); `mask-image`, `grid` and `round()` report unsupported, so icon fallbacks are selected, but their `data:` SVG backgrounds are not decoded yet → [#268](https://github.com/lukehoban/simplebrowser/issues/268) |
 | Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | [#247](https://github.com/lukehoban/simplebrowser/issues/247) (shared with #242) |
-| Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping implemented → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
+| Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping → [#252](https://github.com/lukehoban/simplebrowser/issues/252); float clearance → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | ordinary declarations now substitute inherited variables and fallbacks ([#246](https://github.com/lukehoban/simplebrowser/issues/246), shared with #242); `calc()` lengths still need #254 |
 | `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
 | `overflow:hidden` / `clip` | hidden skip link, dropdown label text | descendant padding-box and absolute `clip:rect()` painting implemented → [#253](https://github.com/lukehoban/simplebrowser/issues/253); [before/after repro](screenshots/wikipedia-moon/jump-link-before-after.png) |
@@ -58,12 +58,9 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
    backgrounds for the icon fallbacks that `@supports` (#251) now selects,
    then [#254](https://github.com/lukehoban/simplebrowser/issues/254)
    `calc()` for the image width and spacing.
-3. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
-   clearance and margin collapse, after [#252](https://github.com/lukehoban/simplebrowser/issues/252)
-   float placement.
-4. [#247](https://github.com/lukehoban/simplebrowser/issues/247) flexbox: the
+3. [#247](https://github.com/lukehoban/simplebrowser/issues/247) flexbox: the
    header, title bar and tabs.
-5. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
+4. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
    and [#120](https://github.com/lukehoban/simplebrowser/issues/120).
 
 Each new issue has a small repro in
