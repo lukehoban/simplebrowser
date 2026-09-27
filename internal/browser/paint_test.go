@@ -36,6 +36,37 @@ func pixel(t *testing.T, img *image.RGBA, x, y int, want color.RGBA) {
 	}
 }
 
+func TestPaintTextInsideAbsoluteAndFixedBoxes(t *testing.T) {
+	img := painted(t, `<div style="position:relative;margin:0;height:70px">
+	<div style="position:absolute;left:10px;top:5px;color:red">hello</div>
+	<div style="position:absolute;left:10px;top:30px;color:green">world</div>
+	</div><div style="position:fixed;left:10px;top:70px;color:blue">fixed</div>`,
+		image.Rect(0, 0, 120, 110))
+	for _, tt := range []struct {
+		name string
+		area image.Rectangle
+		want color.RGBA
+	}{
+		{"absolute", image.Rect(10, 5, 60, 25), color.RGBA{255, 0, 0, 255}},
+		{"nested absolute", image.Rect(10, 30, 60, 50), color.RGBA{0, 128, 0, 255}},
+		{"fixed", image.Rect(10, 70, 60, 90), color.RGBA{0, 0, 255, 255}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			found := false
+			for y := tt.area.Min.Y; y < tt.area.Max.Y; y++ {
+				for x := tt.area.Min.X; x < tt.area.Max.X; x++ {
+					if img.RGBAAt(x, y) == tt.want {
+						found = true
+					}
+				}
+			}
+			if !found {
+				t.Errorf("no text-colored pixels in %v", tt.area)
+			}
+		})
+	}
+}
+
 func TestPaintBackgroundsBordersAndOrder(t *testing.T) {
 	img := painted(t, `<div style="margin:0;width:50px;height:30px;background-color:#ff0000;border:3px solid #0000ff"><div style="margin:0;width:10px;height:8px;background-color:green"></div></div>`, image.Rect(0, 0, 80, 50))
 	pixel(t, img, 0, 0, color.RGBA{0, 0, 255, 255})
