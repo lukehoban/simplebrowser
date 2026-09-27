@@ -36,7 +36,7 @@ logo and vote-arrow backgrounds. This is a progress snapshot, not a
 pixel-accurate HN reference.*
 
 **What's next**
-- [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
+- Continue closing tracked SVG gaps [#80–#84](https://github.com/lukehoban/simplebrowser/issues/80) and typography gaps [#87–#89](https://github.com/lukehoban/simplebrowser/issues/87).
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
