@@ -341,7 +341,16 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 			} else if isLetter(p.s[p.i]) {
 				part.Tag = strings.ToLower(p.ident())
 			}
+			seenPseudoElement := false
 			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':' || p.s[p.i] == '[') {
+				// A pseudo-element must be the last simple selector in its
+				// compound. Reject the selector here, while source order is
+				// still available, rather than later stripping ::before or
+				// ::after and accidentally matching a trailing class or ID
+				// against the originating element.
+				if seenPseudoElement {
+					return nil, false
+				}
 				kind := p.s[p.i]
 				p.i++
 				if kind == '[' {
@@ -366,6 +375,7 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 						continue
 					}
 					part.PseudoClasses = append(part.PseudoClasses, pseudo)
+					seenPseudoElement = isPseudoElementName(pseudo)
 					continue
 				}
 				name := p.ident()

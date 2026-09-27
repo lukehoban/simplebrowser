@@ -131,6 +131,18 @@ func TestGeneratedContentStringsSurroundElementText(t *testing.T) {
 	}
 }
 
+func TestGeneratedContentPseudoElementMustEndCompound(t *testing.T) {
+	viewport := image.Rect(0, 0, 300, 100)
+	got := allText(t, `<style>
+		p::before#probe{content:"BAD"}
+		p#probe::before{content:"before"}
+		p.probe::after{content:"after"}
+		</style><p id="probe" class="probe">text</p>`, viewport)
+	if want := "before|text|after|"; got != want {
+		t.Fatalf("text runs = %q, want %q", got, want)
+	}
+}
+
 func TestGeneratedContentEmptyInlineBlockGeometry(t *testing.T) {
 	boxes := generatedBoxes(t, `<style>
 		.a::after{content:"";display:inline-block;width:12px;height:12px;background:#202122}
