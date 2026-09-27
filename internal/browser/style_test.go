@@ -135,7 +135,7 @@ func TestFontShorthandCascadeAndResets(t *testing.T) {
 			font-style: normal !important;
 		}
 		#reset {
-			font-style: italic; font-weight: bold; line-height: 3; font-family: monospace;
+			font-style: italic; font-variant: small-caps; font-weight: bold; line-height: 3; font-family: monospace;
 			font: 18px serif;
 		}
 		#invalid {
@@ -154,13 +154,13 @@ func TestFontShorthandCascadeAndResets(t *testing.T) {
 	}
 
 	full := styledElementByID(styled.StyleRoot, "full").Style
-	if full["font-style"] != "normal" || full["font-weight"] != "700" ||
+	if full["font-style"] != "normal" || full["font-variant"] != "small-caps" || full["font-weight"] != "700" ||
 		full["font-size"] != "20px" || full["line-height"] != "30px" ||
 		full["font-family"] != `"Open Sans", Courier, monospace` {
 		t.Fatalf("full shorthand computed style = %#v", full)
 	}
 	reset := styledElementByID(styled.StyleRoot, "reset").Style
-	if reset["font-style"] != "normal" || reset["font-weight"] != "normal" ||
+	if reset["font-style"] != "normal" || reset["font-variant"] != "normal" || reset["font-weight"] != "normal" ||
 		reset["font-size"] != "18px" || reset["line-height"] != "normal" ||
 		reset["font-family"] != "serif" {
 		t.Fatalf("omitted shorthand values did not reset = %#v", reset)
