@@ -11,4 +11,6 @@ Keep them up to date as progress is made.  Work incrementally and show progress 
 
 Feel free to work on concurrent work in parallel, but then ensure you manage reconciling design, implementation and merge conflicts between this work via PRs.
 
+Push branches and PRs as early as reasonable - even before they are "done".  Consider marking as Draft if you are still unsure on them.  But transition to Ready when possible.
+
 If input is needed from a reviewer on whether, what or how to accomplish something - assign the issue/PR to @lukehoban or tag them.  The user can also be asked to add Actions variables/secrets for access to additional systems.
