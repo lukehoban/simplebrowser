@@ -2,6 +2,7 @@ package browser
 
 import (
 	"image"
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
@@ -397,4 +398,77 @@ func TestTableLayoutConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestTableCollapsedRowGroupBordersAndFooterOrder(t *testing.T) {
+	// Mirrors WPT block-formatting-contexts-003-ref: the footer group renders
+	// last, spacing is dropped, and adjoining group borders collapse into one
+	// 1px gap between rows.
+	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse;width:100%">`+
+		`<thead style="border-bottom:1px solid black"><tr><td style="padding:0;height:20px">h</td></tr></thead>`+
+		`<tfoot style="border-top:1px solid black"><tr><td style="padding:0;height:20px">f</td></tr></tfoot>`+
+		`<tbody style="border-top:1px solid black;border-bottom:1px solid black"><tr><td style="padding:0;height:20px">b</td></tr></tbody>`+
+		`</table>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 400, 400))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cells := collectBoxes(got.Root, "td")
+	if len(cells) != 3 {
+		t.Fatalf("cells = %d", len(cells))
+	}
+	var order string
+	var tops []int
+	for _, c := range cells {
+		order += boxText(c)
+		tops = append(tops, c.Rect.Min.Y)
+	}
+	if order != "hbf" || tops[0] != 0 || tops[1] != 21 || tops[2] != 42 {
+		t.Fatalf("order %q tops %v", order, tops)
+	}
+	if cells[0].Rect.Min.X != 0 || cells[0].Rect.Dx() != 400 {
+		t.Fatalf("collapsed table cell rect = %v, want full width with no spacing", cells[0].Rect)
+	}
+	tbody := collectBoxes(got.Root, "tbody")[0]
+	if tbody.Rect != image.Rect(0, 20, 400, 42) {
+		t.Fatalf("tbody rect = %v, want to cover its collapsed borders", tbody.Rect)
+	}
+	table := collectBoxes(got.Root, "table")[0]
+	if table.Rect.Dy() != 62 {
+		t.Fatalf("table height = %d, want 62", table.Rect.Dy())
+	}
+}
+
+func TestTableCollapsedRowGroupBordersPaintOnlyWinningEdge(t *testing.T) {
+	tests := []struct {
+		name       string
+		bottom     string
+		top        string
+		wantWinner color.RGBA
+	}{
+		{
+			name:       "previous wider border wins",
+			bottom:     "4px solid blue",
+			top:        "2px solid red",
+			wantWinner: color.RGBA{0, 0, 255, 255},
+		},
+		{
+			name:       "following wider border wins",
+			bottom:     "2px solid blue",
+			top:        "4px solid red",
+			wantWinner: color.RGBA{255, 0, 0, 255},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			img := painted(t, `<body style="margin:0"><table style="border-collapse:collapse;width:80px">`+
+				`<tbody style="border-bottom:`+tc.bottom+`"><tr><td style="padding:0;height:10px;font-size:0"></td></tr></tbody>`+
+				`<tbody style="border-top:`+tc.top+`"><tr><td style="padding:0;height:10px;font-size:0"></td></tr></tbody>`+
+				`</table>`, image.Rect(0, 0, 80, 30))
+			for y := 10; y < 14; y++ {
+				pixel(t, img, 10, y, tc.wantWinner)
+			}
+		})
+	}
 }

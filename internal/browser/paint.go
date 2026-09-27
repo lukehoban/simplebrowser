@@ -47,7 +47,11 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 				}
 			}
 			drawBackgroundImage(canvas, box, layout.Document.BackgroundImages[box.Node], style)
-			drawBorders(canvas, box.Rect, style)
+			if box.BorderWidths != nil {
+				drawBordersWithWidths(canvas, box.Rect, style, *box.BorderWidths)
+			} else {
+				drawBorders(canvas, box.Rect, style)
+			}
 		}
 		for _, run := range box.Text {
 			drawText(canvas, run, layout.Document.Styles, faces)
@@ -223,13 +227,22 @@ func borderColor(style ComputedStyle, side string) color.RGBA {
 }
 
 func drawBorders(dst *image.RGBA, rect image.Rectangle, style ComputedStyle) {
+	drawBordersWithWidths(dst, rect, style, [4]int{
+		borderWidth(style, "top"),
+		borderWidth(style, "right"),
+		borderWidth(style, "bottom"),
+		borderWidth(style, "left"),
+	})
+}
+
+func drawBordersWithWidths(dst *image.RGBA, rect image.Rectangle, style ComputedStyle, widths [4]int) {
 	if rect.Empty() {
 		return
 	}
-	top := min(rect.Dy(), borderWidth(style, "top"))
-	right := min(rect.Dx(), borderWidth(style, "right"))
-	bottom := min(rect.Dy(), borderWidth(style, "bottom"))
-	left := min(rect.Dx(), borderWidth(style, "left"))
+	top := min(rect.Dy(), widths[0])
+	right := min(rect.Dx(), widths[1])
+	bottom := min(rect.Dy(), widths[2])
+	left := min(rect.Dx(), widths[3])
 	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+top), borderColor(style, "top"))
 	fill(dst, image.Rect(rect.Min.X, rect.Max.Y-bottom, rect.Max.X, rect.Max.Y), borderColor(style, "bottom"))
 	fill(dst, image.Rect(rect.Min.X, rect.Min.Y+top, rect.Min.X+left, rect.Max.Y-bottom), borderColor(style, "left"))

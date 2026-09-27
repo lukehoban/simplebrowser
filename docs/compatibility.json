@@ -2,8 +2,8 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "total": 13,
-  "pass": 8,
-  "fail": 5,
+  "pass": 9,
+  "fail": 4,
   "error": 0,
   "results": [
     {
@@ -59,8 +59,8 @@
       "test": "normal-flow/block-formatting-contexts-003.xht",
       "reference": "normal-flow/block-formatting-contexts-003-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 6023
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "normal-flow/block-formatting-contexts-005.xht",

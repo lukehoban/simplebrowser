@@ -24,6 +24,9 @@ type Box struct {
 	Children []*Box
 	Text     []TextRun
 	Images   []ImageBox
+	// BorderWidths overrides the widths from the node's computed style when
+	// table border collapsing allocates a shared edge to another box.
+	BorderWidths *[4]int // top, right, bottom, left
 }
 
 // ImageBox exposes a decoded replaced image and its used rectangle to the
@@ -230,85 +233,262 @@ func LayoutWithViewport(document StyledDocument, viewport image.Rectangle) (Layo
 	return Layout{Document: document, Viewport: viewport, Root: root}, nil
 }
 
+// flowKind classifies how a child participates in its parent's block flow.
+type flowKind int
+
+const (
+	flowSkip     flowKind = iota // display:none
+	flowInline                   // text or inline-level content
+	flowReplaced                 // block-level img
+	flowTable                    // table formatting context
+	flowBlock                    // block container
+)
+
+func childFlowKind(child *StyledNode) flowKind {
+	if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
+		return flowSkip
+	}
+	if child.Node.Type == ElementNode && strings.EqualFold(child.Node.Name, "img") && displayBlock(child) {
+		// A block-level replaced element still needs an image box, and it
+		// has no children to lay out.
+		return flowReplaced
+	}
+	if child.Node.Type == ElementNode && isTableNode(child) {
+		return flowTable
+	}
+	if child.Node.Type != TextNode && containsTable(child) {
+		// An inline element wrapping a table is treated as block level so
+		// the table keeps its own formatting context instead of being
+		// flattened into the inline flow.
+		return flowBlock
+	}
+	if child.Node.Type == TextNode || !displayBlock(child) {
+		return flowInline
+	}
+	return flowBlock
+}
+
+// emptyInline reports whether inline content would produce no line box:
+// whitespace-only text and elements containing nothing else. Such content
+// does not separate adjoining vertical margins.
+func emptyInline(n *StyledNode) bool {
+	if n.Node.Type == TextNode {
+		return strings.TrimFunc(n.Node.Data, func(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' }) == ""
+	}
+	if n.Node.Type != ElementNode {
+		return true
+	}
+	if strings.EqualFold(n.Style["display"], "none") {
+		return true
+	}
+	switch strings.ToLower(n.Node.Name) {
+	case "img", "br":
+		return false
+	}
+	for _, c := range n.Children {
+		if !emptyInline(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// collapsedMargin accumulates adjoining vertical margins. Per CSS 2.1 §8.3.1
+// the result is the largest positive margin plus the most negative one.
+type collapsedMargin struct{ pos, neg int }
+
+func (m collapsedMargin) add(v int) collapsedMargin {
+	m.pos, m.neg = max(m.pos, v), min(m.neg, v)
+	return m
+}
+
+func (m collapsedMargin) join(o collapsedMargin) collapsedMargin {
+	return collapsedMargin{pos: max(m.pos, o.pos), neg: min(m.neg, o.neg)}
+}
+
+func (m collapsedMargin) value() int { return m.pos + m.neg }
+
+// verticalMargin returns a signed top or bottom margin; unlike horizontal
+// margins, negative vertical margins take part in collapsing.
+func verticalMargin(n *StyledNode, side string, basis int) int {
+	return int(math.Round(px(n.Style["margin-"+side], float64(basis), 0)))
+}
+
+// establishesContext reports whether a block box starts a new block
+// formatting context, whose margins never collapse with its children.
+func establishesContext(n *StyledNode) bool {
+	if n.Node == nil || n.Node.Parent == nil || n.Node.Type != ElementNode ||
+		strings.EqualFold(n.Node.Name, "html") {
+		return true
+	}
+	if o := strings.ToLower(strings.TrimSpace(n.Style["overflow"])); o != "" && o != "visible" {
+		return true
+	}
+	if f := strings.ToLower(strings.TrimSpace(n.Style["float"])); f != "" && f != "none" {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(n.Style["position"])) {
+	case "absolute", "fixed":
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(n.Style["display"])) {
+	case "flow-root", "inline-block", "flex", "grid", "table-cell":
+		return true
+	}
+	return false
+}
+
+// collapsesThroughTop reports whether a block's top margin adjoins its first
+// in-flow child's top margin (no top border or padding separates them).
+func collapsesThroughTop(n *StyledNode, width int) bool {
+	return !establishesContext(n) && borderWidth(n.Style, "top") == 0 &&
+		boxEdges(n, "padding", float64(width))[0] == 0
+}
+
+// collapsesThroughBottom reports whether a block's bottom margin adjoins its
+// last in-flow child's bottom margin.
+func collapsesThroughBottom(n *StyledNode, width int) bool {
+	h := strings.TrimSpace(n.Style["height"])
+	return !establishesContext(n) && borderWidth(n.Style, "bottom") == 0 &&
+		boxEdges(n, "padding", float64(width))[2] == 0 && (h == "" || strings.EqualFold(h, "auto"))
+}
+
+// blockContentWidth mirrors layoutBlock's content width so that margin
+// percentages of descendants resolve against the same basis.
+func blockContentWidth(n *StyledNode, width int) int {
+	margin := boxEdges(n, "margin", float64(width))
+	padding := boxEdges(n, "padding", float64(width))
+	border := boxEdges(n, "border-width", float64(width))
+	contentWidth := width - margin[1] - margin[3] - padding[1] - padding[3] - border[1] - border[3]
+	if w := n.Style["width"]; w != "" && w != "auto" {
+		contentWidth = int(px(w, float64(width), float64(contentWidth)))
+	}
+	return max(0, contentWidth)
+}
+
+// topMargin returns the collapsed top margin of a block-level child,
+// including the top margins of first children it collapses through.
+func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
+	m := collapsedMargin{}.add(verticalMargin(n, "top", width))
+	if kind != flowBlock || !collapsesThroughTop(n, width) {
+		return m
+	}
+	inner := blockContentWidth(n, width)
+	for _, child := range n.Children {
+		switch k := childFlowKind(child); k {
+		case flowSkip:
+			continue
+		case flowInline:
+			if emptyInline(child) {
+				continue
+			}
+			return m
+		default:
+			return m.join(topMargin(child, k, inner))
+		}
+	}
+	return m
+}
+
 func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet) ([]*Box, int) {
+	boxes, bottom, trailing := layoutFlow(parent, x, y, width, faces, false, false)
+	return boxes, bottom + trailing.value() - y
+}
+
+// layoutFlow lays out a block container's children in normal flow starting
+// at y and returns the bottom of the last in-flow box. Adjoining vertical
+// margins between siblings collapse. When absorbTop is set, the first
+// child's top margin has already been applied by the caller (it collapsed
+// through the parent). When keepTrailing is set, the last child's bottom
+// margin is returned instead of added, so the parent can collapse it.
+func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, keepTrailing bool) ([]*Box, int, collapsedMargin) {
 	var boxes []*Box
 	cursor := y
+	pending := collapsedMargin{}
+	first := true
 	var inline []*StyledNode
 	flush := func() {
 		if len(inline) == 0 {
 			return
 		}
-		if b, h := layoutInline(parent.Node, inline, x, cursor, width, faces); b != nil {
+		if b, h := layoutInline(parent.Node, inline, x, cursor+pending.value(), width, faces); b != nil {
+			cursor += pending.value()
+			pending = collapsedMargin{}
 			boxes = append(boxes, b)
 			cursor += h
 		}
 		inline = nil
 	}
 	for _, child := range parent.Children {
-		if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
+		kind := childFlowKind(child)
+		switch kind {
+		case flowSkip:
 			continue
-		}
-		if child.Node.Type == ElementNode && strings.EqualFold(child.Node.Name, "img") &&
-			displayBlock(child) {
-			// A block-level replaced element still needs an image box, and it
-			// has no children to lay out.
-			flush()
-			b, h := layoutReplacedBlock(child, x, cursor, width, faces)
-			boxes = append(boxes, b)
-			cursor += h
-			continue
-		}
-		if child.Node.Type == ElementNode && isTableNode(child) {
-			flush()
-			b, h := layoutTable(child, x, cursor, width, parent.Style["text-align"], faces)
-			boxes = append(boxes, b)
-			cursor += h
-			continue
-		}
-		if child.Node.Type != TextNode && containsTable(child) {
-			// An inline element wrapping a table is treated as block level so
-			// the table keeps its own formatting context instead of being
-			// flattened into the inline flow.
-			flush()
-			b, h := layoutBlock(child, x, cursor, width, faces)
-			boxes = append(boxes, b)
-			cursor += h
-			continue
-		}
-		if child.Node.Type == TextNode || !displayBlock(child) {
+		case flowInline:
 			inline = append(inline, child)
+			if !emptyInline(child) {
+				first = false
+			}
 			continue
 		}
 		flush()
-		b, h := layoutBlock(child, x, cursor, width, faces)
+		top := cursor
+		if !(first && absorbTop) {
+			top += pending.join(topMargin(child, kind, width)).value()
+		}
+		first = false
+		var b *Box
+		var bottom collapsedMargin
+		switch kind {
+		case flowReplaced:
+			// Positive margins are applied inside; offset so the border box
+			// starts at top.
+			b, _ = layoutReplacedBlock(child, x, top-boxEdges(child, "margin", float64(width))[0], width, faces)
+			bottom = bottom.add(verticalMargin(child, "bottom", width))
+		case flowTable:
+			b, _ = layoutTable(child, x, top-boxEdges(child, "margin", float64(width))[0], width, parent.Style["text-align"], faces)
+			bottom = bottom.add(verticalMargin(child, "bottom", width))
+		default:
+			b, bottom = layoutBlock(child, x, top, width, faces)
+		}
 		boxes = append(boxes, b)
-		cursor += h
+		cursor = b.Rect.Max.Y
+		pending = bottom
 	}
 	flush()
-	return boxes, cursor - y
+	if keepTrailing {
+		return boxes, cursor, pending
+	}
+	return boxes, cursor + pending.value(), collapsedMargin{}
 }
 
-func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+// layoutBlock lays out a block box whose border box starts at y; the caller
+// has already resolved its (collapsed) top margin. It returns the box and its
+// bottom margin, which may include a collapsed last-child margin.
+func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, collapsedMargin) {
 	margin := boxEdges(n, "margin", float64(width))
 	padding := boxEdges(n, "padding", float64(width))
 	border := boxEdges(n, "border-width", float64(width))
 	edges := padding[1] + padding[3] + border[1] + border[3]
-	contentWidth := width - margin[1] - margin[3] - edges
-	if w := n.Style["width"]; w != "" && w != "auto" {
-		contentWidth = int(px(w, float64(width), float64(contentWidth)))
-	}
-	contentWidth = max(0, contentWidth)
+	contentWidth := blockContentWidth(n, width)
 	outerWidth := contentWidth + edges
 	contentX := x + margin[3] + border[3] + padding[3]
-	contentY := y + margin[0] + border[0] + padding[0]
-	children, childHeight := layoutChildren(n, contentX, contentY, contentWidth, faces)
+	contentY := y + border[0] + padding[0]
+	collapseBottom := collapsesThroughBottom(n, width)
+	children, childBottom, trailing := layoutFlow(n, contentX, contentY, contentWidth, faces,
+		collapsesThroughTop(n, width), collapseBottom)
+	childHeight := childBottom - contentY
 	height := childHeight
 	if h := n.Style["height"]; h != "" && h != "auto" {
 		height = int(math.Max(0, px(h, float64(childHeight), float64(height))))
 	}
 	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+height)
-	rect := image.Rect(x+margin[3], y+margin[0], x+margin[3]+outerWidth, content.Max.Y+padding[2]+border[2])
-	return &Box{Node: n.Node, Rect: rect, Content: content, Children: children}, rect.Dy() + margin[0] + margin[2]
+	rect := image.Rect(x+margin[3], y, x+margin[3]+outerWidth, content.Max.Y+padding[2]+border[2])
+	bottom := collapsedMargin{}.add(verticalMargin(n, "bottom", width))
+	if collapseBottom {
+		bottom = bottom.join(trailing)
+	}
+	return &Box{Node: n.Node, Rect: rect, Content: content, Children: children}, bottom
 }
 
 // layoutReplacedBlock lays out a block-level img, honouring margins, borders
