@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"golang.org/x/image/colornames"
 )
 
 // CSS structures preserve source order for the future cascade pass (#7).
@@ -459,16 +461,17 @@ func classifyValue(s string) CSSValue {
 	return v
 }
 
-var namedColors = map[string]color.RGBA{
-	"black": {0, 0, 0, 255}, "white": {255, 255, 255, 255},
-	"red": {255, 0, 0, 255}, "green": {0, 128, 0, 255},
-	"blue": {0, 0, 255, 255}, "gray": {128, 128, 128, 255},
-	"grey": {128, 128, 128, 255}, "silver": {192, 192, 192, 255},
-	"orange": {255, 165, 0, 255}, "yellow": {255, 255, 0, 255},
-	"navy": {0, 0, 128, 255}, "purple": {128, 0, 128, 255},
-	"maroon": {128, 0, 0, 255}, "teal": {0, 128, 128, 255},
-	"transparent": {0, 0, 0, 0},
-}
+var namedColors = func() map[string]color.RGBA {
+	// colornames.Map supplies the 147 SVG/CSS Color 3 keywords. CSS Color 4
+	// adds rebeccapurple; transparent is a special fully transparent keyword.
+	colors := make(map[string]color.RGBA, len(colornames.Map)+2)
+	for name, value := range colornames.Map {
+		colors[name] = value
+	}
+	colors["rebeccapurple"] = color.RGBA{102, 51, 153, 255}
+	colors["transparent"] = color.RGBA{}
+	return colors
+}()
 
 // colorEscape consumes one CSS escape, including a hex escape's optional
 // whitespace terminator. Invalid newlines/EOF are not escaped characters.
