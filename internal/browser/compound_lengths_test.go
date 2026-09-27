@@ -30,13 +30,8 @@ func TestCompoundLengthsComputedAndGeometry(t *testing.T) {
 		}
 		table := styledElementByID(got.Document.StyleRoot, "table").Style
 		ex := ratiosFor(table).ex * 20
-		for _, p := range []struct{ name, want string }{
-			{"border-spacing", "10px " + formatPixels(ex)},
-			{"background-position", ""}, // table has no background position
-		} {
-			if p.want != "" && table[p.name] != p.want {
-				t.Errorf("%v table %s = %q, want %q", tc.viewport, p.name, table[p.name], p.want)
-			}
+		if want := "10px " + formatPixels(ex); table["border-spacing"] != want {
+			t.Errorf("%v border-spacing = %q, want %q", tc.viewport, table["border-spacing"], want)
 		}
 		if grid := buildTableGrid(styledElementByID(got.Document.StyleRoot, "table")); grid.spacing != 10 {
 			t.Errorf("horizontal table spacing = %d, want 10", grid.spacing)
