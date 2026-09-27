@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="140" viewBox="0 0 320 140">
+  <defs>
+    <pattern id="meet" width="40" height="20" patternUnits="userSpaceOnUse" viewBox="0 0 10 10">
+      <rect width="10" height="10" fill="#fde68a"/><circle cx="5" cy="5" r="4" fill="#dc2626"/>
+    </pattern>
+    <pattern id="slice" href="#meet" preserveAspectRatio="xMidYMid slice"/>
+    <pattern id="none" href="#meet" preserveAspectRatio="none"/>
+    <pattern id="min" href="#meet" preserveAspectRatio="xMinYMid meet" patternTransform="rotate(15)"/>
+  </defs>
+  <rect x="10" y="10" width="140" height="55" fill="url(#meet) #94a3b8" stroke="#334155"/>
+  <rect x="170" y="10" width="140" height="55" fill="url(#slice) #94a3b8" stroke="#334155"/>
+  <rect x="10" y="75" width="140" height="55" fill="url(#none) #94a3b8" stroke="#334155"/>
+  <rect x="170" y="75" width="140" height="55" fill="url(#min) #94a3b8" stroke="#334155"/>
+</svg>

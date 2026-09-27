@@ -290,6 +290,8 @@ type svgExpansion struct {
 	// marks a currently resolving or unsupported pattern.
 	patterns      map[*svgNode]*svgPattern
 	patternPixels int64
+	// patternBudget bounds lazily scaled pattern tiles for the document.
+	patternBudget *svgPatternBudget
 	// colors memoizes computed color values for non-rendered gradient trees.
 	colors   map[*svgNode]color.NRGBA
 	elements int
@@ -547,10 +549,22 @@ func (s *svgExpansion) walkContent(node *svgNode, a map[string]string, current s
 			fillServer, ok := bindSVGPaint(current.fillServer, shape)
 			if !ok || !current.hasFill {
 				fill, fillServer = color.NRGBA{}, nil
+			} else if fillServer != nil && fillServer.fallbackOnly {
+				fill, fillServer = color.NRGBA{}, nil
+				if current.fillServer.fallbackOK {
+					fill = current.fillServer.fallback
+					fill.A = uint8(math.Round(float64(fill.A) * current.opacity))
+				}
 			}
 			strokeServer, ok := bindSVGPaint(current.strokeServer, shape)
 			if !ok || !current.hasStroke {
 				stroke, strokeServer = color.NRGBA{}, nil
+			} else if strokeServer != nil && strokeServer.fallbackOnly {
+				stroke, strokeServer = color.NRGBA{}, nil
+				if current.strokeServer.fallbackOK {
+					stroke = current.strokeServer.fallback
+					stroke.A = uint8(math.Round(float64(stroke.A) * current.strokeOpacity))
+				}
 			}
 			s.img.shapes = append(s.img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, fillRule: current.fillRule, stroke: stroke, fillServer: fillServer, strokeServer: strokeServer, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit, dashArray: current.dashArray, dashOffset: current.dashOffset})
 		}

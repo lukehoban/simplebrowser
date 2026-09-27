@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Anonymous line boxes do not repaint their parent</title>
+<style>
+  body { margin: 24px; font: 18px/1.4 sans-serif; color: #18324a; background: #edf3f8 }
+  h1 { margin: 0 0 18px; font-size: 24px }
+  .card { width: 320px; margin-bottom: 18px; padding: 20px; border: 4px solid #c62828; background: #d9f3df }
+  .wrapped p { margin: 0 }
+</style>
+<body>
+  <h1>One border per block</h1>
+  <div class="card">Direct inline text uses an anonymous line box.</div>
+  <div class="card wrapped"><p>Wrapped text provides the comparison.</p></div>
+</body>

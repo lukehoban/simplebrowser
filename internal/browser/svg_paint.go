@@ -17,7 +17,8 @@ import (
 // support explicit <stop>s (offset, stop-color, stop-opacity), gradientUnits,
 // gradientTransform, spreadMethod, and attribute/stop inheritance through a
 // bounded href chain. Patterns support bounded userSpaceOnUse tiles, transforms,
-// inherited content, and the same fallback/cycle behavior. Other paint servers
+// viewBox/preserveAspectRatio tile mapping, inherited attributes and content,
+// and the same fallback/cycle behavior. Other paint servers
 // paint the fallback (or nothing), like a missing ID.
 //
 // Element opacity is not inherited: it composites the element and its
@@ -32,12 +33,14 @@ const (
 	maxSVGGradientPixels = 1 << 27 // total gradient source pixels per rasterize
 	maxSVGPatternPixels  = 1 << 24 // total cached pattern tile pixels per document
 	// Scaled tiles are rasterized lazily when a pattern is painted under a
-	// magnifying transform. Both the per-pattern cache size and its total
-	// pixels are bounded; past either limit painting falls back to the
-	// largest cached tile, which keeps output deterministic.
-	maxSVGPatternScale        = 16 // largest device scale a tile is rasterized for
-	maxSVGPatternTiles        = 4  // cached scaled tiles per pattern
-	maxSVGPatternScaledPixels = 1 << 22
+	// magnifying transform. The cache is bounded per tile (count and pixels)
+	// and per document, because objectBoundingBox patterns bind one tile per
+	// shape. Past any limit painting falls back to the largest cached tile,
+	// which keeps output deterministic.
+	maxSVGPatternScale           = 16 // largest device scale a tile is rasterized for
+	maxSVGPatternTiles           = 4  // cached scaled tiles per bound tile
+	maxSVGPatternScaledPixels    = 1 << 22
+	maxSVGPatternScaledDocPixels = 1 << 24
 )
 
 type svgStop struct {
@@ -58,25 +61,68 @@ type svgGradient struct {
 
 // svgPaintServer is a server bound to one shape: toLocal maps paint-server
 // space into the shape's local coordinates (the server transform, then the
-// bounding box for objectBoundingBox gradient units). Patterns currently
-// support userSpaceOnUse tiles.
+// bounding box for objectBoundingBox units).
 type svgPaintServer struct {
-	gradient *svgGradient
-	pattern  *svgPattern
-	toLocal  svgAffine
+	gradient                 *svgGradient
+	pattern                  *svgPattern
+	toLocal                  svgAffine
+	fallback                 color.NRGBA // solid fallback for a tile rejected at bind time
+	fallbackOK, fallbackOnly bool
 }
 
 type svgPattern struct {
 	x, y, width, height float64
 	transform           svgAffine
 	tile                *image.RGBA
-	// content is the expanded tile, retained so the tile can be re-rasterized
-	// at the device resolution a shape is actually painted at. mu guards the
-	// lazily filled cache.
-	content      *svgImage
+	objectUnits         bool
+	objectContent       bool
+	viewBox             [4]float64
+	viewBoxState        svgPatternViewBoxState
+	align               string
+	slice               bool
+	content             *svgNode
+	expansion           *svgExpansion
+	node                *svgNode
+	// tiles retains the expanded content of tile so it can be re-rasterized
+	// at the device resolution a shape is actually painted at. It is nil for
+	// unbound objectBoundingBox patterns and disabled (empty) tiles.
+	tiles *svgPatternTiles
+}
+
+// svgPatternTiles is the lazily filled scaled-tile cache of one tile raster.
+// It is shared by pointer so bound pattern copies never copy its lock.
+type svgPatternTiles struct {
+	content *svgImage // expanded tile content in tile units
+	// unitW and unitH are the tile size in the units content was expanded
+	// in (the physical box size for objectBoundingBox tiles); the base
+	// raster is their ceiling.
+	unitW, unitH float64
+	budget       *svgPatternBudget
 	mu           sync.Mutex
 	scaled       map[[2]int]*image.RGBA
 	scaledPixels int64
+}
+
+// svgPatternBudget bounds scaled-tile pixels across one document.
+type svgPatternBudget struct {
+	mu     sync.Mutex
+	pixels int64
+}
+
+func (b *svgPatternBudget) reserve(n int64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pixels+n > maxSVGPatternScaledDocPixels {
+		return false
+	}
+	b.pixels += n
+	return true
+}
+
+func (b *svgPatternBudget) release(n int64) {
+	b.mu.Lock()
+	b.pixels -= n
+	b.mu.Unlock()
 }
 
 // tileFor returns the tile raster to sample for the pattern-local → device
@@ -84,64 +130,68 @@ type svgPattern struct {
 // halves and bounded), so magnified patterns stay smooth; the phase and
 // period of the tiling are unaffected because sampling uses tile fractions.
 func (p *svgPattern) tileFor(m svgAffine) *image.RGBA {
-	if p.content == nil {
+	c := p.tiles
+	if c == nil || c.content == nil || p.tile == nil {
 		return p.tile
 	}
 	// Column norms bound how far m stretches the tile's axes; under rotation
-	// they still grow with the device scale.
-	quant := func(length, scale float64) int {
+	// they still grow with the device scale. m is in pattern-local units
+	// (normalized for objectBoundingBox geometry), so convert to device
+	// pixels per tile unit before quantizing.
+	quant := func(unit, local, stretch float64) int {
+		scale := stretch * local / unit
 		if !(scale > 1) || math.IsInf(scale, 0) || math.IsNaN(scale) {
 			scale = 1
 		}
 		scale = math.Min(math.Ceil(scale*2)/2, maxSVGPatternScale)
-		return int(math.Ceil(length * scale))
+		return int(math.Ceil(unit * scale))
 	}
-	w := quant(p.width, math.Hypot(m.a, m.b))
-	h := quant(p.height, math.Hypot(m.c, m.d))
+	w := quant(c.unitW, p.width, math.Hypot(m.a, m.b))
+	h := quant(c.unitH, p.height, math.Hypot(m.c, m.d))
 	base := p.tile.Bounds()
 	if w <= base.Dx() && h <= base.Dy() {
 		return p.tile
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if w > maxSVGRasterSide || h > maxSVGRasterSide || int64(w)*int64(h) > maxSVGPatternScaledPixels {
-		return p.largestTile()
+		return p.largestTileLocked()
 	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	key := [2]int{w, h}
-	if tile, ok := p.scaled[key]; ok {
+	if tile, ok := c.scaled[key]; ok {
 		if tile == nil {
 			return p.largestTileLocked()
 		}
 		return tile
 	}
-	if len(p.scaled) >= maxSVGPatternTiles || p.scaledPixels+int64(w)*int64(h) > maxSVGPatternScaledPixels {
+	area := int64(w) * int64(h)
+	if len(c.scaled) >= maxSVGPatternTiles || c.scaledPixels+area > maxSVGPatternScaledPixels {
 		return p.largestTileLocked()
 	}
-	tile := p.content.rasterize(w, h)
-	if p.scaled == nil {
-		p.scaled = make(map[[2]int]*image.RGBA)
+	if c.budget != nil && !c.budget.reserve(area) {
+		return p.largestTileLocked()
 	}
-	p.scaled[key] = tile // a nil entry records a rasterizer refusal
+	tile := c.content.rasterize(w, h)
+	if c.scaled == nil {
+		c.scaled = make(map[[2]int]*image.RGBA)
+	}
+	c.scaled[key] = tile // a nil entry records a rasterizer refusal
 	if tile == nil {
+		if c.budget != nil {
+			c.budget.release(area)
+		}
 		return p.largestTileLocked()
 	}
-	p.scaledPixels += int64(w) * int64(h)
+	c.scaledPixels += area
 	return tile
-}
-
-func (p *svgPattern) largestTile() *image.RGBA {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.largestTileLocked()
 }
 
 // largestTileLocked picks the highest-resolution cached tile, preferring
 // deterministic output over a fresh rasterization past the budgets.
 func (p *svgPattern) largestTileLocked() *image.RGBA {
 	best, bestArea := p.tile, int64(p.tile.Bounds().Dx())*int64(p.tile.Bounds().Dy())
-	for _, key := range svgSortedTileKeys(p.scaled) {
-		tile := p.scaled[key]
+	for _, key := range svgSortedTileKeys(p.tiles.scaled) {
+		tile := p.tiles.scaled[key]
 		if tile == nil {
 			continue
 		}
@@ -192,6 +242,17 @@ func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRG
 				if g := server.gradient; g != nil && len(g.stops) == 1 {
 					c := g.stops[0].color
 					return svgPaintValue{color: c, ok: c.A > 0}
+				}
+				// A shape-dependent tile may exceed the raster budget even
+				// though its relative geometry is valid. Retain a solid URL
+				// fallback for that case; never let it replace a valid tile.
+				if server.pattern != nil && fallback != "" && !strings.HasPrefix(strings.ToLower(fallback), "url(") {
+					copy := *server
+					value := parseSVGPaint(fallback, inherited, currentColor, nil)
+					if value.server == nil {
+						copy.fallback, copy.fallbackOK = value.color, value.ok
+						server = &copy
+					}
 				}
 				return svgPaintValue{color: color.NRGBA{A: 255}, server: server, ok: true}
 			}
@@ -338,7 +399,7 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 	return g
 }
 
-// resolvePattern builds a bounded raster tile for a user-space pattern.
+// resolvePattern resolves pattern attributes and builds user-space tiles.
 // A nil cache entry is installed before expansion so self-references and
 // mutually recursive pattern paints use the URL fallback instead of recursing.
 func (s *svgExpansion) resolvePattern(id string) *svgPattern {
@@ -373,23 +434,52 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 		}
 		return "", false
 	}
-	// objectBoundingBox geometry/content needs shape-specific binding and is
-	// deliberately left to the focused follow-up. Do not mistake it for a
-	// missing reference: parseSVGPaint will apply the declared fallback.
+	// viewBox and preserveAspectRatio inherit independently through the href
+	// chain. An unparsable or negative viewBox is an error that leaves the
+	// attribute unspecified (so inheritance continues); a zero-area viewBox
+	// disables rendering of the tile, which then paints nothing. An invalid
+	// preserveAspectRatio likewise falls through to the default xMidYMid meet.
+	var viewBox [4]float64
+	viewBoxState := svgPatternViewBoxAbsent
+	for _, n := range chain {
+		if v, ok := s.cascadedAttributes(n)["viewBox"]; ok {
+			if vb, state := parseSVGPatternViewBox(v); state != svgPatternViewBoxAbsent {
+				viewBox, viewBoxState = vb, state
+				break
+			}
+		}
+	}
+	align, slice := "xMidYMid", false
+	for _, n := range chain {
+		if v, ok := s.cascadedAttributes(n)["preserveAspectRatio"]; ok {
+			if a, sl, valid := parseSVGPreserveAspectRatio(v); valid {
+				align, slice = a, sl
+				break
+			}
+		}
+	}
 	units, _ := attr("patternUnits")
-	if strings.TrimSpace(units) != "userSpaceOnUse" {
+	if units = strings.TrimSpace(units); units != "" && units != "userSpaceOnUse" && units != "objectBoundingBox" {
 		return nil
 	}
-	if units, ok := attr("patternContentUnits"); ok && strings.TrimSpace(units) != "userSpaceOnUse" {
+	contentUnits, _ := attr("patternContentUnits")
+	if contentUnits = strings.TrimSpace(contentUnits); contentUnits != "" && contentUnits != "userSpaceOnUse" && contentUnits != "objectBoundingBox" {
 		return nil
 	}
+	// SVG ignores patternContentUnits when a viewBox establishes the
+	// content coordinate system.
+	if viewBoxState != svgPatternViewBoxAbsent {
+		contentUnits = "userSpaceOnUse"
+	}
+	objectUnits := units != "userSpaceOnUse"
+	objectContent := contentUnits == "objectBoundingBox"
 	vw, vh := s.img.userWidth, s.img.userHeight
 	length := func(name string, basis float64) (float64, bool) {
 		v, present := attr(name)
 		if !present {
 			v = "0"
 		}
-		return svgGradientLength(v, basis, true)
+		return svgGradientLength(v, basis, !objectUnits)
 	}
 	x, okX := length("x", vw)
 	y, okY := length("y", vh)
@@ -398,17 +488,17 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 	if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
 		return nil
 	}
-	tw, th := int(math.Ceil(width)), int(math.Ceil(height))
-	area := int64(tw) * int64(th)
-	if tw <= 0 || th <= 0 || tw > maxSVGRasterSide || th > maxSVGRasterSide ||
-		area > maxDecodedImagePixels || s.patternPixels+area > maxSVGPatternPixels {
-		return nil
-	}
 	transform := svgIdentity
 	if v, ok := attr("patternTransform"); ok {
 		if parsed, valid := parseSVGTransform(v); valid {
 			transform = parsed
 		}
+	}
+	if viewBoxState == svgPatternViewBoxEmpty {
+		empty := image.NewRGBA(image.Rect(0, 0, 1, 1))
+		p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform, tile: empty}
+		s.patterns[node] = p
+		return p
 	}
 	content := node
 	for _, n := range chain {
@@ -417,30 +507,80 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 			break
 		}
 	}
-
-	oldImg := s.img
-	tile := &svgImage{
-		width: width, height: height, userWidth: vw, userHeight: vh,
-		dashBasis: oldImg.dashBasis, rootFontSize: oldImg.rootFontSize,
-		align: "none",
+	p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform,
+		objectUnits: objectUnits, objectContent: objectContent, viewBox: viewBox,
+		viewBoxState: viewBoxState, align: align, slice: slice, content: content,
+		expansion: s, node: node}
+	if !objectUnits && !objectContent {
+		// Preserve the shared user-space tile and its cycle guard.
+		p.tile, p.tiles = s.renderPatternTile(p, 0, 0, 1, 1)
+		if p.tile == nil {
+			return nil
+		}
 	}
+	s.patterns[node] = p
+	return p
+}
+
+// renderPatternTile rasterizes in the pattern's coordinate space. The
+// content coordinate system is independent of the tile geometry units.
+// It also returns the expanded content for device-scale re-rasterization.
+func (s *svgExpansion) renderPatternTile(p *svgPattern, bx, by, bw, bh float64) (*image.RGBA, *svgPatternTiles) {
+	x, y, width, height := p.x, p.y, p.width, p.height
+	if p.objectUnits {
+		x, y, width, height = bx+x*bw, by+y*bh, width*bw, height*bh
+	}
+	if width <= 0 || height <= 0 || width > maxSVGRasterSide || height > maxSVGRasterSide {
+		return nil, nil
+	}
+	tw, th := int(math.Ceil(width)), int(math.Ceil(height))
+	area := int64(tw) * int64(th)
+	if area > maxDecodedImagePixels || s.patternPixels+area > maxSVGPatternPixels {
+		return nil, nil
+	}
+	oldImg := s.img
+	tile := &svgImage{width: width, height: height, userWidth: oldImg.userWidth,
+		userHeight: oldImg.userHeight, dashBasis: oldImg.dashBasis,
+		rootFontSize: oldImg.rootFontSize, align: "none"}
 	s.img = tile
+	// Pattern content uses a new coordinate system whose origin is the tile's
+	// top-left corner (x, y), or which is fitted to the tile by viewBox and
+	// preserveAspectRatio. The tile raster clips any overflow (meet letterbox
+	// stays transparent; slice is cropped to the tile).
 	frame := svgDefaultFrame()
-	frame.userWidth, frame.userHeight, frame.dashBasis = vw, vh, oldImg.dashBasis
-	frame.transform = svgAffine{a: 1, d: 1, e: -x, f: -y}
-	err := s.walk(content, frame, true, 0)
+	frame.userWidth, frame.userHeight, frame.dashBasis = oldImg.userWidth, oldImg.userHeight, oldImg.dashBasis
+	frame.transform = svgIdentity
+	if p.objectUnits {
+		// User-space content retains its document coordinates while the
+		// object-bounding-box tile is rasterized at its bound location.
+		frame.transform = svgAffine{a: 1, d: 1, e: -x, f: -y}
+	}
+	if p.objectContent {
+		frame.userWidth, frame.userHeight, frame.dashBasis = 1, 1, 1
+		frame.transform = svgAffine{a: bw, d: bh, e: bx - x, f: by - y}
+	}
+	if p.viewBoxState == svgPatternViewBoxValid {
+		frame.transform = svgViewTransform(p.viewBox, p.align, p.slice, width, height)
+		frame.userWidth, frame.userHeight = p.viewBox[2], p.viewBox[3]
+		frame.dashBasis = math.Hypot(p.viewBox[2]/math.Sqrt2, p.viewBox[3]/math.Sqrt2)
+		tile.userWidth, tile.userHeight = p.viewBox[2], p.viewBox[3]
+	}
+	// While rasterizing, self/mutual references resolve to the URL fallback.
+	s.patterns[p.node] = nil
+	err := s.walk(p.content, frame, true, 0)
 	s.img = oldImg
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	raster := tile.rasterize(tw, th)
 	if raster == nil {
-		return nil
+		return nil, nil
 	}
 	s.patternPixels += area
-	p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform, tile: raster, content: tile}
-	s.patterns[node] = p
-	return p
+	if s.patternBudget == nil {
+		s.patternBudget = &svgPatternBudget{}
+	}
+	return raster, &svgPatternTiles{content: tile, unitW: width, unitH: height, budget: s.patternBudget}
 }
 
 func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
@@ -514,6 +654,29 @@ func bindSVGPaint(server *svgPaintServer, segments []svgSegment) (*svgPaintServe
 	}
 	bound := *server
 	if server.pattern != nil {
+		p := server.pattern
+		if p.objectUnits || p.objectContent {
+			x0, y0, x1, y1, ok := svgSegmentsBounds(segments)
+			if !ok || x1 <= x0 || y1 <= y0 {
+				return nil, false
+			}
+			copy := *p
+			copy.tile, copy.tiles = p.expansion.renderPatternTile(p, x0, y0, x1-x0, y1-y0)
+			p.expansion.patterns[p.node] = p
+			if copy.tile == nil {
+				bound.pattern, bound.gradient = nil, nil
+				bound.fallbackOnly = true
+				return &bound, true
+			}
+			bound.pattern = &copy
+			if p.objectUnits {
+				// Sampling uses normalized tile geometry, while the tile
+				// pixels were rasterized using the physical box dimensions.
+				bound.toLocal = p.transform.then(svgAffine{a: x1 - x0, d: y1 - y0, e: x0, f: y0})
+			} else {
+				bound.toLocal = p.transform
+			}
+		}
 		return &bound, true
 	}
 	g := server.gradient
@@ -803,4 +966,65 @@ func svgCompositeLayer(dst, layer *image.RGBA, opacity float64) {
 // svgAffineScale bounds how much m can stretch a unit length.
 func svgAffineScale(m svgAffine) float64 {
 	return math.Max(math.Hypot(m.a, m.b)+math.Hypot(m.c, m.d), 1e-9)
+}
+
+type svgPatternViewBoxState int
+
+const (
+	svgPatternViewBoxAbsent svgPatternViewBoxState = iota // missing or invalid
+	svgPatternViewBoxValid
+	svgPatternViewBoxEmpty // zero width or height: disables rendering
+)
+
+// parseSVGPatternViewBox parses a pattern viewBox. Malformed lists and
+// negative sizes are errors (treated as unspecified); a zero size is valid
+// syntax that disables rendering of the pattern content.
+func parseSVGPatternViewBox(v string) ([4]float64, svgPatternViewBoxState) {
+	var vb [4]float64
+	nums, ok := svgNumberList(v)
+	if !ok || len(nums) != 4 {
+		return vb, svgPatternViewBoxAbsent
+	}
+	for _, n := range nums {
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return vb, svgPatternViewBoxAbsent
+		}
+	}
+	copy(vb[:], nums)
+	switch {
+	case vb[2] < 0 || vb[3] < 0:
+		return vb, svgPatternViewBoxAbsent
+	case vb[2] == 0 || vb[3] == 0:
+		return vb, svgPatternViewBoxEmpty
+	}
+	return vb, svgPatternViewBoxValid
+}
+
+// parseSVGPreserveAspectRatio strictly parses
+// "[defer] <align> [meet|slice]"; ok=false means the value is invalid.
+func parseSVGPreserveAspectRatio(v string) (align string, slice, ok bool) {
+	fields := strings.Fields(v)
+	if len(fields) > 0 && fields[0] == "defer" {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 || len(fields) > 2 {
+		return "", false, false
+	}
+	switch fields[0] {
+	case "none", "xMinYMin", "xMidYMin", "xMaxYMin", "xMinYMid", "xMidYMid",
+		"xMaxYMid", "xMinYMax", "xMidYMax", "xMaxYMax":
+		align = fields[0]
+	default:
+		return "", false, false
+	}
+	if len(fields) == 2 {
+		switch fields[1] {
+		case "meet":
+		case "slice":
+			slice = true
+		default:
+			return "", false, false
+		}
+	}
+	return align, slice, true
 }
