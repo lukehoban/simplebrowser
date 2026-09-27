@@ -17,8 +17,8 @@
       "test": "colors/color-176.xht",
       "reference": "reference/ref-this-text-should-be-green.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 1092
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "colors/color-177.xht",

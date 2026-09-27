@@ -90,3 +90,48 @@ func TestStyleAppliesXHTMLCDATAStylesheet(t *testing.T) {
 		t.Fatalf("paragraph style = %#v", p.Style)
 	}
 }
+
+// The UA stylesheet must not reset color on body, or a root color would never
+// reach descendant text (WPT colors/color-176, issue #47).
+func TestStyleRootColorInheritsToDescendants(t *testing.T) {
+	cases := []struct {
+		name, css, want string
+	}{
+		{"root color", `html { color: green }`, "green"},
+		{"initial color", ``, "black"},
+		{"body overrides root", `html { color: green } body { color: red }`, "red"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := parse(Resource{URL: "index.html", Body: []byte(
+				`<html><head><style>` + tc.css + `</style></head><body><p>Text</p></body></html>`)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			styled, err := style(doc, &Fetcher{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var p, text *StyledNode
+			var walk func(*StyledNode)
+			walk = func(n *StyledNode) {
+				if n.Node.Name == "p" {
+					p = n
+					if len(n.Children) > 0 {
+						text = n.Children[0]
+					}
+				}
+				for _, child := range n.Children {
+					walk(child)
+				}
+			}
+			walk(styled.StyleRoot)
+			if p == nil || text == nil {
+				t.Fatal("styled tree lost paragraph text")
+			}
+			if p.Style["color"] != tc.want || text.Style["color"] != tc.want {
+				t.Fatalf("p color = %q, text color = %q, want %q", p.Style["color"], text.Style["color"], tc.want)
+			}
+		})
+	}
+}
