@@ -141,6 +141,35 @@ func TestSVGRasterizesFills(t *testing.T) {
 	}
 }
 
+func TestSVGFillOpacityInheritanceAndOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name, childOpacity string
+		want               uint8
+	}{
+		{name: "explicit child overrides", childOpacity: ` fill-opacity=".75"`, want: 191},
+		{name: "unspecified child inherits", childOpacity: "", want: 64},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4">
+				<g fill-opacity=".25">
+					<rect width="4" height="4" fill="red"` + tc.childOpacity + `/>
+				</g>
+			</svg>`
+			img, err := decodeSVG([]byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := img.RGBAAt(2, 2)
+			// A partially transparent premultiplied red pixel has equal red
+			// and alpha channels; checking both distinguishes the overridden
+			// 75% paint from a multiplied 18.75% paint.
+			if got != (color.RGBA{tc.want, 0, 0, tc.want}) {
+				t.Errorf("pixel = %v, want premultiplied red with alpha %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSVGHackerNewsAssets(t *testing.T) {
 	read := func(name string) *svgImage {
 		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "hn", name))

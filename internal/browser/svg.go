@@ -147,7 +147,11 @@ func decodeSVG(data []byte) (*svgImage, error) {
 				}
 				if value, ok := attrs["fill-opacity"]; ok {
 					if n, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
-						current.opacity = parent.opacity * math.Max(0, math.Min(1, n))
+						// fill-opacity is inherited, not accumulated through
+						// ancestors: an explicit child value replaces the
+						// inherited value. Group opacity is separate compositing
+						// behavior and is not implemented by this renderer.
+						current.opacity = math.Max(0, math.Min(1, n))
 					}
 				}
 				if value, ok := attrs["transform"]; ok {
