@@ -415,7 +415,7 @@ func classifyValue(s string) CSSValue {
 	} else if strings.Contains(s, "(") {
 		v.Kind = "function"
 	} else {
-		for _, unit := range []string{"rem", "px", "pt", "em", "%"} {
+		for _, unit := range []string{"rem", "px", "pt", "em", "in", "cm", "mm", "pc", "q", "%"} {
 			if strings.HasSuffix(lower, unit) {
 				if number, err := strconv.ParseFloat(s[:len(s)-len(unit)], 64); err == nil {
 					v.Number, v.Unit = number, unit
