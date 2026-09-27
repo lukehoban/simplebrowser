@@ -620,3 +620,106 @@ func TestTableCollapsedBorderOffsetReftestPixels(t *testing.T) {
 		})
 	}
 }
+
+// emptyRowTable builds a collapsed two-column table whose content rows are
+// separated by cell-less rows of the given style (WPT
+// tables/border-collapse-empty-row). rowStyle may be empty.
+func emptyRowTable(rowStyle, bottomBorder string) string {
+	var b strings.Builder
+	b.WriteString(`<body style="margin:0"><table style="border-collapse:collapse">`)
+	for i := 0; i < 3; i++ {
+		cell := `<td style="border:10px solid black;padding:0;width:10px;height:10px`
+		if bottomBorder != "" && i < 2 {
+			cell += ";border-bottom:" + bottomBorder
+		}
+		cell += `"></td>`
+		b.WriteString("<tr>" + cell + cell + "</tr>")
+		if rowStyle != "-" && i < 2 {
+			b.WriteString(`<tr style="` + rowStyle + `"></tr>`)
+		}
+	}
+	b.WriteString("</table></body>")
+	return b.String()
+}
+
+func TestTableCollapsedEmptyRowsKeepVerticalBordersContinuous(t *testing.T) {
+	viewport := image.Rect(0, 0, 80, 140)
+	for _, tc := range []struct {
+		name, rowStyle, reference string
+	}{
+		{name: "zero height", rowStyle: "", reference: ""},
+		{name: "smaller than half border", rowStyle: "height:2px", reference: "12px solid black"},
+		{name: "equal to half border", rowStyle: "height:5px", reference: "15px solid black"},
+		{name: "equal to both halves", rowStyle: "height:10px", reference: "20px solid black"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := painted(t, emptyRowTable(tc.rowStyle, ""), viewport)
+			want := painted(t, emptyRowTable("-", tc.reference), viewport)
+			if !bytes.Equal(got.Pix, want.Pix) {
+				differing := 0
+				for i := 0; i < len(got.Pix); i += 4 {
+					if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+						differing++
+					}
+				}
+				t.Fatalf("%d pixels differ from the cell-border reference", differing)
+			}
+		})
+	}
+}
+
+func TestTableCollapsedEmptyRowBandsUseAdjacentBorderHalves(t *testing.T) {
+	// A 30px empty row keeps a 10px gap between the 10px outer halves of
+	// the neighboring red bottom and blue top borders; the band never
+	// paints the cells' green backgrounds into the row.
+	img := painted(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
+		`<tr><td style="border:0;border-bottom:20px solid red;padding:0;width:20px;height:10px;background:green"></td></tr>`+
+		`<tr style="height:30px"></tr>`+
+		`<tr><td style="border:0;border-top:20px solid blue;padding:0;width:20px;height:10px;background:green"></td></tr>`+
+		`</table></body>`, image.Rect(0, 0, 40, 120))
+	red, blue, white := color.RGBA{255, 0, 0, 255}, color.RGBA{0, 0, 255, 255}, color.RGBA{255, 255, 255, 255}
+	for _, tc := range []struct {
+		y    int
+		want color.RGBA
+	}{
+		{29, red}, {30, red}, {39, red}, {40, white}, {49, white}, {50, blue}, {59, blue}, {60, blue},
+	} {
+		if got := img.RGBAAt(10, tc.y); got != tc.want {
+			t.Errorf("pixel at y=%d = %v, want %v", tc.y, got, tc.want)
+		}
+	}
+}
+
+func TestTableCollapsedEmptyRowBandsAreBorderOnlyFragments(t *testing.T) {
+	doc := styledForLayout(t, emptyRowTable("height:4px", ""))
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 80, 140))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := collectBoxes(got.Root, "tr")
+	if len(rows) != 5 {
+		t.Fatalf("rows = %d, want 5", len(rows))
+	}
+	empty := rows[1]
+	if len(empty.Children) != 4 {
+		t.Fatalf("empty row fragments = %d, want 4 (two cells above, two below)", len(empty.Children))
+	}
+	for _, band := range empty.Children {
+		if !band.BorderOnly || band.BorderWidths == nil {
+			t.Fatalf("band %v is not a border-only fragment", band.Rect)
+		}
+		if band.Rect.Min.Y < empty.Rect.Min.Y || band.Rect.Max.Y > empty.Rect.Max.Y || band.Rect.Dy() != 4 {
+			t.Fatalf("band %v escapes empty row %v", band.Rect, empty.Rect)
+		}
+	}
+	// Separated-border tables never bridge empty rows.
+	doc = styledForLayout(t, `<body style="margin:0"><table><tr><td style="border:10px solid black"></td></tr>`+
+		`<tr style="height:4px"></tr><tr><td style="border:10px solid black"></td></tr></table></body>`)
+	got, err = LayoutWithViewport(doc, image.Rect(0, 0, 80, 140))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rows := collectBoxes(got.Root, "tr"); len(rows) != 3 || len(rows[1].Children) != 0 {
+		t.Fatalf("separated empty row gained fragments: %+v", rows)
+	}
+}
