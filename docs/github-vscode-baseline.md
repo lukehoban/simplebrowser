@@ -21,7 +21,8 @@ and About landmarks while making the current renderer's limitations visible.
 
 ## Reproduce
 
-From the repository root, with no network required:
+From the repository root, with Go installed and module dependencies cached
+(the fixture itself needs no network):
 
 ```sh
 make github-vscode-baseline
@@ -31,10 +32,18 @@ The input is [`testdata/github-vscode/index.html`](../testdata/github-vscode/ind
 The renderer's viewport is 800×600.
 
 The checked-in Chrome reference was made from a clean local profile while
-serving the committed fixture (no external network is needed):
+serving the committed fixture (no external network is needed). Start the
+server in one terminal:
 
 ```sh
-python3 -m http.server 8765 --directory testdata
+python3 -m http.server 8765 --bind 127.0.0.1 --directory testdata
+```
+
+Then, from the repository root in a second terminal, capture with Chrome
+154.0.8037.58 (a different browser version or host font environment may
+produce different pixels):
+
+```sh
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   --headless=new --disable-gpu --hide-scrollbars --no-first-run \
   --no-default-browser-check --user-data-dir="$(mktemp -d)" \
@@ -45,7 +54,16 @@ python3 -m http.server 8765 --directory testdata
 
 The command is intentionally documented rather than made a portable Make
 target: a browser executable and its path are host-specific. The comparison
-is a labeled 1600×640 composition of the two 800×600 PNGs.
+is a labeled 1600×640 composition of the two 800×600 PNGs: the reference
+starts at (0, 40) and the baseline at (800, 40), below a 40-pixel label strip.
+Both panes are unscaled, pixel-exact copies of their source images.
+
+The reference is pinned to the original capture in PR #264, with SHA-256
+`08d37263f4de629f6d9968590a51210b29b9a7ca89438e9fea3c1a80e2747b9e`.
+Integrating main `c24a989a5b0142bbe74c24b729a30d597bfc8f91` (media-query
+evaluation) left the GitHub baseline byte-identical across two regenerations
+and unchanged from the original PR: this stand-in contains no media queries.
+The original reference and labeled comparison therefore remain intact.
 
 ## Source, scope, and asset notes
 
