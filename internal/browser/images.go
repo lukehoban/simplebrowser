@@ -16,12 +16,12 @@ const maxDecodedImagePixels int64 = 16 << 20
 // fetchImages loads visible img resources once per render. Individual failures
 // are deliberately non-fatal: layout still reserves the dimensions requested
 // by HTML/CSS and can display a broken-image placeholder in a later painter.
-func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*Node]image.Image, map[*Node]image.Image) {
+func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*Node]image.Image, map[*Node][]image.Image) {
 	if fetcher == nil {
 		fetcher = &Fetcher{}
 	}
 	images := make(map[*Node]image.Image)
-	backgrounds := make(map[*Node]image.Image)
+	backgrounds := make(map[*Node][]image.Image)
 	cache := make(map[string]image.Image)
 	visited := make(map[string]bool)
 	load := func(base, source string) image.Image {
@@ -52,9 +52,14 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 				images[n.Node] = load(document.BaseURL, src.Value)
 			}
 		}
-		if n.Node.Type == ElementNode {
-			if source := backgroundURL(n.Style["background-image"]); source != "" {
-				backgrounds[n.Node] = load(document.BaseURL, source)
+		if n.Node.Type == ElementNode && n.Style["background-image"] != "" &&
+			!strings.EqualFold(strings.TrimSpace(n.Style["background-image"]), "none") {
+			for _, layer := range backgroundLayers(n.Style["background-image"]) {
+				if source := backgroundURL(layer); source != "" {
+					backgrounds[n.Node] = append(backgrounds[n.Node], load(document.BaseURL, source))
+				} else {
+					backgrounds[n.Node] = append(backgrounds[n.Node], nil)
+				}
 			}
 		}
 		for _, child := range n.Children {

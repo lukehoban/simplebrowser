@@ -36,7 +36,7 @@ type StyledDocument struct {
 	StyleRoot        *StyledNode
 	Styles           map[*Node]ComputedStyle
 	Images           map[*Node]image.Image
-	BackgroundImages map[*Node]image.Image
+	BackgroundImages map[*Node][]image.Image
 	styleViewport    image.Point // Size used for computed values; zero for manually constructed styles.
 }
 

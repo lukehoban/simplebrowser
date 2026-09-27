@@ -8,9 +8,106 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
+	input := `url("a,b).png") center/4px 4px no-repeat, linear-gradient(red, blue), url('c.png') right bottom/2px 2px repeat-x #123456`
+	layers := backgroundLayers(input)
+	if len(layers) != 3 || backgroundURL(layers[0]) != "a,b).png" || backgroundURL(layers[1]) != "" || backgroundURL(layers[2]) != "c.png" {
+		t.Fatalf("layers: %q", layers)
+	}
+	resolved := resolveBackgroundURL(input, "https://example.org/css/site.css")
+	if !strings.Contains(resolved, `url("https://example.org/css/a,b).png")`) ||
+		!strings.Contains(resolved, `url("https://example.org/css/c.png")`) ||
+		!strings.Contains(resolved, "linear-gradient(red, blue)") {
+		t.Fatalf("resolved layers: %s", resolved)
+	}
+	props := map[string]string{}
+	for _, d := range expandBackground(Declaration{Value: input}) {
+		props[d.Property] = d.Value
+	}
+	for property, want := range map[string]string{
+		"background-image":    `url("a,b).png"), none, url("c.png")`,
+		"background-repeat":   "no-repeat, repeat, repeat-x",
+		"background-position": "center, , right bottom",
+		"background-size":     "4px 4px, , 2px 2px",
+		"background-color":    "#123456",
+	} {
+		if props[property] != want {
+			t.Errorf("%s = %q, want %q", property, props[property], want)
+		}
+		style := ComputedStyle{
+			"background-size":     "2px 2px, 4px 4px",
+			"background-repeat":   "no-repeat",
+			"background-position": "",
+		}
+		third := backgroundLayerStyle(style, 2)
+		if third["background-size"] != "2px 2px" || third["background-repeat"] != "no-repeat" ||
+			third["background-position"] != "" {
+			t.Fatalf("cyclic lists and defaults: %v", third)
+		}
+	}
+}
+
+func TestBackgroundLayersFetchAndComposite(t *testing.T) {
+	opaque := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	top := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			opaque.SetRGBA(x, y, color.RGBA{0, 0, 255, 255})
+			top.SetRGBA(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	top.SetRGBA(1, 1, color.RGBA{})
+	var blue, red atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/css/site.css":
+			_, _ = w.Write([]byte(`.tile {background-image:url("../assets/red,top).png"),url("../assets/blue.png"),url("../assets/blue.png");background-repeat:no-repeat;background-size:2px 2px,4px 4px;background-position:right bottom, left top;background-color:#00ff00}`))
+		case "/assets/red,top).png":
+			red.Add(1)
+			_ = png.Encode(w, top)
+		case "/assets/blue.png":
+			blue.Add(1)
+			_ = png.Encode(w, opaque)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	doc, err := parse(Resource{URL: server.URL + "/pages/page.html", Body: []byte(`<link rel="stylesheet" href="../css/site.css"><div class="tile" style="margin:0;width:6px;height:6px"></div><div class="tile" style="margin:0;width:6px;height:6px"></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if red.Load() != 1 || blue.Load() != 1 {
+		t.Fatalf("fetch counts red=%d blue=%d; want one each", red.Load(), blue.Load())
+	}
+	l, err := LayoutWithViewport(styled, image.Rect(0, 0, 30, 30))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := paint(l, &out, renderOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := png.Decode(&out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := decoded.(*image.RGBA)
+	pixel(t, img, 4, 4, color.RGBA{255, 0, 0, 255}) // top, positioned bottom right
+	pixel(t, img, 5, 5, color.RGBA{0, 0, 255, 255}) // transparent top; third layer repeats size list
+	pixel(t, img, 0, 0, color.RGBA{0, 0, 255, 255}) // bottom layer
+	pixel(t, img, 4, 2, color.RGBA{0, 255, 0, 255}) // no-repeat default on third layer
+	pixel(t, img, 5, 0, color.RGBA{0, 255, 0, 255}) // uncovered background color
+}
 
 // A stylesheet resolves its relative URL to an absolute local file before
 // fetchImages resolves it again against the page. Exercise both passes with
