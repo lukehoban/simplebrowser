@@ -43,7 +43,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		}
 		visible := false
 		for _, text := range textRun {
-			if strings.TrimSpace(text.Node.Data) != "" {
+			if !collapsibleWhitespaceOnly(text.Node.Data) {
 				visible = true
 				break
 			}

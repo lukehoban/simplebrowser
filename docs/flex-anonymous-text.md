@@ -8,8 +8,9 @@ row and one column of direct text beside an element. Render it with
 | --- | --- |
 | ![Before](screenshots/flex/anonymous-text-before.png) | ![After](screenshots/flex/anonymous-text-after.png) |
 
-Contiguous direct text nodes form a single anonymous item; whitespace-only
-runs do not form items. Row/column adjacency and painted text pixels are tested.
+Contiguous direct text nodes form a single anonymous item; runs of only
+collapsible white space do not form items, but a no-break space (`&nbsp;`)
+is content and does. Row/column adjacency and painted text pixels are tested.
 This does **not** imply full CSS Flexbox support: multi-line wrapping is
 tracked in [#272](https://github.com/lukehoban/simplebrowser/issues/272).
 The site-specific progress and remaining gaps are tracked in

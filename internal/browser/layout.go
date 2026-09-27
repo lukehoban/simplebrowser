@@ -528,12 +528,22 @@ func splitInlineBlocks(children []*StyledNode) []*StyledNode {
 	return result
 }
 
+// collapsibleSpace reports whether inline layout collapses r as white space.
+// No-break space (U+00A0) is rendered as a glyph and never collapses.
+func collapsibleSpace(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' }
+
+// collapsibleWhitespaceOnly reports whether text contains only white space
+// that inline layout collapses away, i.e. whether it would render nothing.
+func collapsibleWhitespaceOnly(text string) bool {
+	return strings.TrimFunc(text, collapsibleSpace) == ""
+}
+
 // emptyInline reports whether inline content would produce no line box:
 // whitespace-only text and elements containing nothing else. Such content
 // does not separate adjoining vertical margins.
 func emptyInline(n *StyledNode) bool {
 	if n.Node.Type == TextNode {
-		return strings.TrimFunc(n.Node.Data, func(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' }) == ""
+		return collapsibleWhitespaceOnly(n.Node.Data)
 	}
 	if n.Node.Type != ElementNode {
 		return true
@@ -587,9 +597,7 @@ func emptyAtomicInline(n *StyledNode) bool {
 // paint, and percentage-height descendants.
 func emptyAtomicContent(n *StyledNode) bool {
 	if n.Node.Type == TextNode {
-		return strings.TrimFunc(n.Node.Data, func(r rune) bool {
-			return unicode.IsSpace(r) && r != '\u00a0'
-		}) == ""
+		return collapsibleWhitespaceOnly(n.Node.Data)
 	}
 	if n.Node.Type != ElementNode {
 		return true
@@ -1764,7 +1772,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			continue
 		}
 		for _, r := range part.text {
-			if unicode.IsSpace(r) && r != '\u00a0' {
+			if collapsibleSpace(r) {
 				flushWord()
 				if space == nil {
 					p := inlinePart{node: part.node, style: part.style, text: " ",

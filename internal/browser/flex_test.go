@@ -113,6 +113,63 @@ func TestFlexWhitespaceAndBlockFlowText(t *testing.T) {
 	}
 }
 
+// No-break spaces are not collapsible white space: a direct-text run made
+// only of U+00A0 (or U+00A0 surrounded by collapsible white space) forms an
+// anonymous flex item, while runs of only collapsible white space do not.
+func TestFlexNonCollapsibleWhitespaceTextItems(t *testing.T) {
+	const source = "<body style=\"margin:0;font:20px monospace\">" +
+		"<div id=\"row\" style=\"display:flex;width:200px;align-items:flex-start;background:yellow\">" +
+		"<span id=\"ra\" style=\"width:20px;height:10px;background:red\"></span>&nbsp;" +
+		"<span id=\"rb\" style=\"width:20px;height:10px;background:blue\"></span> \t\n " +
+		"<span id=\"rc\" style=\"width:20px;height:10px;background:lime\"></span></div>" +
+		"<div id=\"column\" style=\"display:flex;flex-direction:column;width:100px;align-items:flex-start;background:yellow\">" +
+		"<span id=\"ca\" style=\"width:20px;height:10px;background:red\"></span>\n &nbsp;\t" +
+		"<span id=\"cb\" style=\"width:20px;height:10px;background:blue\"></span>\n\n  " +
+		"<span id=\"cc\" style=\"width:20px;height:10px;background:lime\"></span></div></body>"
+	viewport := image.Rect(0, 0, 220, 150)
+	layout, err := LayoutWithViewport(styledForLayout(t, source), viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "row", "ra", "rb", "rc", "column", "ca", "cb", "cc")
+	row, column := boxes["row"], boxes["column"]
+	// Source order: element, NBSP item, element, element (no whitespace item).
+	for name, container := range map[string]*Box{"row": row, "column": column} {
+		if len(container.Children) != 4 {
+			t.Fatalf("%s: want 4 items (a, nbsp, b, c), got %d: %+v", name, len(container.Children), container.Children)
+		}
+		if item := container.Children[1]; !item.Anonymous || len(item.Children) != 1 || len(item.Children[0].Text) == 0 {
+			t.Fatalf("%s: NBSP run did not form an anonymous text item: %+v", name, item)
+		}
+	}
+	if row.Children[0] != boxes["ra"] || row.Children[2] != boxes["rb"] || row.Children[3] != boxes["rc"] ||
+		column.Children[0] != boxes["ca"] || column.Children[2] != boxes["cb"] || column.Children[3] != boxes["cc"] {
+		t.Fatalf("items out of source order: row=%+v column=%+v", row.Children, column.Children)
+	}
+	rowNBSP, colNBSP := row.Children[1].Rect, column.Children[1].Rect
+	if rowNBSP.Dx() <= 0 || boxes["ra"].Rect.Max.X != rowNBSP.Min.X || rowNBSP.Max.X != boxes["rb"].Rect.Min.X ||
+		boxes["rb"].Rect.Max.X != boxes["rc"].Rect.Min.X {
+		t.Fatalf("row geometry: a=%v nbsp=%v b=%v c=%v", boxes["ra"].Rect, rowNBSP, boxes["rb"].Rect, boxes["rc"].Rect)
+	}
+	if colNBSP.Dy() <= 0 || boxes["ca"].Rect.Max.Y != colNBSP.Min.Y || colNBSP.Max.Y != boxes["cb"].Rect.Min.Y ||
+		boxes["cb"].Rect.Max.Y != boxes["cc"].Rect.Min.Y {
+		t.Fatalf("column geometry: a=%v nbsp=%v b=%v c=%v", boxes["ca"].Rect, colNBSP, boxes["cb"].Rect, boxes["cc"].Rect)
+	}
+	img := painted(t, source, viewport)
+	yellow := color.RGBA{255, 255, 0, 255}
+	red, blue, lime := color.RGBA{255, 0, 0, 255}, color.RGBA{0, 0, 255, 255}, color.RGBA{0, 255, 0, 255}
+	ry := boxes["ra"].Rect.Min.Y + 5
+	pixel(t, img, boxes["ra"].Rect.Min.X+1, ry, red)
+	pixel(t, img, (rowNBSP.Min.X+rowNBSP.Max.X)/2, ry, yellow) // NBSP advance: blank glyph on container background
+	pixel(t, img, rowNBSP.Max.X, ry, blue)
+	pixel(t, img, boxes["rc"].Rect.Min.X, ry, lime) // collapsible-only run adds no gap
+	cx := boxes["ca"].Rect.Min.X + 5
+	pixel(t, img, cx, boxes["ca"].Rect.Min.Y+1, red)
+	pixel(t, img, cx, (colNBSP.Min.Y+colNBSP.Max.Y)/2, yellow)
+	pixel(t, img, cx, colNBSP.Max.Y, blue)
+	pixel(t, img, cx, boxes["cc"].Rect.Min.Y, lime)
+}
+
 func TestFlexContiguousTextAcrossCommentIsOneItem(t *testing.T) {
 	const source = `<body style="margin:0"><div id="row" style="display:flex;width:200px;color:red">Hello<!-- split --> world<span id="end" style="width:20px;height:12px"></span></div></body>`
 	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 220, 50))
