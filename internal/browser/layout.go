@@ -1054,6 +1054,14 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 	cssHeight := strings.TrimSpace(n.Style["height"])
 	marginTopAuto := strings.EqualFold(strings.TrimSpace(n.Style["margin-top"]), "auto")
 	marginBottomAuto := strings.EqualFold(strings.TrimSpace(n.Style["margin-bottom"]), "auto")
+	margins := boxEdges(n, "margin", float64(width))
+	topMargin, bottomMargin := margins[0], margins[2]
+	if marginTopAuto {
+		topMargin = 0
+	}
+	if marginBottomAuto {
+		bottomMargin = 0
+	}
 	// With definite top, bottom, and height, auto vertical margins absorb
 	// the remaining constraint space. layoutBlock represents the border box
 	// only, so move it by the used top margin after resolving both margins.
@@ -1061,14 +1069,6 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		bottom != "" && !strings.EqualFold(bottom, "auto") &&
 		cssHeight != "" && !strings.EqualFold(cssHeight, "auto") &&
 		(marginTopAuto || marginBottomAuto) {
-		margins := boxEdges(n, "margin", float64(width))
-		topMargin, bottomMargin := margins[0], margins[2]
-		if marginTopAuto {
-			topMargin = 0
-		}
-		if marginBottomAuto {
-			bottomMargin = 0
-		}
 		topOffset := int(math.Round(px(top, float64(width), 0)))
 		bottomOffset := int(math.Round(px(bottom, float64(width), 0)))
 		remaining := cb.height - topOffset - bottomOffset - box.Rect.Dy() - topMargin - bottomMargin
@@ -1087,18 +1087,22 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		case marginBottomAuto:
 			bottomMargin = remaining
 		}
-		if topMargin != 0 {
-			box = translatePositionedBox(box, 0, topMargin)
-		}
+	}
+	// layoutBlock consumes horizontal margins itself, but its y argument is
+	// the border-box position. Apply the used top margin for a definite top
+	// or the static position. A subsequent bottom-only constraint replaces
+	// this placement using the bottom margin below.
+	if topMargin != 0 {
+		box = translatePositionedBox(box, 0, topMargin)
 	}
 	right := strings.TrimSpace(n.Style["right"])
 	if right != "" && !strings.EqualFold(right, "auto") && (left == "" || strings.EqualFold(left, "auto")) {
 		offset := int(math.Round(px(right, float64(width), 0)))
-		box = translatePositionedBox(box, cb.x+width-offset-box.Rect.Max.X, 0)
+		box = translatePositionedBox(box, cb.x+width-offset-margins[1]-box.Rect.Max.X, 0)
 	}
 	if bottom != "" && !strings.EqualFold(bottom, "auto") && (top == "" || strings.EqualFold(top, "auto")) {
 		offset := int(math.Round(px(bottom, float64(width), 0)))
-		box = translatePositionedBox(box, 0, cb.y+cb.height-offset-box.Rect.Max.Y)
+		box = translatePositionedBox(box, 0, cb.y+cb.height-offset-bottomMargin-box.Rect.Max.Y)
 	}
 	box.Positioned = true
 	return box

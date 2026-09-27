@@ -2,8 +2,8 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "total": 38,
-  "pass": 37,
-  "fail": 1,
+  "pass": 38,
+  "fail": 0,
   "error": 0,
   "results": [
     {
@@ -164,8 +164,8 @@
       "test": "positioning/absolute-non-replaced-height-006.xht",
       "reference": "positioning/absolute-non-replaced-height-006-ref.xht",
       "relation": "match",
-      "status": "fail",
-      "different_pixels": 30000
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "positioning/position-relative-001.xht",
