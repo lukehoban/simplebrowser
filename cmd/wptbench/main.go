@@ -76,10 +76,11 @@ var tests = []benchmark{
 	pinned("colors/color-applies-to-003.xht", "Colors", "Color application outside the element exercised here."),
 	// Promoted from the diagnostic matrix once #68 implemented clearance.
 	pinned("floats-clear/clear-001.xht", "Floats and clear", "Right floats, multiple floats, and margin-collapse interactions."),
+	// Promoted once #216 resolved top/bottom percentages against containing-block height.
+	pinned("positioning/bottom-offset-percentage-001.xht", "Positioning", "Auto offsets, replaced elements, and indefinite (auto-height) containing blocks (#217)."),
 
 	{Test: "margin-padding-clear/margin-collapse-003.xht", Area: "Margins", Suite: "WPT", Diagnostic: true, NotCovered: "Floats, clearance, negative margins, and margin trimming."},
 	{Test: "floats-clear/clear-002.xht", Area: "Floats and clear", Suite: "WPT", Diagnostic: true, NotCovered: "Nested formatting contexts and negative clearance; the reference needs inline relative offsets.", Issue: "#76"},
-	{Test: "positioning/bottom-offset-percentage-001.xht", Area: "Positioning", Suite: "WPT", Diagnostic: true, NotCovered: "Auto offsets, replaced elements, and indefinite containing-block heights.", Issue: "#216"},
 	{Test: "positioning/position-relative-004.xht", Area: "Positioning", Suite: "WPT", Diagnostic: true, NotCovered: "Writing modes, bidi reordering, and positioned descendants.", Issue: "#76"},
 	{Test: "backgrounds/background-body-001.xht", Area: "Backgrounds", Suite: "WPT", Diagnostic: true, NotCovered: "Background images, repeat, position, size, and multiple layers."},
 	{Test: "linebox/line-box-height-002.xht", Area: "Line boxes", Suite: "WPT", Diagnostic: true, NotCovered: "Mixed fonts, vertical-align variants, bidi, and vertical writing modes."},
