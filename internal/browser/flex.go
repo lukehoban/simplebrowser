@@ -43,15 +43,9 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			outOfFlow = append(outOfFlow, child)
 			continue
 		}
-		// The fixtures contain element flex items. Keeping non-whitespace text
-		// in one anonymous item would require a synthetic styled node.
+		// Anonymous flex items for direct text runs are tracked in #278.
 		if child.Node.Type == ElementNode {
 			nodes = append(nodes, child)
-		}
-	}
-	if reverse {
-		for left, right := 0, len(nodes)-1; left < right; left, right = left+1, right-1 {
-			nodes[left], nodes[right] = nodes[right], nodes[left]
 		}
 	}
 	gap := flexGap(parent.Style, column, width)
@@ -67,22 +61,25 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		grow, shrink, basis, hasBasis := flexFactors(child.Style, availableMain)
 		main := 0.0
 		if column {
-			if h, ok := specifiedHeight(child, containerHeight, heightDefinite); ok {
-				main = float64(h)
-			} else if hasBasis {
+			if hasBasis {
 				main = basis
+			} else if h, ok := specifiedHeight(child, containerHeight, heightDefinite); ok {
+				main = float64(h)
+			} else if strings.EqualFold(child.Node.Name, "img") {
+				_, h := imageDimensions(child, faces.images[child.Node], width)
+				main = float64(h)
 			}
 		} else {
 			if hasBasis {
 				main = basis
 			} else if value := strings.TrimSpace(child.Style["width"]); value != "" && !strings.EqualFold(value, "auto") {
 				main = px(value, float64(width), 0)
+			} else if strings.EqualFold(child.Node.Name, "img") {
+				w, _ := imageDimensions(child, faces.images[child.Node], width)
+				main = float64(w)
 			} else {
 				_, preferred := contentIntrinsicWidths(child, faces)
 				main = float64(preferred)
-			}
-			if minWidth := strings.TrimSpace(child.Style["min-width"]); minWidth != "" && !strings.EqualFold(minWidth, "auto") {
-				main = math.Max(main, px(minWidth, float64(width), 0))
 			}
 		}
 		main = math.Max(0, main)
@@ -96,31 +93,10 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			explicitCross: flexHasCrossSize(child, column)})
 	}
 
-	// An auto-height column grows to its contents; a definite main axis
-	// distributes positive or negative free space by grow/shrink factors.
+	// An auto-height column grows to its contents; on a definite axis freeze
+	// items at their min/max constraints and redistribute the remaining space.
 	if !column || heightDefinite {
-		free := float64(availableMain) - total
-		if free > 0 {
-			var sum float64
-			for _, item := range items {
-				sum += item.grow
-			}
-			if sum > 0 {
-				for i := range items {
-					items[i].main += free * items[i].grow / sum
-				}
-			}
-		} else if free < 0 {
-			var sum float64
-			for _, item := range items {
-				sum += item.shrink * item.main
-			}
-			if sum > 0 {
-				for i := range items {
-					items[i].main = math.Max(0, items[i].main+free*(items[i].shrink*items[i].main)/sum)
-				}
-			}
-		}
+		resolveFlexLengths(items, float64(availableMain)-total, column, width)
 	}
 
 	// Lay out at the origin first so the cross size is known before alignment.
@@ -134,7 +110,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		}
 		used := &StyledNode{Node: items[i].node.Node, Style: style, Children: items[i].node.Children}
 		itemY := y + items[i].margin[0]
-		items[i].box, _ = layoutBlock(used, x, itemY, width, faces, cb)
+		items[i].box = layoutFlexItem(used, x, itemY, width, faces, cb)
 		itemCross := items[i].box.Rect.Dy() + items[i].margin[0] + items[i].margin[2]
 		if column {
 			itemCross = items[i].box.Rect.Dx() + items[i].margin[1] + items[i].margin[3]
@@ -166,7 +142,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 				style["height"] = formatFlexPixels(float64(max(0, cross-items[i].margin[0]-items[i].margin[2]-inner[0]-inner[2])))
 			}
 			used := &StyledNode{Node: items[i].node.Node, Style: style, Children: items[i].node.Children}
-			items[i].box, _ = layoutBlock(used, x, y+items[i].margin[0], width, faces, cb)
+			items[i].box = layoutFlexItem(used, x, y+items[i].margin[0], width, faces, cb)
 		}
 	}
 
@@ -194,9 +170,17 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			itemCross = item.box.Rect.Dx() + item.margin[1] + item.margin[3]
 		}
 		crossOffset := flexCrossOffset(align, cross-itemCross)
-		wantX, wantY := x+cursor+item.margin[3], y+crossOffset+item.margin[0]
+		mainPos := cursor
+		if reverse {
+			outer := item.box.Rect.Dx() + item.margin[1] + item.margin[3]
+			if column {
+				outer = item.box.Rect.Dy() + item.margin[0] + item.margin[2]
+			}
+			mainPos = mainSize - cursor - outer
+		}
+		wantX, wantY := x+mainPos+item.margin[3], y+crossOffset+item.margin[0]
 		if column {
-			wantX, wantY = x+crossOffset+item.margin[3], y+cursor+item.margin[0]
+			wantX, wantY = x+crossOffset+item.margin[3], y+mainPos+item.margin[0]
 		}
 		translatePositionedBox(item.box, wantX-item.box.Rect.Min.X, wantY-item.box.Rect.Min.Y)
 		boxes = append(boxes, item.box)
@@ -213,6 +197,79 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		return boxes, y + mainSize
 	}
 	return boxes, y + cross
+}
+
+func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
+	if strings.EqualFold(n.Node.Name, "img") {
+		box, _ := layoutReplacedBlock(n, x, y, width, faces)
+		return box
+	}
+	box, _ := layoutBlock(n, x, y, width, faces, cb)
+	return box
+}
+
+// Resolve flexible lengths with min/max freezing. Free space is measured
+// against the hypothetical base sizes (including outer edges); each frozen
+// item is removed from the factor sum before the next distribution pass.
+func resolveFlexLengths(items []flexItem, free float64, column bool, width int) {
+	property := "width"
+	if column {
+		property = "height"
+	}
+	base := make([]float64, len(items))
+	frozen := make([]bool, len(items))
+	minimum := make([]float64, len(items))
+	maximum := make([]float64, len(items))
+	for i := range items {
+		base[i] = items[i].main
+		maximum[i] = math.Inf(1)
+		if v := strings.TrimSpace(items[i].node.Style["min-"+property]); v != "" && v != "auto" {
+			minimum[i] = math.Max(0, px(v, float64(width), 0))
+		}
+		if v := strings.TrimSpace(items[i].node.Style["max-"+property]); v != "" && v != "none" {
+			maximum[i] = math.Max(0, px(v, float64(width), 0))
+		}
+		if maximum[i] < minimum[i] {
+			maximum[i] = minimum[i]
+		}
+	}
+	growing := free > 0
+	for pass := 0; pass <= len(items); pass++ {
+		remaining := free
+		sum := 0.0
+		for i := range items {
+			if frozen[i] {
+				remaining -= items[i].main - base[i]
+			} else if growing {
+				sum += items[i].grow
+			} else {
+				sum += items[i].shrink * base[i]
+			}
+		}
+		violated := false
+		for i := range items {
+			if frozen[i] {
+				continue
+			}
+			factor := items[i].grow
+			if !growing {
+				factor = items[i].shrink * base[i]
+			}
+			target := base[i]
+			if sum > 0 {
+				target += remaining * factor / sum
+			}
+			clamped := math.Max(minimum[i], math.Min(maximum[i], math.Max(0, target)))
+			items[i].main = clamped
+			if clamped != target {
+				frozen[i] = true
+				violated = true
+			}
+		}
+		if !violated {
+			break
+		}
+	}
 }
 
 func flexFactors(style ComputedStyle, basisSize int) (grow, shrink, basis float64, hasBasis bool) {

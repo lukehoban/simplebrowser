@@ -1,10 +1,96 @@
 package browser
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"image/png"
 	"testing"
 )
+
+func TestFlexImageUsesReplacedLayoutAndPaint(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><div style="display:flex;align-items:flex-start;width:60px"><img id="logo"><div id="next" style="width:10px;height:10px"></div></div></body>`)
+	var imageNode *Node
+	var find func(*StyledNode)
+	find = func(n *StyledNode) {
+		if n.Node != nil && n.Node.Name == "img" {
+			imageNode = n.Node
+		}
+		for _, c := range n.Children {
+			find(c)
+		}
+	}
+	find(doc.StyleRoot)
+	picture := image.NewRGBA(image.Rect(0, 0, 8, 4))
+	for y := 0; y < 4; y++ {
+		for x := 0; x < 8; x++ {
+			picture.SetRGBA(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	doc.Images = map[*Node]image.Image{imageNode: picture}
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 80, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := boxesByID(layout.Root, "logo", "next")
+	if b["logo"].Rect != image.Rect(0, 0, 8, 4) || b["next"].Rect.Min.X != 8 || len(b["logo"].Images) != 1 {
+		t.Fatalf("image flex item: logo=%+v next=%+v", b["logo"], b["next"])
+	}
+	var buf bytes.Buffer
+	if err := paint(layout, &buf, renderOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := png.Decode(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pixel(t, rendered.(*image.RGBA), 2, 2, color.RGBA{255, 0, 0, 255})
+}
+
+func TestFlexBoundsBasisAndReversePixels(t *testing.T) {
+	const source = `<body style="margin:0">
+	<div style="display:flex;width:100px"><div id="min" style="width:80px;min-width:80px;height:10px;background:red"></div><div id="shrunk" style="width:80px;height:10px;background:blue"></div></div>
+	<div style="display:flex;width:100px"><div id="max" style="flex:1;max-width:30px;height:10px;background:red"></div><div id="grown" style="flex:1;height:10px;background:blue"></div></div>
+	<div style="display:flex;flex-direction:column;width:40px;height:80px"><div id="basis" style="height:20px;flex:0 0 40px;background:red"></div><div id="auto-basis" style="height:20px;flex:0 0 auto;background:blue"></div></div>
+	<div style="display:flex;flex-direction:row-reverse;width:100px;justify-content:flex-start"><div id="reverse-a" style="width:20px;height:10px;background:red"></div><div id="reverse-b" style="width:10px;height:10px;background:blue"></div></div>
+	<div style="display:flex;flex-direction:column-reverse;width:30px;height:60px"><div id="reverse-column" style="width:10px;height:20px;background:red"></div></div>
+	<div style="display:flex;flex-direction:column;width:20px;height:100px"><div id="min-height" style="height:80px;min-height:80px;flex-shrink:1;background:red"></div><div id="remaining-height" style="height:80px;flex-shrink:1;background:blue"></div></div>
+	<div style="display:flex;flex-direction:row-reverse;width:100px;justify-content:flex-end"><div id="reverse-end" style="width:20px;height:10px;background:red"></div></div>
+	</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 130, 320))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := boxesByID(layout.Root, "min", "shrunk", "max", "grown", "basis", "auto-basis", "reverse-a", "reverse-b", "reverse-column", "min-height", "remaining-height", "reverse-end")
+	want := map[string]image.Rectangle{
+		"min": image.Rect(0, 0, 80, 10), "shrunk": image.Rect(80, 0, 100, 10),
+		"max": image.Rect(0, 10, 30, 20), "grown": image.Rect(30, 10, 100, 20),
+		"basis": image.Rect(0, 20, 40, 60), "auto-basis": image.Rect(0, 60, 40, 80),
+		"reverse-a": image.Rect(80, 100, 100, 110),
+		"reverse-b": image.Rect(70, 100, 80, 110), "reverse-column": image.Rect(0, 150, 10, 170),
+		"min-height": image.Rect(0, 170, 20, 250), "remaining-height": image.Rect(0, 250, 20, 270),
+		"reverse-end": image.Rect(0, 270, 20, 280),
+	}
+	for id, rect := range want {
+		if b[id] == nil || b[id].Rect != rect {
+			t.Errorf("%s: got %v want %v", id, b[id], rect)
+		}
+	}
+	img := painted(t, source, image.Rect(0, 0, 130, 320))
+	pixel(t, img, 85, 5, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 85, 105, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, 5, 155, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, 5, 255, color.RGBA{0, 0, 255, 255})
+}
+
+func TestFlexSupportsClaimsOnlyImplementedAlignment(t *testing.T) {
+	if supportsConditionMatches("(align-items: baseline)") {
+		t.Fatal("baseline alignment is not implemented")
+	}
+	if !supportsConditionMatches("(align-items: center)") {
+		t.Fatal("center alignment is implemented")
+	}
+}
 
 func TestFlexRowGapAlignmentAndPixels(t *testing.T) {
 	const source = `<body style="margin:0"><div id="row" style="display:flex;width:300px;height:60px;gap:12px;align-items:center">

@@ -200,7 +200,7 @@ var supportValidators = map[string]func(string) bool{
 	"row-gap":              supportsOr(keywordValidator("normal"), nonNegativeLength),
 	"column-gap":           supportsOr(keywordValidator("normal"), nonNegativeLength),
 	"justify-content":      keywordValidator("normal", "start", "end", "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"),
-	"align-items":          keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center", "baseline"),
+	"align-items":          keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center"),
 	"position":             keywordValidator("static", "relative", "absolute", "fixed"),
 	"float":                keywordValidator("none", "left", "right"),
 	"overflow":             keywordValidator("visible", "hidden", "clip"),
