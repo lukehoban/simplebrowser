@@ -61,3 +61,25 @@ func TestRoundedGradientBackground(t *testing.T) {
 	pixel(t, img, 0, 0, color.RGBA{255, 255, 255, 255})
 	pixel(t, img, 10, 10, color.RGBA{255, 0, 0, 255})
 }
+
+func TestRoundedTransparentBorderShowsOwnBackground(t *testing.T) {
+	// Backgrounds paint under the border box (background-clip: border-box),
+	// so a transparent or translucent rounded border shows the box's own
+	// background, not the parent's, exactly like the square-corner path.
+	img := painted(t, `<body style="margin:0;background:lime"><div style="width:20px;height:20px;border:4px solid transparent;background:red;border-radius:8px"></div><div style="width:20px;height:20px;border:4px solid rgba(0,0,255,0.5);background:red;border-radius:8px"></div></body>`, image.Rect(0, 0, 40, 60))
+	lime, red := color.RGBA{0, 255, 0, 255}, color.RGBA{255, 0, 0, 255}
+	pixel(t, img, 0, 0, lime)
+	pixel(t, img, 14, 1, red)
+	pixel(t, img, 1, 14, red)
+	pixel(t, img, 14, 14, red)
+	pixel(t, img, 0, 28, lime)
+	// Translucent border pixels composite over the box's own red background
+	// identically to the square-corner border path.
+	square := painted(t, `<body style="margin:0;background:lime"><div style="width:20px;height:20px;border:4px solid rgba(0,0,255,0.5);background:red"></div></body>`, image.Rect(0, 0, 40, 40))
+	want := square.RGBAAt(14, 1)
+	if want.R == 0 || want.G != 0 {
+		t.Fatalf("square translucent border pixel = %+v, want red beneath", want)
+	}
+	pixel(t, img, 14, 29, want)
+	pixel(t, img, 1, 42, want)
+}

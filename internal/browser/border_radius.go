@@ -192,10 +192,12 @@ func paintRoundedBox(dst *image.RGBA, rect image.Rectangle, style ComputedStyle,
 					best, side = distance/float64(widths[i]), i
 				}
 			}
+			// Backgrounds extend under the border (background-clip:
+			// border-box), so composite the box's own background first and
+			// the possibly transparent border color over it.
+			draw.Draw(dst, image.Rect(x, y, x+1, y+1), layer, image.Pt(x, y), draw.Over)
 			if side >= 0 {
 				fill(dst, image.Rect(x, y, x+1, y+1), colors[side])
-			} else {
-				draw.Draw(dst, image.Rect(x, y, x+1, y+1), layer, image.Pt(x, y), draw.Over)
 			}
 		}
 	}
