@@ -1,7 +1,9 @@
 package browser
 
 import (
+	"bytes"
 	"fmt"
+	"image"
 	"image/color"
 	"math"
 	"os"
@@ -430,5 +432,154 @@ func TestSVGPaintFromStylesheet(t *testing.T) {
 		<g id="fade"><rect width="12" height="20" fill="red"/><rect x="8" width="12" height="20" fill="url(#g)"/></g></svg>`)
 	if got := img.RGBAAt(10, 10); !near(got, color.RGBA{0, 0, 128, 128}, 1) {
 		t.Errorf("overlap = %v, want half-transparent blue only", got)
+	}
+}
+
+// patternCircleSVG fills the whole canvas with a circle tile, optionally
+// under a pattern transform.
+func patternCircleSVG(transform string) string {
+	return svgOpen + `width="20" height="20" viewBox="0 0 20 20"><defs>
+		<pattern id="p" width="10" height="10" patternUnits="userSpaceOnUse" ` + transform + `>
+			<circle cx="5" cy="5" r="4" fill="#16a34a"/>
+		</pattern>
+	</defs><rect width="20" height="20" fill="url(#p) #ffffff"/></svg>`
+}
+
+// A magnified pattern should look like its content drawn at the output
+// resolution, not like an upscaled low-resolution tile.
+func TestSVGPatternTileFollowsDeviceScale(t *testing.T) {
+	pattern := decodeSVGString(t, patternCircleSVG(""))
+	// The same tile content, drawn directly, is the reference rendering.
+	direct := decodeSVGString(t, svgOpen+`width="10" height="10" viewBox="0 0 10 10">
+		<circle cx="5" cy="5" r="4" fill="#16a34a"/></svg>`)
+	for _, scale := range []int{2, 4, 8} {
+		got := pattern.rasterize(20*scale, 20*scale)
+		want := direct.rasterize(10*scale, 10*scale)
+		if got == nil || want == nil {
+			t.Fatalf("scale %d: rasterize returned nil", scale)
+		}
+		diff, edge := 0, 0
+		for y := 0; y < 10*scale; y++ {
+			for x := 0; x < 10*scale; x++ {
+				g, w := got.RGBAAt(x, y), want.RGBAAt(x, y)
+				if w.A != 0 && w.A != 255 {
+					edge++
+				}
+				if !near(g, w, 4) {
+					diff++
+				}
+			}
+		}
+		if edge < 8*scale {
+			t.Errorf("scale %d: reference has %d antialiased pixels, want a smooth edge", scale, edge)
+		}
+		if diff > 10*scale {
+			t.Errorf("scale %d: %d pixels differ from the directly drawn tile, want a crisp tile", scale, diff)
+		}
+	}
+}
+
+// Sampling uses tile fractions, so the tiling phase and period must not move
+// when the tile raster resolution changes, including under rotation and
+// fractional scales.
+func TestSVGPatternPhaseStableUnderScaleAndRotation(t *testing.T) {
+	for _, tc := range []struct{ name, transform string }{
+		{"plain", ""},
+		{"rotated", `patternTransform="rotate(20)"`},
+		{"skewed", `patternTransform="rotate(12) scale(1.3 0.8)"`},
+	} {
+		img := decodeSVGString(t, patternCircleSVG(tc.transform))
+		const size = 20
+		// A high-resolution render is the reference tiling; every other
+		// output size must place the same features in the same cells.
+		reference := img.rasterize(size*8, size*8)
+		for _, scale := range []float64{1, 1.5, 2, 2.5, 3.75} {
+			side := int(math.Round(size * scale))
+			got := img.rasterize(side, side)
+			if reference == nil || got == nil {
+				t.Fatalf("%s: rasterize returned nil", tc.name)
+			}
+			// Compare coverage in a coarse grid of cells: a phase or period
+			// shift moves tile features between cells, resolution alone does
+			// not. Coarse renders quantize more, so the tolerance follows the
+			// cell size in pixels.
+			const cells = 5
+			tol := 0.08 + 2/float64(side/cells)
+			for cy := 0; cy < cells; cy++ {
+				for cx := 0; cx < cells; cx++ {
+					want := svgGreenCoverage(reference, cx, cy, cells)
+					have := svgGreenCoverage(got, cx, cy, cells)
+					if math.Abs(want-have) > tol {
+						t.Errorf("%s scale %v: cell (%d,%d) coverage %.2f, want %.2f (tol %.2f)",
+							tc.name, scale, cx, cy, have, want, tol)
+					}
+				}
+			}
+		}
+	}
+}
+
+// svgGreenCoverage is the fraction of green pixels in one cell of a cells×cells
+// grid over img.
+func svgGreenCoverage(img *image.RGBA, cx, cy, cells int) float64 {
+	b := img.Bounds()
+	x0, x1 := b.Min.X+cx*b.Dx()/cells, b.Min.X+(cx+1)*b.Dx()/cells
+	y0, y1 := b.Min.Y+cy*b.Dy()/cells, b.Min.Y+(cy+1)*b.Dy()/cells
+	green, total := 0, 0
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			c := img.RGBAAt(x, y)
+			if c.G > uint8(int(c.R)+40) && c.G > uint8(int(c.B)+40) {
+				green++
+			}
+			total++
+		}
+	}
+	if total == 0 {
+		return 0
+	}
+	return float64(green) / float64(total)
+}
+
+// Past the scaled-tile budgets painting falls back to the best cached tile
+// rather than growing without bound, and stays deterministic.
+func TestSVGPatternScaledTileBounds(t *testing.T) {
+	img := decodeSVGString(t, patternCircleSVG(""))
+	// A pattern is painted at many scales; the cache stays bounded.
+	var server *svgPaintServer
+	for _, shape := range img.shapes {
+		if shape.fillServer != nil && shape.fillServer.pattern != nil {
+			server = shape.fillServer
+		}
+	}
+	if server == nil {
+		t.Fatal("expected a pattern paint server")
+	}
+	for _, side := range []int{40, 60, 80, 100, 120, 200, 400} {
+		if img.rasterize(side, side) == nil {
+			t.Fatalf("rasterize(%d) returned nil", side)
+		}
+	}
+	p := server.pattern
+	if len(p.scaled) > maxSVGPatternTiles {
+		t.Errorf("cached %d scaled tiles, want at most %d", len(p.scaled), maxSVGPatternTiles)
+	}
+	if p.scaledPixels > maxSVGPatternScaledPixels {
+		t.Errorf("cached %d scaled pixels, want at most %d", p.scaledPixels, maxSVGPatternScaledPixels)
+	}
+	// Repeat renders at a scale past the budgets are identical.
+	first := img.rasterize(900, 900)
+	second := img.rasterize(900, 900)
+	if first == nil || second == nil {
+		t.Fatal("large rasterize returned nil")
+	}
+	if !bytes.Equal(first.Pix, second.Pix) {
+		t.Error("renders past the scaled-tile budget are not deterministic")
+	}
+	// An enormous tile request never rasterizes past the side limit.
+	huge := &svgPattern{x: 0, y: 0, width: 1e6, height: 1e6, tile: image.NewRGBA(image.Rect(0, 0, 2, 2)),
+		content: img}
+	if got := huge.tileFor(svgAffine{a: 1000, d: 1000}); got != huge.tile {
+		t.Error("oversized tile request should fall back to the base tile")
 	}
 }
