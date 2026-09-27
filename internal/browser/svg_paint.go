@@ -15,7 +15,8 @@ import (
 // support explicit <stop>s (offset, stop-color, stop-opacity), gradientUnits,
 // gradientTransform, spreadMethod, and attribute/stop inheritance through a
 // bounded href chain. Patterns support bounded userSpaceOnUse tiles, transforms,
-// inherited content, and the same fallback/cycle behavior. Other paint servers
+// viewBox/preserveAspectRatio tile mapping, inherited attributes and content,
+// and the same fallback/cycle behavior. Other paint servers
 // paint the fallback (or nothing), like a missing ID.
 //
 // Element opacity is not inherited: it composites the element and its
@@ -273,11 +274,36 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 	// objectBoundingBox geometry/content needs shape-specific binding and is
 	// deliberately left to the focused follow-up. Do not mistake it for a
 	// missing reference: parseSVGPaint will apply the declared fallback.
+	// viewBox and preserveAspectRatio inherit independently through the href
+	// chain. An unparsable or negative viewBox is an error that leaves the
+	// attribute unspecified (so inheritance continues); a zero-area viewBox
+	// disables rendering of the tile, which then paints nothing. An invalid
+	// preserveAspectRatio likewise falls through to the default xMidYMid meet.
+	var viewBox [4]float64
+	viewBoxState := svgPatternViewBoxAbsent
+	for _, n := range chain {
+		if v, ok := s.cascadedAttributes(n)["viewBox"]; ok {
+			if vb, state := parseSVGPatternViewBox(v); state != svgPatternViewBoxAbsent {
+				viewBox, viewBoxState = vb, state
+				break
+			}
+		}
+	}
+	align, slice := "xMidYMid", false
+	for _, n := range chain {
+		if v, ok := s.cascadedAttributes(n)["preserveAspectRatio"]; ok {
+			if a, sl, valid := parseSVGPreserveAspectRatio(v); valid {
+				align, slice = a, sl
+				break
+			}
+		}
+	}
 	units, _ := attr("patternUnits")
 	if strings.TrimSpace(units) != "userSpaceOnUse" {
 		return nil
 	}
-	if units, ok := attr("patternContentUnits"); ok && strings.TrimSpace(units) != "userSpaceOnUse" {
+	// patternContentUnits has no effect when a viewBox is specified.
+	if units, ok := attr("patternContentUnits"); ok && strings.TrimSpace(units) != "userSpaceOnUse" && viewBoxState == svgPatternViewBoxAbsent {
 		return nil
 	}
 	vw, vh := s.img.userWidth, s.img.userHeight
@@ -307,6 +333,12 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 			transform = parsed
 		}
 	}
+	if viewBoxState == svgPatternViewBoxEmpty {
+		empty := image.NewRGBA(image.Rect(0, 0, 1, 1))
+		p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform, tile: empty}
+		s.patterns[node] = p
+		return p
+	}
 	content := node
 	for _, n := range chain {
 		if len(n.children) > 0 {
@@ -322,9 +354,19 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 		align: "none",
 	}
 	s.img = tile
+	// Pattern content uses a new coordinate system whose origin is the tile's
+	// top-left corner (x, y), or which is fitted to the tile by viewBox and
+	// preserveAspectRatio. The tile raster clips any overflow (meet letterbox
+	// stays transparent; slice is cropped to the tile).
 	frame := svgDefaultFrame()
 	frame.userWidth, frame.userHeight, frame.dashBasis = vw, vh, oldImg.dashBasis
-	frame.transform = svgAffine{a: 1, d: 1, e: -x, f: -y}
+	frame.transform = svgIdentity
+	if viewBoxState == svgPatternViewBoxValid {
+		frame.transform = svgViewTransform(viewBox, align, slice, width, height)
+		frame.userWidth, frame.userHeight = viewBox[2], viewBox[3]
+		frame.dashBasis = math.Hypot(viewBox[2]/math.Sqrt2, viewBox[3]/math.Sqrt2)
+		tile.userWidth, tile.userHeight = viewBox[2], viewBox[3]
+	}
 	err := s.walk(content, frame, true, 0)
 	s.img = oldImg
 	if err != nil {
@@ -696,4 +738,65 @@ func svgCompositeLayer(dst, layer *image.RGBA, opacity float64) {
 // svgAffineScale bounds how much m can stretch a unit length.
 func svgAffineScale(m svgAffine) float64 {
 	return math.Max(math.Hypot(m.a, m.b)+math.Hypot(m.c, m.d), 1e-9)
+}
+
+type svgPatternViewBoxState int
+
+const (
+	svgPatternViewBoxAbsent svgPatternViewBoxState = iota // missing or invalid
+	svgPatternViewBoxValid
+	svgPatternViewBoxEmpty // zero width or height: disables rendering
+)
+
+// parseSVGPatternViewBox parses a pattern viewBox. Malformed lists and
+// negative sizes are errors (treated as unspecified); a zero size is valid
+// syntax that disables rendering of the pattern content.
+func parseSVGPatternViewBox(v string) ([4]float64, svgPatternViewBoxState) {
+	var vb [4]float64
+	nums, ok := svgNumberList(v)
+	if !ok || len(nums) != 4 {
+		return vb, svgPatternViewBoxAbsent
+	}
+	for _, n := range nums {
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return vb, svgPatternViewBoxAbsent
+		}
+	}
+	copy(vb[:], nums)
+	switch {
+	case vb[2] < 0 || vb[3] < 0:
+		return vb, svgPatternViewBoxAbsent
+	case vb[2] == 0 || vb[3] == 0:
+		return vb, svgPatternViewBoxEmpty
+	}
+	return vb, svgPatternViewBoxValid
+}
+
+// parseSVGPreserveAspectRatio strictly parses
+// "[defer] <align> [meet|slice]"; ok=false means the value is invalid.
+func parseSVGPreserveAspectRatio(v string) (align string, slice, ok bool) {
+	fields := strings.Fields(v)
+	if len(fields) > 0 && fields[0] == "defer" {
+		fields = fields[1:]
+	}
+	if len(fields) == 0 || len(fields) > 2 {
+		return "", false, false
+	}
+	switch fields[0] {
+	case "none", "xMinYMin", "xMidYMin", "xMaxYMin", "xMinYMid", "xMidYMid",
+		"xMaxYMid", "xMinYMax", "xMidYMax", "xMaxYMax":
+		align = fields[0]
+	default:
+		return "", false, false
+	}
+	if len(fields) == 2 {
+		switch fields[1] {
+		case "meet":
+		case "slice":
+			slice = true
+		default:
+			return "", false, false
+		}
+	}
+	return align, slice, true
 }
