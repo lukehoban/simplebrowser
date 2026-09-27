@@ -42,7 +42,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 |---|---|---|
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | viewport media conditions and nested rules supported → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
 | `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | not evaluated → [#251](https://github.com/lukehoban/simplebrowser/issues/251) |
-| Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | [#247](https://github.com/lukehoban/simplebrowser/issues/247) (shared with #242) |
+| Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | core single-line row/column, sizing, gaps and alignment implemented → [#247](https://github.com/lukehoban/simplebrowser/issues/247); wrapping → [#272](https://github.com/lukehoban/simplebrowser/issues/272) |
 | Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping implemented → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | [#246](https://github.com/lukehoban/simplebrowser/issues/246) (shared with #242) |
 | `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
@@ -63,9 +63,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 3. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
    clearance and margin collapse, after [#252](https://github.com/lukehoban/simplebrowser/issues/252)
    float placement.
-4. [#247](https://github.com/lukehoban/simplebrowser/issues/247) flexbox: the
-   header, title bar and tabs.
-5. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
+4. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
    and [#120](https://github.com/lukehoban/simplebrowser/issues/120).
 
 Each new issue has a small repro in
@@ -76,6 +74,8 @@ shows the right box and line wrapping in isolation. In the full Moon baseline
 the infobox now floats right, but it and the lead text collapse because an
 unresolved `var()` font-size becomes zero
 ([#266](https://github.com/lukehoban/simplebrowser/issues/266)).
+Core flex layout now keeps the logo/header controls and title toolbar on their
+authored single lines at 800px. Responsive multi-line flex remains #272.
 
 ## Out of scope
 
