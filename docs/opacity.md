@@ -19,13 +19,13 @@ Authored offline repro ([`testdata/opacity/index.html`](../testdata/opacity/inde
 | --- | --- |
 | ![Before: dark overlay hides the page](screenshots/opacity/repro-before.png) | ![After: page visible; group vs per-child opacity](screenshots/opacity/repro-after.png) |
 
-Live `https://github.com/microsoft/vscode` at 800×600. All three were captured in the same minute, 2026-09-27 21:04Z:
+Live `https://github.com/microsoft/vscode` at 800×600. All three were captured in the same minute, 2026-09-27 21:08Z:
 
-| Main `f955ee4` | Previous main `9976c151` | After |
+| Main `bab1bfb` (same bytes as `f955ee4`) | Previous main `9976c151` | After (this fix merged with `bab1bfb`) |
 | --- | --- | --- |
-| ![Main: nearly blank](screenshots/opacity/live-main-f955ee4.png) | ![Previous main](screenshots/opacity/live-previous-main-9976c151.png) | ![After](screenshots/opacity/live-after.png) |
+| ![Main: nearly blank](screenshots/opacity/live-main.png) | ![Previous main](screenshots/opacity/live-previous-main-9976c151.png) | ![After](screenshots/opacity/live-after.png) |
 
-The live page changes over time (commit counts, markup, CSS hashes), so the live captures are evidence, not goldens. In this capture, the "after" image differs from previous main in exactly one area: 1,427 pixels inside (21,495)–(118,510). That area is the latest-commit skeleton bar, which is drawn by generated content (#312). Only the repro and the unit tests in `opacity_test.go` are deterministic.
+The "after" image also includes the float and flex layout work from #357 (#349), so its header and tabs sit higher than in previous main. The live page changes over time (commit counts, markup, CSS hashes), so these captures are evidence, not goldens. Only the repro and the unit tests in `opacity_test.go` are deterministic.
 
 To regenerate the repro:
 
@@ -36,4 +36,4 @@ go run ./cmd/simplebrowser -o docs/screenshots/opacity/repro-after.png testdata/
 SHA-256 of the committed files:
 - `repro-before.png`: `7f490967…8617b2`
 - `repro-after.png`: `d72f9680…0e503`
-- `live-main-f955ee4.png`: `cd5641f4…115d` (byte-identical to the #352 report)
+- `live-main.png`: `cd5641f4…115d` (byte-identical to the #352 report)
