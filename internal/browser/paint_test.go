@@ -95,6 +95,55 @@ func TestPaintTextWeightColorSizeAndUnderline(t *testing.T) {
 	pixel(t, linked, run.Rect.Min.X+2, y, color.RGBA{0, 0, 255, 255})
 }
 
+func TestPaintUnderlineExcludesTrailingWhitespace(t *testing.T) {
+	viewport := image.Rect(0, 0, 240, 60)
+	withSpace := painted(t, `<p style="margin:0"><a style="text-decoration:underline">first word   </a></p>`, viewport)
+	withoutSpace := painted(t, `<p style="margin:0"><a style="text-decoration:underline">first word</a></p>`, viewport)
+	if !bytes.Equal(withSpace.Pix, withoutSpace.Pix) {
+		t.Fatal("trailing collapsible whitespace changed the underlined render")
+	}
+
+	doc := styledForLayout(t, `<p style="margin:0"><a style="text-decoration:underline">first word</a></p>`)
+	layout, err := LayoutWithViewport(doc, viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := layout.Root.Children[0].Children[0].Text[0]
+	faces := newFaceSet()
+	m := faces.metrics(run.Style)
+	y := run.Rect.Min.Y + (run.Rect.Dy()-m.lineHeight())/2 + m.face.Metrics().Ascent.Ceil() + 1
+	spaceStart := run.Rect.Min.X + m.width("first")
+	spaceWidth := m.width(" ")
+	faces.close()
+	if spaceWidth == 0 {
+		t.Fatal("font reports zero-width space")
+	}
+	pixel(t, withSpace, spaceStart+spaceWidth/2, y, color.RGBA{0, 0, 255, 255})
+}
+
+func TestPaintUnderlineEndsAtMultiWordRunGlyphs(t *testing.T) {
+	const text = "Does Georgism work? Five years later"
+	viewport := image.Rect(0, 0, 400, 40)
+	markup := `<p style="margin:0"><a style="text-decoration:underline">` + text + `</a><span> (site)</span></p>`
+	doc := styledForLayout(t, markup)
+	layout, err := LayoutWithViewport(doc, viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := layout.Root.Children[0].Children[0].Text[0]
+	faces := newFaceSet()
+	m := faces.metrics(run.Style)
+	want := m.width(text)
+	y := run.Rect.Min.Y + (run.Rect.Dy()-m.lineHeight())/2 + m.face.Metrics().Ascent.Ceil() + 1
+	faces.close()
+	if run.Text != text || run.Rect.Dx() != want {
+		t.Fatalf("run %q width = %d, want %d (width of the whole string)", run.Text, run.Rect.Dx(), want)
+	}
+	img := painted(t, markup, viewport)
+	pixel(t, img, run.Rect.Min.X+want-1, y, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, run.Rect.Min.X+want+1, y, color.RGBA{255, 255, 255, 255})
+}
+
 func TestPaintClipsToViewportAndTextRun(t *testing.T) {
 	img := painted(t, `<div style="margin:0;width:200px;height:200px;background:blue;border:5px solid red">abcdefghijklmnopqrstuvwxyz</div>`, image.Rect(0, 0, 24, 15))
 	if img.Bounds() != image.Rect(0, 0, 24, 15) {
