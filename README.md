@@ -34,6 +34,9 @@ verified by CI rather than copied into this README.
 **CSS length math:** bounded `calc()` arithmetic is documented with a rendered
 [width example](docs/css-calc.md).
 
+**Generated content:** `::before`/`::after` string boxes are documented with a
+rendered [before/after example](docs/generated-content.md).
+
 ## Usage
 
 Requires Go 1.24 or later.

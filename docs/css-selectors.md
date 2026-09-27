@@ -58,7 +58,9 @@ with the collapsed-row painting fix [#178](https://github.com/lukehoban/simplebr
 
 ## Known gaps / follow-ups
 
-- Other functional pseudo-classes and pseudo-elements remain unsupported.
+- `::before`/`::after` generate boxes for string `content`; see
+  [generated content](generated-content.md). Other functional pseudo-classes
+  and other pseudo-elements remain unsupported.
 - The empty-row WPT pair also exercises independently deferred
   [empty inline-block sizes (#192)](https://github.com/lukehoban/simplebrowser/issues/192)
   and [inline-table flow (#193)](https://github.com/lukehoban/simplebrowser/issues/193);

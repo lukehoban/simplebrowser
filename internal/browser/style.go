@@ -46,6 +46,10 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 // inherited font sizes and hence em/rem/ex/ch throughout the document.
 func computeStyles(document StyledDocument, viewport image.Point) StyledDocument {
 	styles := make(map[*Node]ComputedStyle)
+	pseudoNodes := document.pseudoNodes
+	if pseudoNodes == nil {
+		pseudoNodes = map[pseudoKey]*Node{}
+	}
 	rootFontSize := 16.0
 	rootElementSeen := false
 	var makeTree func(*Node, ComputedStyle) *StyledNode
@@ -67,20 +71,31 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 		}
 		isRootElement := !rootElementSeen
 		computed := cascade(n, parent, rootFontSize, isRootElement, document.UserAgent,
-			document.Stylesheets, document.InlineStyles[n], viewport)
+			document.Stylesheets, document.InlineStyles[n], viewport, "")
 		if !rootElementSeen {
 			rootElementSeen = true
 			rootFontSize = computedFontSize(computed)
 		}
 		styles[n] = computed
 		result := &StyledNode{Node: n, Style: computed}
+		// A generated box is the originating element's first or last child
+		// (CSS Content 3 §2), inheriting from it like a real child element.
+		if before := pseudoStyledNode(n, "before", computed, rootFontSize, document, viewport, pseudoNodes); before != nil {
+			styles[before.Node] = before.Style
+			result.Children = append(result.Children, before)
+		}
 		for _, child := range n.Children {
 			result.Children = append(result.Children, makeTree(child, computed))
+		}
+		if after := pseudoStyledNode(n, "after", computed, rootFontSize, document, viewport, pseudoNodes); after != nil {
+			styles[after.Node] = after.Style
+			result.Children = append(result.Children, after)
 		}
 		return result
 	}
 	document.StyleRoot = makeTree(document.Document.Root, nil)
 	document.Styles = styles
+	document.pseudoNodes = pseudoNodes
 	document.styleViewport = viewport
 	return document
 }
@@ -93,8 +108,11 @@ type winningDeclaration struct {
 	spec                      [3]int
 }
 
+// cascade computes one element's values, or those of one of its generated
+// boxes when pseudo is "before" or "after". A generated box has no inline
+// style attribute and no presentational attributes of its own.
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
-	inline []Declaration, viewport image.Point) ComputedStyle {
+	inline []Declaration, viewport image.Point, pseudo string) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-variant": "normal", "font-weight": "normal",
 		"lang": language.Und.String(), "line-height": "normal", "text-align": "start", "visibility": "visible"}
@@ -215,8 +233,17 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 				continue
 			}
 			for _, selector := range rule.Selectors {
+				which, supported := selectorPseudoElement(selector)
+				if !supported || which != pseudo {
+					continue
+				}
+				// The pseudo-element still counts toward specificity, so take
+				// it before stripping it for matching (Selectors 4 §17).
+				spec := specificity(selector)
+				if which != "" {
+					selector = selectorWithoutPseudoElement(selector)
+				}
 				if matchesSelector(n, selector) {
-					spec := specificity(selector)
 					for _, d := range rule.Declarations {
 						add(d, spec, origin, false)
 					}
@@ -225,12 +252,18 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 	}
 	applySheet(ua, 0)
-	addPresentational(n, add)
+	if pseudo == "" {
+		// Presentational hints and the style attribute belong to the element,
+		// not to its generated boxes.
+		addPresentational(n, add)
+	}
 	for _, sheet := range sheets {
 		applySheet(sheet, 1)
 	}
-	for _, d := range inline {
-		add(d, [3]int{1, 0, 0}, 1, true)
+	if pseudo == "" {
+		for _, d := range inline {
+			add(d, [3]int{1, 0, 0}, 1, true)
+		}
 	}
 	// Custom properties cascade first, but retain their raw token streams:
 	// a child may replace a variable referenced by an inherited declaration.
