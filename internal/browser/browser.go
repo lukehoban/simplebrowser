@@ -62,8 +62,7 @@ func Render(source string, output io.Writer) error {
 }
 
 // RenderImageBoxes renders source and outlines laid-out image boxes. It is a
-// diagnostic for reviewing replaced-element layout until the painter draws
-// decoded images.
+// diagnostic for reviewing replaced-element layout independently of painting.
 func RenderImageBoxes(source string, output io.Writer) error {
 	return renderWithOptions(source, output, nil, renderOptions{debugImageBoxes: true})
 }

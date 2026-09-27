@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 )
@@ -166,6 +168,112 @@ func TestPaintConcurrentRenders(t *testing.T) {
 			got := painted(t, markup, image.Rect(0, 0, 240, 80))
 			if !bytes.Equal(got.Pix, want.Pix) {
 				t.Error("concurrent paint differs")
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func imagePainted(t *testing.T, viewport image.Rectangle, pictures ...ImageBox) *image.RGBA {
+	t.Helper()
+	var buf bytes.Buffer
+	layout := Layout{Viewport: viewport, Root: &Box{Children: []*Box{{Images: pictures}}}}
+	if err := paint(layout, &buf, renderOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return img.(*image.RGBA)
+}
+
+func TestPaintScaledImageAndDocumentOrder(t *testing.T) {
+	src := image.NewRGBA(image.Rect(5, 7, 7, 9))
+	src.SetRGBA(5, 7, color.RGBA{R: 255, A: 255})
+	src.SetRGBA(6, 7, color.RGBA{G: 255, A: 255})
+	src.SetRGBA(5, 8, color.RGBA{B: 255, A: 255})
+	src.SetRGBA(6, 8, color.RGBA{R: 255, G: 255, A: 255})
+	img := imagePainted(t, image.Rect(0, 0, 12, 12),
+		ImageBox{Image: src, Rect: image.Rect(1, 1, 9, 9)},
+		ImageBox{Image: image.NewUniform(color.RGBA{R: 42, A: 255}), Rect: image.Rect(6, 6, 10, 10)})
+	pixel(t, img, 1, 1, color.RGBA{R: 255, A: 255})
+	pixel(t, img, 8, 1, color.RGBA{G: 255, A: 255})
+	pixel(t, img, 1, 8, color.RGBA{B: 255, A: 255})
+	pixel(t, img, 8, 8, color.RGBA{R: 42, A: 255})
+	pixel(t, img, 10, 10, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+}
+
+func TestPaintBrokenImagePlaceholderAndClip(t *testing.T) {
+	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	src.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
+	src.SetRGBA(1, 0, color.RGBA{G: 255, A: 255})
+	src.SetRGBA(0, 1, color.RGBA{B: 255, A: 255})
+	src.SetRGBA(1, 1, color.RGBA{R: 255, G: 255, A: 255})
+	boxes := []ImageBox{
+		{Image: src, Rect: image.Rect(-2, -2, 6, 6)},
+		{Rect: image.Rect(7, 1, 13, 7)},
+	}
+	full := imagePainted(t, image.Rect(0, 0, 16, 10), boxes...)
+	clipped := imagePainted(t, image.Rect(0, 0, 10, 5), boxes...)
+	for y := 0; y < 5; y++ {
+		for x := 0; x < 10; x++ {
+			pixel(t, clipped, x, y, full.RGBAAt(x, y))
+		}
+	}
+	pixel(t, clipped, 7, 1, color.RGBA{R: 160, G: 160, B: 160, A: 255})
+	pixel(t, clipped, 8, 2, color.RGBA{R: 245, G: 245, B: 245, A: 255})
+	if clipped.RGBAAt(0, 0) == (color.RGBA{R: 255, G: 255, B: 255, A: 255}) {
+		t.Fatal("partly clipped decoded image did not paint")
+	}
+}
+
+func TestImageBoxDiagnosticStillOutlinesDecodedImages(t *testing.T) {
+	picture := ImageBox{Image: image.NewUniform(color.RGBA{R: 255, A: 255}),
+		Rect: image.Rect(2, 2, 8, 8)}
+	var output bytes.Buffer
+	layout := Layout{Viewport: image.Rect(0, 0, 10, 10),
+		Root: &Box{Children: []*Box{{Images: []ImageBox{picture}}}}}
+	if err := paint(layout, &output, renderOptions{debugImageBoxes: true}); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic, err := png.Decode(&output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pixel(t, diagnostic.(*image.RGBA), 2, 2, color.RGBA{R: 230, B: 200, A: 255})
+	pixel(t, diagnostic.(*image.RGBA), 4, 4, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+}
+
+func TestConcurrentImageRenders(t *testing.T) {
+	dir := t.TempDir()
+	source := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	source.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
+	var asset bytes.Buffer
+	if err := png.Encode(&asset, source); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pixel.png"), asset.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	page := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(page, []byte(`<img src="pixel.png" width="8" height="8"><img src="missing.svg" width="6" height="6">`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var expected bytes.Buffer
+	if err := Render(page, &expected); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 12; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			var got bytes.Buffer
+			if err := Render(page, &got); err != nil {
+				t.Error(err)
+			} else if !bytes.Equal(got.Bytes(), expected.Bytes()) {
+				t.Error("concurrent image render differs")
 			}
 		}()
 	}

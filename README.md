@@ -8,24 +8,26 @@ The project has a working fetch, parse, cascade, and layout pipeline covering
 block, inline, and table formatting. The CLI fetches HTTP(S) pages, builds a
 DOM, loads CSS and GIF/PNG/JPEG images, and computes deterministic box geometry
 and wrapped text runs, including replaced image boxes and the nested tables
-Hacker News uses for its page structure. Painting now rasterizes colors, raster CSS background images (GIF/PNG/JPEG),
-borders, and embedded-font text. Drawing decoded `<img>` images, SVG, and
-advanced CSS remain future work.
+Hacker News uses for its page structure. Painting rasterizes colors, raster
+CSS backgrounds (GIF/PNG/JPEG), borders, embedded-font text, scaled
+GIF/PNG/JPEG `<img>` elements, and neutral placeholders for unsupported
+`<img>` elements. SVG and advanced CSS remain future work.
 
 ## Rendering progress
 
-![Current Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
+![Current Hacker News fixture render: orange header, painted story text, and gray SVG logo placeholder](docs/screenshots/hn-fixture.png)
 
 *Offline Hacker News snapshot generated from the repository's current source
-(2026-09-26). The screenshot is a progress snapshot, not a pixel-accurate
-Hacker News reference.*
+(2026-09-26), with image painting and fixed-point line wrapping. The SVG logo
+is a neutral placeholder; the fixture's vote arrows are CSS backgrounds, not
+`<img>` elements. This is a progress snapshot, not a pixel-accurate HN
+reference.*
 
 **What's next**
-- [Paint decoded images (#11)](https://github.com/lukehoban/simplebrowser/issues/11).
 - [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
-
-[Trailing-whitespace underlines (#25)](https://github.com/lukehoban/simplebrowser/issues/25)
-are now fixed.
+- [Render the SVG logo and vote arrows (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
+- [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
+- [Center the page table inside `<center>` (#37)](https://github.com/lukehoban/simplebrowser/issues/37).
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
@@ -41,14 +43,10 @@ make screenshot
 
 The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
 captured snapshot; rendering does not depend on live Hacker News availability.
-HN's black titles and gray subtext now use the page's link styles, and the
-trailing-whitespace underline fix has landed. Remaining gaps include
-[typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
-Images are fetched, decoded, and laid out but [not yet painted (#11)](https://github.com/lukehoban/simplebrowser/issues/11);
-the missing logo and vote arrows also need
-[SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
-Raster CSS backgrounds are painted, but HN's vote arrows reference
-`triangle.svg`, which remains unsupported.
+HN's black titles and gray subtext use the page's link styles; GIF/PNG/JPEG
+images paint at their used size, while failed or unsupported images get a
+neutral placeholder. Raster CSS backgrounds paint, but the missing SVG logo
+and vote arrows still need [SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
 
 ## Architecture
 
@@ -82,7 +80,7 @@ CSS or HTML `width`/`height`, preserving the intrinsic aspect ratio when only
 one is given, and fall back to intrinsic size. Failed, oversized, and
 unsupported resources (including SVG) keep a sized placeholder box with no
 decoded image so layout stays stable; `Box.Images` carries the rectangles and
-decoded images to the painter.
+decoded images to the painter, which scales and clips them to the viewport.
 
 Table layout uses the separated-borders model: columns are sized from intrinsic
 min/max content widths plus explicit CSS and HTML widths (pixels pin a column,
@@ -102,12 +100,12 @@ Go 1.24 or later is required.
 go run ./cmd/simplebrowser -o out.png https://example.com/
 ```
 
-The output is currently an 800×600 PNG with viewport-clipped boxes and text.
+The output is currently an 800×600 PNG with viewport-clipped boxes, text, and images.
 HTTP(S) resources are
 fetched with bounded HTTP/1.1 responses, redirects, and gzip support. Local
 paths and `file://` URLs read the supplied file.
 
-Replaced-element layout can be inspected before the painter draws images:
+Replaced-element layout can be inspected separately from the final image render:
 
 ```sh
 make image-boxes
@@ -140,7 +138,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
-- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, and layout implemented; painting and SVG pending
+- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, layout, and painting implemented; SVG tracked in [#31](https://github.com/lukehoban/simplebrowser/issues/31)
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture, checked-in screenshot, and render artifact in CI; visual fidelity in progress
 
 See the linked issues for current status and implementation scope.

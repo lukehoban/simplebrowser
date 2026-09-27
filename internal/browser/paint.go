@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 
+	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -44,9 +45,11 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 		for _, run := range box.Text {
 			drawText(canvas, run, layout.Document.Styles, faces)
 		}
-		if options.debugImageBoxes {
-			for _, picture := range box.Images {
+		for _, picture := range box.Images {
+			if options.debugImageBoxes {
 				drawImageBoxOutline(canvas, picture)
+			} else {
+				drawImageBox(canvas, picture)
 			}
 		}
 		for _, child := range box.Children {
@@ -60,6 +63,27 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 		}
 	}
 	return png.Encode(output, canvas)
+}
+
+// Scale against the full layout rectangle, not the clipped rectangle: cropping
+// an image at the viewport edge must not stretch its visible portion.
+func drawImageBox(dst *image.RGBA, picture ImageBox) {
+	rect := picture.Rect
+	clip := rect.Intersect(dst.Bounds())
+	if rect.Empty() || clip.Empty() {
+		return
+	}
+	if picture.Image != nil && !picture.Image.Bounds().Empty() {
+		xdraw.ApproxBiLinear.Scale(dst.SubImage(clip).(draw.Image), rect,
+			picture.Image, picture.Image.Bounds(), draw.Over, nil)
+		return
+	}
+	fill(dst, rect, color.RGBA{R: 245, G: 245, B: 245, A: 255})
+	gray := color.RGBA{R: 160, G: 160, B: 160, A: 255}
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+1), gray)
+	fill(dst, image.Rect(rect.Min.X, rect.Max.Y-1, rect.Max.X, rect.Max.Y), gray)
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Max.Y), gray)
+	fill(dst, image.Rect(rect.Max.X-1, rect.Min.Y, rect.Max.X, rect.Max.Y), gray)
 }
 
 // drawImageBoxOutline marks a laid-out replaced box: magenta when the image
