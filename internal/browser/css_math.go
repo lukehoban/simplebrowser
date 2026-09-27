@@ -335,6 +335,38 @@ func validCalcDeclaration(property, value string) bool {
 	if !strings.Contains(strings.ToLower(value), "calc(") {
 		return true
 	}
+	// The box shorthands accept one to four whitespace-separated components.
+	// Split only at top level so spaces inside calc() remain part of its
+	// expression, and validate each component using the shorthand's grammar.
+	if property == "margin" || property == "padding" || property == "border-width" {
+		parts, ok := splitCSSComponents(value)
+		if !ok || len(parts) < 1 || len(parts) > 4 {
+			return false
+		}
+		for _, part := range parts {
+			if strings.Contains(strings.ToLower(part), "calc(") {
+				if !validSingleCalc(property, part) {
+					return false
+				}
+				continue
+			}
+			switch property {
+			case "margin":
+				if !supportsOr(keywordValidator("auto"), lengthOrPercentage)(part) {
+					return false
+				}
+			case "padding", "border-width":
+				if !nonNegativeLength(part) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return validSingleCalc(property, strings.TrimSpace(value))
+}
+
+func validSingleCalc(property, value string) bool {
 	value = strings.TrimSpace(value)
 	if !strings.HasPrefix(strings.ToLower(value), "calc(") {
 		return false
@@ -353,4 +385,67 @@ func validCalcDeclaration(property, value string) bool {
 		return cssMathValue{}, false
 	})
 	return ok && !v.number
+}
+
+// splitCSSComponents splits CSS shorthand tokens at whitespace outside
+// parenthesized functions. Quoted text is kept together as well, so malformed
+// tokens are rejected by the property's validator rather than mis-expanded.
+func splitCSSComponents(value string) ([]string, bool) {
+	var parts []string
+	start, depth := -1, 0
+	var quote byte
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if quote != 0 {
+			if c == '\\' {
+				i++
+			} else if c == quote {
+				quote = 0
+			}
+			continue
+		}
+		switch c {
+		case '"', '\'':
+			quote = c
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth < 0 {
+				return nil, false
+			}
+		}
+		if cssSpace(c) && depth == 0 && quote == 0 {
+			if start >= 0 {
+				parts = append(parts, value[start:i])
+				start = -1
+			}
+			continue
+		}
+		if start < 0 {
+			start = i
+		}
+	}
+	if depth != 0 || quote != 0 {
+		return nil, false
+	}
+	if start >= 0 {
+		parts = append(parts, value[start:])
+	}
+	return parts, true
+}
+
+// computedCalcHasPercentage reports whether a normalized calc expression
+// still depends on its percentage basis.
+func computedCalcHasPercentage(value string) bool {
+	v, ok := parseCSSMath(value, func(n float64, unit string) (cssMathValue, bool) {
+		switch unit {
+		case "%":
+			return cssMathValue{percent: n / 100}, true
+		case "px":
+			return cssMathValue{px: n}, true
+		}
+		return cssMathValue{}, false
+	})
+	return ok && v.percent != 0
 }

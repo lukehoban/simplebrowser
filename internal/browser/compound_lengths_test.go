@@ -209,3 +209,90 @@ func TestCalcPercentageRejectedWhereGrammarDisallowsIt(t *testing.T) {
 		t.Errorf("left border width = %d, want invalid calc() ignored (2)", got)
 	}
 }
+
+func TestCalcBoxShorthandComponents(t *testing.T) {
+	for _, tc := range []struct {
+		property, value string
+	}{
+		{"margin", "calc(10% - 1px)"},
+		{"padding", "calc(10% - 1px)"},
+		{"border-width", "calc(1px + 2px)"},
+		{"margin", "calc(10% - 1px) 0"},
+		{"padding", "0 calc(10% - 1px)"},
+		{"border-width", "calc(1px + 2px) 2px"},
+	} {
+		t.Run(tc.property+"/"+tc.value, func(t *testing.T) {
+			if !featureSupported(tc.property, tc.value) {
+				t.Fatalf("@supports rejected %s: %q", tc.property, tc.value)
+			}
+			expanded := expandDeclaration(Declaration{Property: tc.property, Value: tc.value})
+			if len(expanded) != 4 {
+				t.Fatalf("expandDeclaration() returned %d longhands, want 4: %+v", len(expanded), expanded)
+			}
+			want := map[string]bool{}
+			for _, side := range []string{"top", "right", "bottom", "left"} {
+				if tc.property == "border-width" {
+					want["border-"+side+"-width"] = true
+				} else {
+					want[tc.property+"-"+side] = true
+				}
+			}
+			for i, d := range expanded {
+				if !want[d.Property] {
+					t.Errorf("longhand %d property = %q", i, d.Property)
+				}
+			}
+		})
+	}
+	doc := styledForLayout(t, `<style>
+		@supports (margin:calc(10% - 1px) 0) { #supported { padding:calc(10% - 1px) 0 } }
+		</style><div id="supported" style="margin:calc(10% - 1px) 0;border:solid;
+		border-width:calc(1px + 2px) 2px"></div>`)
+	style := styledElementByID(doc.StyleRoot, "supported").Style
+	for _, property := range []string{"margin-top", "margin-right", "margin-bottom", "margin-left",
+		"padding-top", "padding-right", "padding-bottom", "padding-left",
+		"border-top-width", "border-right-width", "border-bottom-width", "border-left-width"} {
+		if style[property] == "" {
+			t.Errorf("shorthand expansion did not set %s: style=%+v", property, style)
+		}
+	}
+	for _, tc := range []struct {
+		property, value string
+	}{
+		{"margin", "calc(10% - 1px) bogus"},
+		{"padding", "calc(1px + 1)"},
+		{"border-width", "calc(10% + 1px)"},
+	} {
+		if featureSupported(tc.property, tc.value) {
+			t.Errorf("@supports accepted invalid %s: %q", tc.property, tc.value)
+		}
+	}
+}
+
+func TestCalcHeightPercentageNeedsDefiniteContainingBlock(t *testing.T) {
+	n := &StyledNode{Style: ComputedStyle{"height": "calc(50% - 10px)"}}
+	if _, definite := specifiedHeight(n, 200, false); definite {
+		t.Fatal("calc height with a percentage was definite without a containing-block height")
+	}
+	if got, definite := specifiedHeight(n, 200, true); !definite || got != 90 {
+		t.Fatalf("calc height with a definite 200px basis = (%d, %t), want (90, true)", got, definite)
+	}
+
+	doc := styledForLayout(t, `<body style="margin:0"><div id="parent">
+		<div id="calculated" style="height:calc(50% - 10px)">text</div>
+		<div id="automatic">text</div>
+		</div></body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calculated := boxesByID(got.Root, "calculated")["calculated"]
+	automatic := boxesByID(got.Root, "automatic")["automatic"]
+	if calculated == nil || automatic == nil {
+		t.Fatal("missing calculated or automatic box")
+	}
+	if calculated.Rect.Dy() == 0 || calculated.Rect.Dy() != automatic.Rect.Dy() {
+		t.Errorf("indefinite percentage calc height = %d, auto sibling height = %d; want auto behavior",
+			calculated.Rect.Dy(), automatic.Rect.Dy())
+	}
+}

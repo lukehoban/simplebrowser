@@ -918,6 +918,9 @@ func specifiedHeight(n *StyledNode, basis int, definite bool) (int, bool) {
 		return 0, false
 	}
 	if strings.HasPrefix(strings.ToLower(h), "calc(") {
+		if !definite && computedCalcHasPercentage(h) {
+			return 0, false
+		}
 		used := px(h, float64(basis), math.NaN())
 		if math.IsNaN(used) || math.IsInf(used, 0) {
 			return 0, false

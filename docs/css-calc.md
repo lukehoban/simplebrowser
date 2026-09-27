@@ -1,6 +1,6 @@
 # CSS `calc()` length support
 
-The renderer evaluates a single `calc()` value in the length properties its
+The renderer evaluates `calc()` values in the length properties its
 layout engine uses: `width`, `height`, margins, padding, `flex-basis`, `gap`,
 `row-gap`, `column-gap`, border widths, and `top`/`right`/`bottom`/`left` on
 positioned boxes. Vertical offset percentages share the existing
@@ -19,7 +19,9 @@ Custom properties are substituted before validation and evaluation, preserving
 the cascade. An invalid expression behaves like any other invalid declaration:
 it does not replace a lower-priority declaration, and an invalid `var()`
 substitution is treated as unset. `@supports` recognizes the same bounded
-length grammar.
+length grammar. The `margin`, `padding`, and `border-width` shorthands accept
+one to four components, including a `calc()` expression in any component;
+whitespace inside each expression is kept intact.
 
 This is intentionally not a full CSS math implementation. These are not
 supported yet:
@@ -31,8 +33,8 @@ supported yet:
 - `calc()` inside the `flex` shorthand
   ([#288](https://github.com/lukehoban/simplebrowser/issues/288)); use
   `flex-basis` instead
-- `calc()` mixed with other values in a multi-value shorthand such as
-  `margin: calc(10% - 1px) 0`, which is dropped as invalid
+- `calc()` mixed with other values in the `gap` shorthand, such as
+  `gap: calc(10% - 1px) 0`
   ([#289](https://github.com/lukehoban/simplebrowser/issues/289))
 - arithmetic in background, transform, grid, or SVG properties
 

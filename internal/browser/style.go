@@ -974,7 +974,10 @@ func expandDeclaration(d Declaration) []Declaration {
 		d.Property != "border-color" && d.Property != "border-style" {
 		return []Declaration{d}
 	}
-	parts := strings.Fields(d.Value)
+	parts, ok := splitCSSComponents(d.Value)
+	if !ok {
+		return nil
+	}
 	if len(parts) < 1 || len(parts) > 4 {
 		return []Declaration{d}
 	}
@@ -988,6 +991,9 @@ func expandDeclaration(d Declaration) []Declaration {
 		parts = []string{parts[0], parts[1], parts[2], parts[1]}
 	}
 	names := []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
+	if d.Property == "border-width" {
+		names = []string{"border-top-width", "border-right-width", "border-bottom-width", "border-left-width"}
+	}
 	result := make([]Declaration, 4)
 	for i := range result {
 		result[i] = Declaration{Property: names[i], Value: parts[i], Important: d.Important}
