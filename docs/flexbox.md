@@ -37,7 +37,7 @@ free width.
 
 - Wrapping in an auto-height column (no definite main size, so it never
   wraps; this matches browsers without `max-height`).
-- Direct text children as anonymous items
+- Direct text children become anonymous flex items, including NBSP-only runs
   ([#278](https://github.com/lukehoban/simplebrowser/issues/278)).
 - `order`, `align-self`, baseline alignment, `safe`/`unsafe` and
   `first`/`last` keywords, `place-content`, and automatic minimum sizes

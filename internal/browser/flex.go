@@ -26,6 +26,7 @@ func isFlexContainer(n *StyledNode) bool {
 type flexItem struct {
 	node          *StyledNode
 	box           *Box
+	anonymous     bool
 	margin        [4]int
 	main, grow    float64
 	shrink        float64
@@ -39,28 +40,67 @@ type flexLine struct {
 	cross, pos int
 }
 
-func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefinite bool, faces *faceSet, cb containingBlock) ([]*Box, int) {
-	direction := strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"]))
-	column := strings.HasPrefix(direction, "column")
-	reverse := strings.HasSuffix(direction, "reverse")
-	wrapMode := strings.ToLower(strings.TrimSpace(parent.Style["flex-wrap"]))
-	wrap := wrapMode == "wrap" || wrapMode == "wrap-reverse"
-	wrapReverse := wrapMode == "wrap-reverse"
-	var nodes []*StyledNode
-	var outOfFlow []*StyledNode
+// flexChildren shares anonymous text item creation between layout and
+// intrinsic sizing, so floated text-only flex containers measure their runs.
+func flexChildren(parent *StyledNode) (nodes, outOfFlow []*StyledNode) {
+	var textRun []*StyledNode
+	flushText := func() {
+		if len(textRun) == 0 {
+			return
+		}
+		visible := false
+		for _, text := range textRun {
+			if !collapsibleWhitespaceOnly(text.Node.Data) {
+				visible = true
+				break
+			}
+		}
+		if visible {
+			// An anonymous flex item inherits text properties, but not the
+			// container's flex, dimensions, background or box edges. Keep the
+			// original text nodes for inline layout and painting.
+			style := ComputedStyle{"display": "block"}
+			for property := range inheritedCSSProperties {
+				if value, ok := parent.Style[property]; ok {
+					style[property] = value
+				}
+			}
+			nodes = append(nodes, &StyledNode{
+				Node:  &Node{Type: ElementNode, Name: "div"},
+				Style: style, Children: textRun,
+			})
+		}
+		textRun = nil
+	}
 	for _, child := range parent.Children {
-		if childFlowKind(child) == flowSkip || (child.Node.Type == TextNode && strings.TrimSpace(child.Node.Data) == "") {
+		if childFlowKind(child) == flowSkip {
 			continue
 		}
+		if child.Node.Type == TextNode {
+			textRun = append(textRun, child)
+			continue
+		}
+		flushText()
 		if positioned(child) {
 			outOfFlow = append(outOfFlow, child)
 			continue
 		}
-		// Anonymous flex items for direct text runs are tracked in #278.
 		if child.Node.Type == ElementNode {
 			nodes = append(nodes, child)
 		}
 	}
+	flushText()
+	return nodes, outOfFlow
+}
+
+func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefinite bool, faces *faceSet, cb containingBlock) ([]*Box, int) {
+	direction := strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"]))
+	column := strings.HasPrefix(direction, "column")
+	reverse := strings.HasSuffix(direction, "-reverse")
+	wrapMode := strings.ToLower(strings.TrimSpace(parent.Style["flex-wrap"]))
+	wrap := wrapMode == "wrap" || wrapMode == "wrap-reverse"
+	wrapReverse := wrapMode == "wrap-reverse"
+	nodes, outOfFlow := flexChildren(parent)
 	gap := flexGap(parent.Style, column, width)
 	crossGap := flexGap(parent.Style, !column, width)
 	// An auto-height column has no definite main size: it grows to its
@@ -84,6 +124,11 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			} else if strings.EqualFold(child.Node.Name, "img") {
 				_, h := imageDimensions(child, faces.images[child.Node], width)
 				main = float64(h)
+			} else {
+				// Auto-sized text (including anonymous items) has a natural
+				// line height on the column's main axis.
+				natural, _ := layoutBlock(child, 0, 0, width, faces, cb)
+				main = float64(natural.Content.Dy())
 			}
 		} else {
 			if hasBasis {
@@ -105,7 +150,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			extra = margin[0] + margin[2] + inner[0] + inner[2]
 		}
 		items = append(items, flexItem{node: child, margin: margin, main: main, grow: grow, shrink: shrink,
-			extra: extra, explicitCross: flexHasCrossSize(child, column)})
+			extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
 	}
 
 	// Collect items into lines. A single-line container keeps every item on
@@ -150,7 +195,13 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 				style["width"] = formatFlexPixels(item.main)
 			}
 			used := &StyledNode{Node: item.node.Node, Style: style, Children: item.node.Children}
-			item.box = layoutFlexItem(used, x, y+item.margin[0], width, faces, cb)
+			itemWidth := width
+			if column && !item.explicitCross {
+				minWidth, maxWidth := intrinsicWidths(item.node, faces)
+				itemWidth = min(max(minWidth, width), maxWidth)
+			}
+			item.box = layoutFlexItem(used, x, y+item.margin[0], itemWidth, faces, cb)
+			item.box.Anonymous = item.anonymous
 			line.cross = max(line.cross, flexOuterCross(*item, column))
 		}
 	}
@@ -227,6 +278,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			}
 			used := &StyledNode{Node: item.node.Node, Style: style, Children: item.node.Children}
 			item.box = layoutFlexItem(used, x, y+item.margin[0], width, faces, cb)
+			item.box.Anonymous = item.anonymous
 		}
 
 		occupied := max(0, len(line.items)-1) * gap
@@ -318,10 +370,8 @@ func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 	wrap := wrapMode == "wrap" || wrapMode == "wrap-reverse"
 	gap := flexGap(n.Style, false, 0)
 	minWidth, maxWidth, count := 0, 0, 0
-	for _, child := range n.Children {
-		if child.Node == nil || child.Node.Type != ElementNode || childFlowKind(child) == flowSkip || hiddenNode(child) || positioned(child) {
-			continue
-		}
+	children, _ := flexChildren(n)
+	for _, child := range children {
 		childMin, childMax := intrinsicWidths(child, faces)
 		switch {
 		case column:
