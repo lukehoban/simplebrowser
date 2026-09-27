@@ -41,6 +41,36 @@ func TestLayoutBlockGeometryAndWrapping(t *testing.T) {
 	}
 }
 
+func TestLayoutUserAgentHeadingUsesBoldMetrics(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0">
+		<h2 id=default style="margin:0;font-size:20px">Heading width</h2>
+		<h2 id=normal style="margin:0;font-size:20px;font-weight:normal">Heading width</h2>
+		<p id=bold style="margin:0;font-size:20px;font-weight:bold">Heading width</p>
+	</body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "default", "normal", "bold")
+	run := func(id string) TextRun {
+		box := boxes[id]
+		if len(box.Text) != 1 {
+			t.Fatalf("%s text layout = %#v", id, box)
+		}
+		return box.Text[0]
+	}
+	defaultRun, normalRun, boldRun := run("default"), run("normal"), run("bold")
+	if defaultRun.Style["font-weight"] != "bold" {
+		t.Fatalf("default heading run weight = %q, want bold", defaultRun.Style["font-weight"])
+	}
+	if defaultRun.Rect.Dx() != boldRun.Rect.Dx() {
+		t.Errorf("default heading width = %d, explicit bold width = %d", defaultRun.Rect.Dx(), boldRun.Rect.Dx())
+	}
+	if defaultRun.Rect.Dx() == normalRun.Rect.Dx() {
+		t.Errorf("default heading and author-normal heading both measured %dpx wide", defaultRun.Rect.Dx())
+	}
+}
+
 func TestAbsolutelyPositionedBoxesDoNotContributeToFlowHeight(t *testing.T) {
 	doc := styledForLayout(t, `<div id="parent" style="margin:0;padding:10px">
 		<div id="out" style="position:absolute;width:20px;height:30px;margin:20px"></div>
