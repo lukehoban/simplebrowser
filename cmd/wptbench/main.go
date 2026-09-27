@@ -421,9 +421,15 @@ func main() {
 	}
 	if *check {
 		readme, e := os.ReadFile("README.md")
-		score := fmt.Sprintf("%d/%d pinned WPT reference assertions passing", r.Blocking.Pass, r.Blocking.Total)
-		if e != nil || !bytes.Contains(readme, []byte(score)) {
-			fmt.Fprintln(os.Stderr, "README compatibility score is stale:", score)
+		artifacts := []string{"docs/compatibility.md", "docs/compatibility.svg", "docs/compatibility.json"}
+		for _, artifact := range artifacts {
+			if e != nil || !bytes.Contains(readme, []byte(artifact)) {
+				fmt.Fprintln(os.Stderr, "README does not link generated compatibility artifact:", artifact)
+				os.Exit(1)
+			}
+		}
+		if bytes.Contains(readme, []byte("pinned WPT reference assertions passing")) {
+			fmt.Fprintln(os.Stderr, "README duplicates the generated compatibility score")
 			os.Exit(1)
 		}
 	}
