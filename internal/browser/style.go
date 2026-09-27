@@ -134,7 +134,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		// Box shorthands are a single declaration: an invalid component must
 		// not apply its valid siblings to the cascade.
 		switch candidate.d.Property {
-		case "margin", "padding", "border-width":
+		case "margin", "padding", "border-width", "border-radius":
 			if cssWideKeyword(candidate.d.Value) == "" && candidate.d.Value != invalidVariable &&
 				!validSubstitutedDeclaration(candidate.d.Property, candidate.d.Value) {
 				if !candidate.validateAfterSubstitution {
@@ -169,6 +169,15 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 		for _, expanded := range expandedDeclarations {
 			invalid := expanded.Value == invalidVariable
+			if !invalid && strings.HasPrefix(expanded.Property, "border-") && strings.HasSuffix(expanded.Property, "-radius") &&
+				cssWideKeyword(expanded.Value) == "" && !validCornerRadius(expanded.Value) {
+				if candidate.validateAfterSubstitution {
+					expanded.Value = invalidVariable
+					invalid = true
+				} else {
+					continue
+				}
+			}
 			if !invalid && !validCalcDeclaration(expanded.Property, expanded.Value) {
 				if candidate.validateAfterSubstitution {
 					expanded.Value = invalidVariable
@@ -366,6 +375,10 @@ func expandCSSWideDeclaration(d Declaration, keyword string) []Declaration {
 		properties = []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
 	case "border":
 		properties = []string{"border-top", "border-right", "border-bottom", "border-left"}
+	case "border-radius":
+		for _, corner := range radiusCorners {
+			properties = append(properties, "border-"+corner+"-radius")
+		}
 	default:
 		properties = []string{d.Property}
 	}
@@ -728,7 +741,9 @@ func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 func compoundLengthProperty(property string) bool {
 	switch property {
 	case "border-spacing", "background-position", "background-size", "mask-position", "mask-size", "border",
-		"border-top", "border-right", "border-bottom", "border-left":
+		"border-top", "border-right", "border-bottom", "border-left",
+		"border-top-left-radius", "border-top-right-radius",
+		"border-bottom-right-radius", "border-bottom-left-radius":
 		return true
 	}
 	return false
@@ -998,6 +1013,8 @@ func matchesPseudoClass(n *Node, pseudo string) bool {
 func expandDeclaration(d Declaration) []Declaration {
 	if d.Value == invalidVariable {
 		switch d.Property {
+		case "border-radius":
+			return invalidLonghands(d, "border-top-left-radius", "border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius")
 		case "margin", "padding":
 			return invalidLonghands(d, d.Property+"-top", d.Property+"-right", d.Property+"-bottom", d.Property+"-left")
 		case "border-width":
@@ -1012,6 +1029,9 @@ func expandDeclaration(d Declaration) []Declaration {
 	}
 	if d.Property == "background" {
 		return expandBackground(d)
+	}
+	if d.Property == "border-radius" {
+		return expandRadius(d)
 	}
 	if d.Property == "mask" {
 		return expandMask(d)

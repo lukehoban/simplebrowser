@@ -126,6 +126,12 @@ bounded scope, including multi-line wrapping. The renderer
 also resolves inherited custom-property theme colors. The table and text are
 visible; this remains a diagnostic, not parity evidence.
 
+CSS box `border-radius` now rounds backgrounds and borders (#316). The
+[before/after diagnostic](screenshots/github-vscode/border-radius-before-after.png)
+compares main 4621768 (top) with this renderer output (bottom) at 800×600.
+The HN and Moon baselines do not change. Rounded overflow clipping of child
+content is tracked separately in #323.
+
 The isolated flex repro before and after the formatter:
 
 ![Flex row before and after](screenshots/github-vscode/flex-row-before-after.png)
