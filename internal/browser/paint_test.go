@@ -406,3 +406,26 @@ func TestPaintNegativeZIndexAboveContextBackground(t *testing.T) {
 	pixel(t, img, 10, 10, zGreen)
 	pixel(t, img, 25, 25, zRed)
 }
+
+func TestPaintOverflowingTextAfterLaterBlockBackground(t *testing.T) {
+	// Block backgrounds are painted before inline content, so text that
+	// overflows its block remains visible over a following block background.
+	img := painted(t, `<body style="margin:0"><div style="height:10px;font:20px monospace;color:black;white-space:nowrap">X</div><div style="height:10px;margin-top:-10px;background:lime"></div></body>`, image.Rect(0, 0, 30, 20))
+	ink := 0
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 16; x++ {
+			p := img.RGBAAt(x, y)
+			if p.R < 80 && p.G < 80 && p.B < 80 {
+				ink++
+			}
+		}
+	}
+	if ink == 0 {
+		t.Fatal("overflowing text was covered by the later block background")
+	}
+}
+
+func TestPaintFloatAfterLaterBlockBackground(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="float:left;width:20px;height:20px;background:red;margin-bottom:-20px"></div><div style="height:20px;background:blue"></div></body>`, image.Rect(0, 0, 30, 20))
+	pixel(t, img, 10, 10, zRed)
+}

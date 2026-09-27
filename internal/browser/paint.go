@@ -387,21 +387,66 @@ func (p *painter) collectLayers(box *Box, layers *[]stackingLayer) {
 	}
 }
 
-// paintFlow paints non-positioned boxes in tree order; positioned boxes are
-// painted later as layers of their stacking context.
+// paintFlow paints non-positioned boxes in the CSS block-background, float,
+// and inline-content phases. Keeping these phases separate matters when
+// overflowing inline content overlaps a later block background.
 func (p *painter) paintFlow(boxes []*Box) {
+	p.paintFlowBackgrounds(boxes)
+	p.paintFlowFloats(boxes)
+	p.paintFlowContent(boxes)
+}
+
+func (p *painter) paintFlowBackgrounds(boxes []*Box) {
 	for _, box := range boxes {
 		if positioned, _, _ := p.stacking(box); positioned {
 			continue
 		}
-		p.paintOwn(box)
-		p.paintFlow(box.Children)
+		if p.isFloat(box) {
+			continue
+		}
+		p.paintBackground(box)
+		p.paintFlowBackgrounds(box.Children)
 	}
 }
 
-// paintOwn draws a box's background, borders, text and images, but not its
-// child boxes.
-func (p *painter) paintOwn(box *Box) {
+func (p *painter) paintFlowFloats(boxes []*Box) {
+	for _, box := range boxes {
+		if positioned, _, _ := p.stacking(box); positioned {
+			continue
+		}
+		if p.isFloat(box) {
+			p.paintOwn(box)
+			p.paintFlow(box.Children)
+			continue
+		}
+		p.paintFlowFloats(box.Children)
+	}
+}
+
+func (p *painter) paintFlowContent(boxes []*Box) {
+	for _, box := range boxes {
+		if positioned, _, _ := p.stacking(box); positioned {
+			continue
+		}
+		if p.isFloat(box) {
+			continue
+		}
+		p.paintContent(box)
+		p.paintFlowContent(box.Children)
+	}
+}
+
+func (p *painter) isFloat(box *Box) bool {
+	if box == nil || box.Node == nil {
+		return false
+	}
+	value := strings.ToLower(strings.TrimSpace(p.document.Styles[box.Node]["float"]))
+	return value == "left" || value == "right"
+}
+
+// paintBackground draws a box's background and borders, but not its content
+// or child boxes.
+func (p *painter) paintBackground(box *Box) {
 	if box == nil {
 		return
 	}
@@ -420,6 +465,14 @@ func (p *painter) paintOwn(box *Box) {
 			drawBorders(p.canvas, box.Rect, style)
 		}
 	}
+}
+
+// paintContent draws a box's text and replaced content, but not its child
+// boxes.
+func (p *painter) paintContent(box *Box) {
+	if box == nil {
+		return
+	}
 	for _, run := range box.Text {
 		drawText(p.canvas, run, p.document.Styles, p.faces)
 	}
@@ -430,4 +483,10 @@ func (p *painter) paintOwn(box *Box) {
 			drawImageBox(p.canvas, picture)
 		}
 	}
+}
+
+// paintOwn draws a box as a unit for positioned stacking layers and floats.
+func (p *painter) paintOwn(box *Box) {
+	p.paintBackground(box)
+	p.paintContent(box)
 }
