@@ -148,6 +148,16 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		}
 		for _, expanded := range expandedDeclarations {
 			invalid := expanded.Value == invalidVariable
+			if !invalid && !validCalcDeclaration(expanded.Property, expanded.Value) {
+				if candidate.validateAfterSubstitution {
+					expanded.Value = invalidVariable
+					invalid = true
+				} else {
+					// A malformed calc() is invalid at parse time, so it does
+					// not displace a lower-priority valid declaration.
+					continue
+				}
+			}
 			if candidate.validateAfterSubstitution && !invalid &&
 				!validSubstitutedDeclaration(expanded.Property, expanded.Value) {
 				expanded.Value = invalidVariable
@@ -284,6 +294,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		rootFontSize = computedFontSize(values)
 	}
 	resolveFontRelativeValues(values, rootFontSize)
+	normalizeCalcValues(values, viewport.X, viewport.Y, rootFontSize)
 	return values
 }
 
@@ -294,6 +305,9 @@ func validSubstitutedDeclaration(property, value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "inherit", "initial", "unset":
 		return true
+	}
+	if calcLengthProperty(property) && strings.Contains(strings.ToLower(value), "calc(") {
+		return validCalcDeclaration(property, value)
 	}
 	if validate, ok := supportValidators[property]; ok {
 		return validate(strings.TrimSpace(value))
@@ -960,7 +974,10 @@ func expandDeclaration(d Declaration) []Declaration {
 		d.Property != "border-color" && d.Property != "border-style" {
 		return []Declaration{d}
 	}
-	parts := strings.Fields(d.Value)
+	parts, ok := splitCSSComponents(d.Value)
+	if !ok {
+		return nil
+	}
 	if len(parts) < 1 || len(parts) > 4 {
 		return []Declaration{d}
 	}
@@ -974,6 +991,9 @@ func expandDeclaration(d Declaration) []Declaration {
 		parts = []string{parts[0], parts[1], parts[2], parts[1]}
 	}
 	names := []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
+	if d.Property == "border-width" {
+		names = []string{"border-top-width", "border-right-width", "border-bottom-width", "border-left-width"}
+	}
 	result := make([]Declaration, 4)
 	for i := range result {
 		result[i] = Declaration{Property: names[i], Value: parts[i], Important: d.Important}

@@ -31,6 +31,9 @@ and [(#242)](https://github.com/lukehoban/simplebrowser/issues/242) track work.
 pinned reference set—not a general web-platform conformance score—and are
 verified by CI rather than copied into this README.
 
+**CSS length math:** bounded `calc()` arithmetic is documented with a rendered
+[width example](docs/css-calc.md).
+
 ## Usage
 
 Requires Go 1.24 or later.

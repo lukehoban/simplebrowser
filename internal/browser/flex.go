@@ -493,6 +493,14 @@ func flexBasis(value string, basisSize int) (float64, bool) {
 	if strings.EqualFold(value, "0") || strings.EqualFold(value, "0%") {
 		return 0, true
 	}
+	if strings.HasPrefix(strings.ToLower(value), "calc(") {
+		// Computed calc() keeps its percentage term; resolve it against the
+		// same flex-container main size as a plain percentage basis.
+		if used, ok := evaluateComputedCalc(value, float64(basisSize)); ok {
+			return math.Max(0, used), true
+		}
+		return 0, false
+	}
 	v := classifyValue(value)
 	if v.Kind == "length" || v.Kind == "number" || v.Kind == "percentage" {
 		return math.Max(0, px(value, float64(basisSize), 0)), true
