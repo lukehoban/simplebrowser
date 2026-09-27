@@ -28,6 +28,11 @@ type SelectorPart struct {
 	Tag        string
 	ID         string
 	Classes    []string
+	// PseudoClasses holds lower-cased pseudo-class names such as "link".
+	// Functional pseudo-classes keep their name with a trailing "(" (for
+	// example "not("); pseudo-elements are stored with a leading ":".
+	// Only supported names can match; see matchesPseudoClass.
+	PseudoClasses []string
 }
 
 type Declaration struct {
@@ -180,7 +185,7 @@ func ParseCSS(input string) Stylesheet {
 
 func parseSelectorGroup(s string) ([]Selector, bool) {
 	var result []Selector
-	for _, group := range strings.Split(s, ",") {
+	for _, group := range splitSelectorList(s) {
 		p := cssScanner{s: group}
 		var selector Selector
 		for {
@@ -210,9 +215,17 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 			} else if isLetter(p.s[p.i]) {
 				part.Tag = strings.ToLower(p.ident())
 			}
-			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#') {
+			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':') {
 				kind := p.s[p.i]
 				p.i++
+				if kind == ':' {
+					pseudo, ok := parsePseudo(&p)
+					if !ok {
+						return nil, false
+					}
+					part.PseudoClasses = append(part.PseudoClasses, pseudo)
+					continue
+				}
 				name := p.ident()
 				if name == "" {
 					return nil, false
@@ -237,6 +250,60 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 		result = append(result, selector)
 	}
 	return result, len(result) > 0
+}
+
+// splitSelectorList splits a selector list on top-level commas, so commas
+// inside functional pseudo-classes such as :not(a, b) stay in one selector.
+func splitSelectorList(s string) []string {
+	var result []string
+	depth, start := 0, 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				result = append(result, s[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(result, s[start:])
+}
+
+// parsePseudo reads a pseudo-class or pseudo-element after its first ':'.
+// Functional arguments are skipped because no functional pseudo-class is
+// supported yet; such selectors are kept but never match.
+func parsePseudo(p *cssScanner) (string, bool) {
+	prefix := ""
+	if p.i < len(p.s) && p.s[p.i] == ':' {
+		prefix = ":"
+		p.i++
+	}
+	name := strings.ToLower(p.ident())
+	if name == "" {
+		return "", false
+	}
+	if p.i < len(p.s) && p.s[p.i] == '(' {
+		depth := 0
+		for ; p.i < len(p.s); p.i++ {
+			if p.s[p.i] == '(' {
+				depth++
+			} else if p.s[p.i] == ')' {
+				depth--
+				if depth == 0 {
+					p.i++
+					return prefix + name + "(", true
+				}
+			}
+		}
+		return "", false
+	}
+	return prefix + name, true
 }
 
 // ParseDeclarations also handles inline style attributes.
