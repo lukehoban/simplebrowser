@@ -67,6 +67,7 @@ This directory redistributes third-party material for rendering tests only:
 - **`assets/enwiki-25.svg`, `wikipedia-wordmark-en-25.svg`, `wikipedia-tagline-en-25.svg`:**
   Wikipedia 25th-anniversary logo variants. These are Wikimedia Foundation
   trademarks, included unmodified as visual test data with no endorsement
-  implied. On Commons the base logo is CC BY-SA 3.0 and the wordmark is
-  public domain (text logo). These anniversary variants' licenses were not
-  checked individually.
+  implied. The individual variant licenses were not checked; the maintainer
+  confirmed they are okay to use in this test fixture in
+  [#256](https://github.com/lukehoban/simplebrowser/issues/256). On Commons
+  the base logo is CC BY-SA 3.0 and the wordmark is public domain (text logo).
