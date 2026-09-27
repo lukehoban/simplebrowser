@@ -39,7 +39,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 | Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | not placed → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | [#246](https://github.com/lukehoban/simplebrowser/issues/246) (shared with #242) |
 | `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
-| `overflow:hidden` / `clip` | hidden skip link, dropdown label text | not clipped → [#253](https://github.com/lukehoban/simplebrowser/issues/253) |
+| `overflow:hidden` / `clip` | hidden skip link, dropdown label text | descendant padding-box and absolute `clip:rect()` painting implemented → [#253](https://github.com/lukehoban/simplebrowser/issues/253); [before/after repro](screenshots/wikipedia-moon/jump-link-before-after.png) |
 | Fonts | title in `"Linux Libertine", Georgia, …, serif` at 28.8px; body `sans-serif` 14–17.6px | serif → [#87](https://github.com/lukehoban/simplebrowser/issues/87); Arial/Helvetica metrics → [#120](https://github.com/lukehoban/simplebrowser/issues/120) |
 | Images / `srcset` | five visible images (wordmark, tagline, two indicators, 280×266 Moon photo); each thumbnail has a `2x` `srcset` candidate | the 1× `src` is right at device scale 1; `srcset` is not needed for this view |
 | Grid | only inside `@media (min-width:1120px)` and larger | not used at 800px, no issue opened |
@@ -58,8 +58,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
    infobox beside the lead text.
 5. [#247](https://github.com/lukehoban/simplebrowser/issues/247) flexbox: the
    header, title bar and tabs.
-6. [#253](https://github.com/lukehoban/simplebrowser/issues/253) overflow
-   clipping, then fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
+6. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
    and [#120](https://github.com/lukehoban/simplebrowser/issues/120).
 
 Each new issue has a small repro in
@@ -72,3 +71,7 @@ JavaScript behavior (dropdowns, search, sticky header, reading lists,
 preferences), live-site parity, other skins, dark mode, text-size preferences,
 other viewports and device scales, and everything below the lead paragraphs.
 The trimmed-away article sections are not part of this target.
+Painting beyond #253's bounded clip behavior is tracked separately:
+[split overflow axes (#258)](https://github.com/lukehoban/simplebrowser/issues/258),
+[clip-path (#259)](https://github.com/lukehoban/simplebrowser/issues/259),
+and [scrollable overflow (#261)](https://github.com/lukehoban/simplebrowser/issues/261).
