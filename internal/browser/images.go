@@ -2,16 +2,19 @@ package browser
 
 import (
 	"bytes"
+	"encoding/base64"
 	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
 const maxDecodedImagePixels int64 = 16 << 20
+const maxDataImageBytes = 16 << 20
 
 // fetchImages loads visible img resources once per render. Individual failures
 // are deliberately non-fatal: layout still reserves the dimensions requested
@@ -25,6 +28,9 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 	cache := make(map[string]image.Image)
 	visited := make(map[string]bool)
 	load := func(base, source string) image.Image {
+		if data, ok := decodeDataImageURL(strings.TrimSpace(source)); ok {
+			return decodeImage(data)
+		}
 		target, err := ResolveCSSURL(base, source)
 		if err != nil {
 			return nil
@@ -68,6 +74,57 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 	}
 	visit(root)
 	return images, backgrounds
+}
+
+// decodeDataImageURL decodes supported image data URLs without network access.
+func decodeDataImageURL(source string) ([]byte, bool) {
+	if len(source) > maxDataImageBytes*2 {
+		return nil, false
+	}
+	u, err := url.Parse(source)
+	if err != nil || !strings.EqualFold(u.Scheme, "data") {
+		return nil, false
+	}
+	comma := strings.IndexByte(u.Opaque, ',')
+	if comma < 0 {
+		return nil, false
+	}
+	header, payload := u.Opaque[:comma], u.Opaque[comma+1:]
+	parts := strings.Split(header, ";")
+	mediaType := "text/plain"
+	if parts[0] != "" {
+		mediaType = strings.ToLower(parts[0])
+	}
+	switch mediaType {
+	case "image/svg+xml", "image/png", "image/jpeg", "image/gif":
+	default:
+		return nil, false
+	}
+	base64Encoded := false
+	for _, part := range parts[1:] {
+		if strings.EqualFold(part, "base64") {
+			if base64Encoded {
+				return nil, false
+			}
+			base64Encoded = true
+		}
+	}
+	if base64Encoded {
+		if len(payload) > (maxDataImageBytes+2)/3*4 || base64.StdEncoding.DecodedLen(len(payload)) > maxDataImageBytes {
+			return nil, false
+		}
+		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(payload)))
+		n, err := base64.StdEncoding.Decode(decoded, []byte(payload))
+		if err != nil {
+			return nil, false
+		}
+		return decoded[:n], true
+	}
+	decoded, err := url.PathUnescape(payload)
+	if err != nil || len(decoded) > maxDataImageBytes {
+		return nil, false
+	}
+	return []byte(decoded), true
 }
 
 func decodeImage(data []byte) image.Image {

@@ -2,6 +2,7 @@ package browser
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"image"
 	"image/color"
@@ -12,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -65,6 +67,27 @@ func TestDecodeImageFormatsAndBounds(t *testing.T) {
 	}
 }
 
+func TestDecodeDataImageURL(t *testing.T) {
+	data := encodedTestImage(t, "png", image.Rect(0, 0, 2, 3))
+	svg := `<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"/>`
+	esc := strings.NewReplacer("<", "%3C", ">", "%3E", " ", "%20", `"`, `%22`)
+	for _, tc := range []struct {
+		name, url string
+		size      image.Point
+	}{{"png", "data:image/png;base64," + base64.StdEncoding.EncodeToString(data), image.Pt(2, 3)}, {"svg", "data:image/svg+xml;utf8," + esc.Replace(svg), image.Pt(3, 2)}} {
+		t.Run(tc.name, func(t *testing.T) {
+			d, ok := decodeDataImageURL(tc.url)
+			if !ok || decodeImage(d) == nil || decodeImage(d).Bounds().Size() != tc.size {
+				t.Fatalf("decode failed")
+			}
+		})
+	}
+	for _, s := range []string{"data:image/png;base64,not-valid", "data:text/plain,x", "data:image/png,%zz"} {
+		if _, ok := decodeDataImageURL(s); ok {
+			t.Errorf("accepted %q", s)
+		}
+	}
+}
 func TestFetchImageCacheAndInlineLayout(t *testing.T) {
 	pngBytes := encodedTestImage(t, "png", image.Rect(0, 0, 4, 2))
 	var requests atomic.Int32
