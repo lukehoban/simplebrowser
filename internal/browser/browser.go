@@ -37,10 +37,12 @@ type StyledDocument struct {
 	Styles           map[*Node]ComputedStyle
 	Images           map[*Node]image.Image
 	BackgroundImages map[*Node]image.Image
+	styleViewport    image.Point // Size used for computed values; zero for manually constructed styles.
 }
 
 // ComputedStyle contains the values used by later layout and painting stages.
-// Values remain CSS text deliberately: layout owns unit conversion.
+// Values remain CSS text, with font- and viewport-relative lengths resolved to
+// pixels. Layout resolves percentages against their property-specific bases.
 type ComputedStyle map[string]string
 
 // StyledNode retains its source DOM node while adding its computed style.
