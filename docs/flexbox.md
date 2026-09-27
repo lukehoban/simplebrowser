@@ -22,6 +22,12 @@ its second item must stay inside the 180px container.
 - `flex-direction` row, column and their `-reverse` forms.
 - `flex`, `flex-grow`, `flex-shrink`, `flex-basis`, with min/max freezing
   ([#247](https://github.com/lukehoban/simplebrowser/issues/247)).
+- Row flex items use a content-based minimum for `min-width:auto`, except
+  scroll containers; an explicit `min-width` (including `0`) overrides it.
+  This prevents shrunken items from painting their min-content text over
+  neighboring controls, as in the [GitHub count-badge repro](github-vscode-count-badges.md)
+  ([#375](https://github.com/lukehoban/simplebrowser/issues/375)). The full
+  specification's content-size/transferred-size clamping is not implemented.
 - `gap`, `row-gap`, `column-gap` between items and between lines.
 - `justify-content`: start/flex-start, end/flex-end, center, space-between,
   space-around, space-evenly (per line).
@@ -81,5 +87,5 @@ its second item must stay inside the 180px container.
   `align-items`/`align-self` only)
   ([#325](https://github.com/lukehoban/simplebrowser/issues/325)).
 - `order`, baseline alignment, `safe`/`unsafe` and
-  `first`/`last` keywords, `place-content`, and automatic minimum sizes
-  (`min-width:auto` resolves to 0).
+  `first`/`last` keywords, `place-content`, and the remaining automatic
+  minimum-size rules (including the column-axis `min-height:auto` behavior).

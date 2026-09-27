@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"testing"
 )
 
@@ -45,6 +46,62 @@ func TestFlexImageUsesReplacedLayoutAndPaint(t *testing.T) {
 		t.Fatal(err)
 	}
 	pixel(t, rendered.(*image.RGBA), 2, 2, color.RGBA{255, 0, 0, 255})
+}
+
+func TestFlexTabCountStaysBesideLabelWhenTabsOverflow(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/github-vscode/repros/count-badge-overlap.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := LayoutWithViewport(styledForLayout(t, string(source)), image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root,
+		"issues", "issues-label", "issues-count",
+		"pulls", "pulls-label", "pulls-count",
+		"security", "security-label", "security-count")
+	for _, tab := range []string{"issues", "pulls", "security"} {
+		label, count := boxes[tab+"-label"], boxes[tab+"-count"]
+		if label.Rect.Max.X > count.Rect.Min.X {
+			t.Errorf("%s label box and count overlap: label=%v count=%v", tab, label.Rect, count.Rect)
+		}
+		for _, run := range flexBoxTextRuns(label) {
+			if overlap := run.Rect.Intersect(count.Rect); !overlap.Empty() {
+				t.Errorf("%s label text paints into its count badge: text=%q rect=%v count=%v overlap=%v",
+					tab, run.Text, run.Rect, count.Rect, overlap)
+			}
+		}
+	}
+}
+
+func flexBoxTextRuns(box *Box) []TextRun {
+	if box == nil {
+		return nil
+	}
+	runs := append([]TextRun(nil), box.Text...)
+	for _, child := range box.Children {
+		runs = append(runs, flexBoxTextRuns(child)...)
+	}
+	return runs
+}
+
+func TestFlexExplicitZeroMinWidthOverridesAutomaticMinimum(t *testing.T) {
+	const source = `<body style="margin:0"><div id="container" style="display:flex;width:50px">
+		<span id="item" style="min-width:0">unbreakableword</span>
+		<span id="fixed" style="flex:0 0 10px;width:10px;height:10px"></span>
+	</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 50, 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "item", "fixed")
+	if got := boxes["item"].Rect.Dx(); got != 40 {
+		t.Fatalf("min-width:0 item width = %d, want 40px after flex shrink; box=%v", got, boxes["item"].Rect)
+	}
+	if boxes["fixed"].Rect.Min.X != 40 {
+		t.Fatalf("fixed sibling starts at %d, want x=40 after the 40px shrinkable item", boxes["fixed"].Rect.Min.X)
+	}
 }
 
 func TestFlexAnonymousTextItemsRowAndColumn(t *testing.T) {
