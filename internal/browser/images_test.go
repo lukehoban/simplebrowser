@@ -477,3 +477,40 @@ func TestHackerNewsFixtureImageBoxes(t *testing.T) {
 		t.Errorf("expected an 18x18 SVG logo, got %d boxes", len(boxes))
 	}
 }
+
+func TestDataURLImagesThroughCustomProperties(t *testing.T) {
+	pngData := base64.StdEncoding.EncodeToString(encodedTestImage(t, "png", image.Rect(0, 0, 2, 2)))
+	svgURL := "data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%224%22%20height=%224%22/%3E"
+	// Custom properties declared in a stylesheet are URL-resolved at
+	// declaration time; data: URLs must survive that step and decode offline
+	// when substituted by var(), including inherited values and fallbacks.
+	source := []byte(`<style>:root{--png:url("data:image/png;base64,` + pngData + `");--svg:url('` + svgURL + `')}` +
+		`.a{background-image:var(--png)}.b{background:var(--svg) no-repeat}` +
+		`.c{background-image:var(--missing, url(data:image/png;base64,` + pngData + `))}</style>` +
+		`<div class="a"></div><div class="b"></div><div class="c"></div>` +
+		`<div style="background-image:var(--png)"></div>`)
+	doc, err := parse(Resource{URL: "https://example.invalid/page", Body: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dials atomic.Int32
+	fetcher := &Fetcher{DialContext: func(context.Context, string, string) (net.Conn, error) {
+		dials.Add(1)
+		return nil, errors.New("unexpected network request")
+	}}
+	styled, err := style(doc, fetcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(styled.BackgroundImages) != 4 {
+		t.Fatalf("loaded %d background resources, want 4", len(styled.BackgroundImages))
+	}
+	for node, layers := range styled.BackgroundImages {
+		if len(layers) != 1 || layers[0] == nil {
+			t.Errorf("%v: data URL via var() did not decode: %v", node.Attributes, layers)
+		}
+	}
+	if got := dials.Load(); got != 0 {
+		t.Fatalf("data URLs via var() triggered %d network dials", got)
+	}
+}
