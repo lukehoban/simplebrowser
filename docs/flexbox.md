@@ -31,6 +31,16 @@ its second item must stay inside the 180px container.
   applies only to items without an explicit cross size; alignment is resolved
   independently for each item on every flex line, including `wrap-reverse`
   ([#283](https://github.com/lukehoban/simplebrowser/issues/283)).
+- Main-axis `margin:auto`: positive remaining free space on a line is split
+  equally between that line's `auto` main margins before `justify-content`
+  runs, so justification has nothing left to distribute
+  ([#315](https://github.com/lukehoban/simplebrowser/issues/315)). Zero or
+  negative free space leaves them at zero, keeping the overflowing flex-start
+  behavior. Distribution is physical, so it also covers `row-reverse` /
+  `column-reverse`, and it runs per line when wrapping. An odd remainder pixel
+  lands on the last auto margin.
+  ![Main-axis auto margins before and after](screenshots/flex/auto-main-margins-before-after.png)
+  ([`testdata/flex/auto-main-margins.html`](../testdata/flex/auto-main-margins.html))
 - `flex-wrap: wrap | wrap-reverse`
   ([#272](https://github.com/lukehoban/simplebrowser/issues/272)): items break
   onto a new line before one whose min/max-clamped hypothetical outer size
@@ -65,6 +75,9 @@ its second item must stay inside the 180px container.
 
 - Wrapping in an auto-height column (no definite main size, so it never
   wraps; this matches browsers without `max-height`).
+- Cross-axis `margin:auto` (ignored; alignment is resolved from
+  `align-items`/`align-self` only)
+  ([#325](https://github.com/lukehoban/simplebrowser/issues/325)).
 - `order`, baseline alignment, `safe`/`unsafe` and
   `first`/`last` keywords, `place-content`, and automatic minimum sizes
   (`min-width:auto` resolves to 0).
