@@ -81,8 +81,14 @@ func TestLayoutSharedInlineFlowAndStyleIdentity(t *testing.T) {
 			t.Fatalf("run %d missing source/style: %+v", i, r)
 		}
 	}
-	if runs[0].Rect.Min.Y != runs[1].Rect.Min.Y || runs[1].Rect.Min.Y != runs[2].Rect.Min.Y {
-		t.Fatalf("adjacent elements did not share a line: %+v", runs)
+	faces := newFaceSet()
+	defer faces.close()
+	baseline := func(r TextRun) int {
+		ascent, _ := faces.metrics(r.Style).lineMetrics()
+		return r.Rect.Min.Y + ascent
+	}
+	if baseline(runs[0]) != baseline(runs[1]) || baseline(runs[1]) != baseline(runs[2]) {
+		t.Fatalf("adjacent elements did not share a baseline: %+v", runs)
 	}
 	if runs[1].Style["font-size"] != "20px" || runs[0].Style["font-size"] == "20px" {
 		t.Fatalf("nested inline style lost: %+v", runs)
@@ -139,6 +145,85 @@ func TestLayoutInlineWrapsUsingUnroundedLineWidth(t *testing.T) {
 				t.Fatalf("line count at width %d = %d, want %d; runs: %+v",
 					tc.width, len(lineYs), tc.wantLines, runs)
 			}
+		})
+	}
+}
+
+func TestLayoutInlineImagesShareTextBaselineAndMargins(t *testing.T) {
+	doc := styledForLayout(t, `<p style="margin:0">A<img style="width:20px;height:20px;margin:2px 3px 4px 5px;padding:1px;border-width:1px">z</p>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := got.Root.Children[0].Children[0]
+	if len(line.Images) != 1 || len(line.Text) != 2 {
+		t.Fatalf("inline content = images %#v text %#v", line.Images, line.Text)
+	}
+	faces := newFaceSet()
+	defer faces.close()
+	ascent, _ := faces.metrics(line.Text[0].Style).lineMetrics()
+	baseline := line.Text[0].Rect.Min.Y + ascent
+	// The image baseline is its margin-box bottom. Its content rectangle
+	// therefore ends before its bottom padding, border, and margin.
+	if bottom := line.Images[0].Rect.Max.Y + 1 + 1 + 4; bottom != baseline {
+		t.Fatalf("image margin box bottom = %d, baseline = %d; image %v text %v",
+			bottom, baseline, line.Images[0].Rect, line.Text[0].Rect)
+	}
+	if line.Images[0].Rect.Min.X != line.Text[0].Rect.Max.X+5+1+1 {
+		t.Fatalf("image horizontal margins/edges not reserved: image %v text %v",
+			line.Images[0].Rect, line.Text[0].Rect)
+	}
+}
+
+func TestLayoutInlineImageVerticalAlignments(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		align string
+		check func(t *testing.T, line *Box, image image.Rectangle, baseline int)
+	}{
+		{
+			name:  "top",
+			align: "top",
+			check: func(t *testing.T, line *Box, picture image.Rectangle, _ int) {
+				if picture.Min.Y != line.Rect.Min.Y {
+					t.Fatalf("top image y = %d, line top = %d", picture.Min.Y, line.Rect.Min.Y)
+				}
+			},
+		},
+		{
+			name:  "middle",
+			align: "middle",
+			check: func(t *testing.T, _ *Box, picture image.Rectangle, baseline int) {
+				// A 16px font's approximate half x-height is 4px.
+				if picture.Min.Y+picture.Dy()/2 != baseline-4 {
+					t.Fatalf("middle image center = %d, want %d", picture.Min.Y+picture.Dy()/2, baseline-4)
+				}
+			},
+		},
+		{
+			name:  "bottom",
+			align: "bottom",
+			check: func(t *testing.T, line *Box, picture image.Rectangle, _ int) {
+				if picture.Max.Y != line.Rect.Max.Y {
+					t.Fatalf("bottom image bottom = %d, line bottom = %d", picture.Max.Y, line.Rect.Max.Y)
+				}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := styledForLayout(t, `<p style="margin:0">A<img style="width:20px;height:20px;vertical-align:`+tc.align+`">z</p>`)
+			got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := got.Root.Children[0].Children[0]
+			if len(line.Images) != 1 || len(line.Text) == 0 {
+				t.Fatalf("inline content = images %#v text %#v", line.Images, line.Text)
+			}
+			faces := newFaceSet()
+			ascent, _ := faces.metrics(line.Text[0].Style).lineMetrics()
+			faces.close()
+			tc.check(t, line, line.Images[0].Rect, line.Text[0].Rect.Min.Y+ascent)
 		})
 	}
 }

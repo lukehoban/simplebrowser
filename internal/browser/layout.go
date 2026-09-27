@@ -61,6 +61,29 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 
 func (m metrics) lineHeight() int { return int(math.Ceil(m.size * 1.2)) }
 
+// lineMetrics describes the portion of a text line box above and below its
+// baseline.  Keeping these separately lets text with different font sizes and
+// replaced elements share a baseline instead of all being pinned to the
+// line's top edge.
+func (m metrics) lineMetrics() (ascent, descent int) {
+	height := m.lineHeight()
+	if m.face != nil {
+		fm := m.face.Metrics()
+		ascent = int(math.Ceil(float64(fm.Ascent) / 64))
+		descent = int(math.Ceil(float64(fm.Descent) / 64))
+	} else {
+		ascent = int(math.Ceil(m.size * .8))
+		descent = int(math.Ceil(m.size * .2))
+	}
+	// Font metrics describe glyphs, while CSS's normal line-height has a
+	// little leading. Split that leading around the baseline.
+	if leading := height - ascent - descent; leading > 0 {
+		ascent += (leading + 1) / 2
+		descent += leading / 2
+	}
+	return ascent, descent
+}
+
 // Each layout owns its font faces. opentype faces cache glyph data internally
 // and must not be shared across concurrent renders.
 type faceSet struct {
@@ -308,14 +331,15 @@ func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, 
 }
 
 type inlinePart struct {
-	node    *Node
-	style   ComputedStyle
-	text    string
-	br      bool
-	image   image.Image
-	imageW  int
-	imageH  int
-	isImage bool
+	node       *Node
+	style      ComputedStyle
+	text       string
+	br         bool
+	image      image.Image
+	imageW     int
+	imageH     int
+	imageEdges [4]int // margin, border, and padding around replaced content
+	isImage    bool
 }
 
 // Inline descendants are flattened in document order, without manufacturing
@@ -336,7 +360,8 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 				picture := faces.images[n.Node]
 				w, h := imageDimensions(n, picture, width)
 				parts = append(parts, inlinePart{node: n.Node, style: n.Style,
-					image: picture, imageW: w, imageH: h, isImage: true})
+					image: picture, imageW: w, imageH: h,
+					imageEdges: inlineImageEdges(n, width), isImage: true})
 				return
 			}
 		}
@@ -353,10 +378,26 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 	return parts
 }
 
+func inlineImageEdges(n *StyledNode, width int) [4]int {
+	margin := boxEdges(n, "margin", float64(width))
+	padding := boxEdges(n, "padding", float64(width))
+	border := boxEdges(n, "border-width", float64(width))
+	var edges [4]int
+	for i := range edges {
+		edges[i] = margin[i] + padding[i] + border[i]
+	}
+	return edges
+}
+
+func (p inlinePart) outerImageWidth() int  { return p.imageW + p.imageEdges[1] + p.imageEdges[3] }
+func (p inlinePart) outerImageHeight() int { return p.imageH + p.imageEdges[0] + p.imageEdges[2] }
+
 type inlineLine struct {
-	parts  []inlinePart
-	width  fixed.Int26_6
-	height int
+	parts   []inlinePart
+	width   fixed.Int26_6
+	ascent  int
+	descent int
+	height  int
 }
 
 func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
@@ -369,14 +410,42 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	add := func(p inlinePart) {
 		if p.isImage {
 			line.parts = append(line.parts, p)
-			line.width += fixed.I(p.imageW)
-			line.height = max(line.height, p.imageH)
+			line.width += fixed.I(p.outerImageWidth())
 			return
 		}
 		m := faces.metrics(p.style)
 		line.parts = append(line.parts, p)
 		line.width += m.advance(p.text)
-		line.height = max(line.height, m.lineHeight())
+		ascent, descent := m.lineMetrics()
+		line.ascent = max(line.ascent, ascent)
+		line.descent = max(line.descent, descent)
+	}
+	finalize := func(line *inlineLine) {
+		// A line containing only replaced elements still has a useful default
+		// baseline from its parent. This also defines where top/bottom aligned
+		// images sit when there is no text.
+		if line.ascent+line.descent == 0 {
+			line.ascent, line.descent = faces.metrics(nodes[0].Style).lineMetrics()
+		}
+		for _, p := range line.parts {
+			if !p.isImage {
+				continue
+			}
+			h := p.outerImageHeight()
+			switch strings.ToLower(strings.TrimSpace(p.style["vertical-align"])) {
+			case "middle":
+				// The midpoint aligns with the baseline plus half the
+				// parent font's x-height (approximated as half its em).
+				xHalf := int(math.Ceil(faces.metrics(p.style).size / 4))
+				line.ascent = max(line.ascent, (h+2*xHalf+1)/2)
+				line.descent = max(line.descent, max(0, (h-2*xHalf+1)/2))
+			case "top", "bottom":
+				line.height = max(line.height, h)
+			default: // baseline and unsupported values use the baseline.
+				line.ascent = max(line.ascent, h)
+			}
+		}
+		line.height = max(line.height, line.ascent+line.descent)
 	}
 	flushWord := func() {
 		if len(word) == 0 {
@@ -391,6 +460,7 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 			gap = faces.metrics(space.style).advance(" ")
 		}
 		if len(line.parts) != 0 && line.width+gap+wordWidth > fixed.I(width) {
+			finalize(&line)
 			lines = append(lines, line)
 			line = inlineLine{}
 		}
@@ -407,9 +477,10 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	for _, part := range inlineParts(nodes, faces, width) {
 		if part.br {
 			flushWord()
-			if line.height == 0 {
-				line.height = faces.metrics(part.style).lineHeight()
+			if len(line.parts) == 0 {
+				line.ascent, line.descent = faces.metrics(part.style).lineMetrics()
 			}
+			finalize(&line)
 			lines = append(lines, line)
 			line = inlineLine{}
 			space = nil
@@ -422,7 +493,8 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 			if space != nil && len(line.parts) != 0 {
 				gap = faces.metrics(space.style).advance(" ")
 			}
-			if len(line.parts) != 0 && line.width+gap+fixed.I(part.imageW) > fixed.I(width) {
+			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerImageWidth()) > fixed.I(width) {
+				finalize(&line)
 				lines = append(lines, line)
 				line = inlineLine{}
 				gap = 0
@@ -453,9 +525,7 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	}
 	flushWord()
 	if len(line.parts) != 0 || forced {
-		if line.height == 0 {
-			line.height = faces.metrics(nodes[0].Style).lineHeight()
-		}
+		finalize(&line)
 		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
@@ -465,19 +535,33 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	cursor := y
 	for _, l := range lines {
 		xpos := x
+		baseline := cursor + l.ascent
 		for _, p := range l.parts {
 			if p.isImage {
-				// Replaced boxes sit on the line top for now; baseline
-				// alignment is tracked separately in issue #33.
+				outerHeight := p.outerImageHeight()
+				outerY := baseline - outerHeight
+				switch strings.ToLower(strings.TrimSpace(p.style["vertical-align"])) {
+				case "top":
+					outerY = cursor
+				case "bottom":
+					outerY = cursor + l.height - outerHeight
+				case "middle":
+					xHalf := int(math.Ceil(faces.metrics(p.style).size / 4))
+					outerY = baseline - xHalf - outerHeight/2
+				}
+				contentX := xpos + p.imageEdges[3]
+				contentY := outerY + p.imageEdges[0]
 				box.Images = append(box.Images, ImageBox{Image: p.image,
-					Rect: image.Rect(xpos, cursor, xpos+p.imageW, cursor+p.imageH)})
-				xpos += p.imageW
+					Rect: image.Rect(contentX, contentY, contentX+p.imageW, contentY+p.imageH)})
+				xpos += p.outerImageWidth()
 				continue
 			}
 			w := faces.metrics(p.style).width(p.text)
+			textAscent, textDescent := faces.metrics(p.style).lineMetrics()
+			textY := baseline - textAscent
 			if len(box.Text) != 0 {
 				last := &box.Text[len(box.Text)-1]
-				if last.Node == p.node && last.Rect.Min.Y == cursor {
+				if last.Node == p.node && last.Rect.Min.Y == textY {
 					// Measure the merged run as one string: summing per-part
 					// widths rounds up once per word and space, which made
 					// runs (and their underlines) overshoot the drawn glyphs.
@@ -488,7 +572,7 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 				}
 			}
 			box.Text = append(box.Text, TextRun{Node: p.node, Style: p.style, Text: p.text,
-				Rect: image.Rect(xpos, cursor, xpos+w, cursor+l.height)})
+				Rect: image.Rect(xpos, textY, xpos+w, textY+textAscent+textDescent)})
 			xpos += w
 		}
 		cursor += l.height
