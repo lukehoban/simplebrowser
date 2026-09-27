@@ -713,6 +713,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		first = false
 		var b *Box
 		var bottom collapsedMargin
+		flowEnd := 0
 		switch kind {
 		case flowReplaced:
 			// Positive margins are applied inside; offset so the border box
@@ -720,13 +721,19 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			b, _ = layoutReplacedBlock(child, x, top-boxEdges(child, "margin", float64(width))[0], width, faces)
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		case flowTable:
-			b, _ = layoutTable(child, x, top-boxEdges(child, "margin", float64(width))[0], width, parent.Style["text-align"], faces)
+			margin := boxEdges(child, "margin", float64(width))
+			var height int
+			b, height = layoutTable(child, x, top-margin[0], width, parent.Style["text-align"], faces)
+			flowEnd = top - margin[0] + height - margin[2]
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		default:
 			b, bottom = layoutBlock(child, x, top, width, faces, cb)
 		}
 		boxes = append(boxes, b)
 		cursor = b.Rect.Max.Y
+		if kind == flowTable {
+			cursor = flowEnd // captions live outside the table's border box
+		}
 		pending = bottom
 	}
 	flush()
