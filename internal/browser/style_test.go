@@ -2,6 +2,21 @@ package browser
 
 import "testing"
 
+func styledElementByID(root *StyledNode, id string) *StyledNode {
+	if root == nil {
+		return nil
+	}
+	if attr, ok := root.Node.Attribute("id"); ok && attr.Value == id {
+		return root
+	}
+	for _, child := range root.Children {
+		if found := styledElementByID(child, id); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
 func TestStyleSelectorsCascadeAndInheritance(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 		<style>
@@ -70,6 +85,41 @@ func TestStylePresentationalAttributesAndDefaults(t *testing.T) {
 		table.Style["background-color"] != "#fff" || tr.Style["text-align"] != "center" ||
 		td.Style["width"] != "20px" || td.Style["display"] != "table-cell" {
 		t.Fatalf("presentational styles: table=%#v tr=%#v td=%#v", table.Style, tr.Style, td.Style)
+	}
+}
+
+func TestComputedFontSizesAndFontRelativeLengths(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<html style="font-size:20px"><body>
+			<div id=pt style="font-size:12pt"></div>
+			<div id=em style="font-size:1.5em"><span id=percent style="font-size:50%">
+				<b id=nested style="font-size:2em"></b>
+			</span></div>
+			<div id=small style="font-size:small"></div>
+			<div id=relative style="font-size:larger"></div>
+			<div id=rem style="font-size:2rem"></div>
+			<div id=margin style="font-size:10px;margin-left:2em;padding-top:.5em;width:3em"></div>
+			<div id=inherited style="font-size:inherit"></div>
+		</body></html>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{
+		"pt": "16px", "em": "30px", "percent": "15px", "nested": "30px",
+		"small": "14.222222222222221px", "relative": "24px", "rem": "40px",
+		"inherited": "20px",
+	} {
+		if got := styledElementByID(styled.StyleRoot, id).Style["font-size"]; got != want {
+			t.Errorf("%s font-size = %q, want %q", id, got, want)
+		}
+	}
+	margin := styledElementByID(styled.StyleRoot, "margin").Style
+	if margin["margin-left"] != "20px" || margin["padding-top"] != "5px" || margin["width"] != "30px" {
+		t.Fatalf("font-relative lengths were not resolved against own 10px size: %#v", margin)
 	}
 }
 

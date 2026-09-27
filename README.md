@@ -11,9 +11,11 @@ and wrapped text runs, including replaced image boxes and the nested tables
 Hacker News uses for its page structure. Explicitly sized tables honor auto
 side margins and legacy centered containers, so the 85%-wide HN page is
 centered in the viewport. Adjoining vertical block margins collapse (between
-siblings and through parents' first/last children). Inline text uses font ascents and descents to share
-a baseline with replaced images (including `vertical-align: top`, `middle`,
-and `bottom`). Painting rasterizes colors, raster CSS backgrounds
+siblings and through parents' first/last children). Typography resolves
+inherited and relative font sizes, maps common sans/serif/monospace family
+lists to embedded Go fonts, and applies CSS line heights. Inline text uses font
+ascents and descents to share a baseline with replaced images (including
+`vertical-align: top`, `middle`, and `bottom`). Painting rasterizes colors, raster CSS backgrounds
 (GIF/PNG/JPEG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
 elements, and neutral placeholders for unsupported `<img>` elements. SVG and
 advanced CSS remain future work.
@@ -33,7 +35,6 @@ is a neutral placeholder; the fixture's vote arrows are CSS backgrounds, not
 reference.*
 
 **What's next**
-- [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
 - [Render the SVG logo and vote arrows (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
 - [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
 
