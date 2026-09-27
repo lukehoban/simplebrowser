@@ -8,7 +8,6 @@ import (
 	"image/draw"
 	"image/png"
 	"io"
-	"strings"
 )
 
 const (
@@ -43,7 +42,16 @@ type Layout struct {
 // The stages currently preserve pipeline structure only. Follow-up roadmap
 // issues replace each stub with real browser behavior.
 func Render(source string, output io.Writer) error {
-	resource, err := fetch(source)
+	return RenderWithFetcher(source, output, nil)
+}
+
+// RenderWithFetcher runs source through each browser stage using fetcher.
+// A nil fetcher selects the default networking configuration.
+func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error {
+	if fetcher == nil {
+		fetcher = &Fetcher{}
+	}
+	resource, err := fetcher.Fetch(source)
 	if err != nil {
 		return fmt.Errorf("fetch: %w", err)
 	}
@@ -67,15 +75,6 @@ func Render(source string, output io.Writer) error {
 		return fmt.Errorf("paint: %w", err)
 	}
 	return nil
-}
-
-func fetch(source string) (Resource, error) {
-	if strings.TrimSpace(source) == "" {
-		return Resource{}, fmt.Errorf("source must not be empty")
-	}
-
-	// Issue #4 will fetch HTTP(S) URLs and local files.
-	return Resource{Source: source}, nil
 }
 
 func parse(resource Resource) (Document, error) {

@@ -11,10 +11,14 @@ import (
 )
 
 func TestRunWritesPNG(t *testing.T) {
+	source := filepath.Join(t.TempDir(), "page.html")
+	if err := os.WriteFile(source, []byte("<html>fixture</html>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	output := filepath.Join(t.TempDir(), "page.png")
 	var stderr bytes.Buffer
 
-	if err := run([]string{"-o", output, "example.html"}, &stderr); err != nil {
+	if err := run([]string{"-o", output, source}, &stderr); err != nil {
 		t.Fatalf("run() error = %v, stderr = %q", err, stderr.String())
 	}
 
