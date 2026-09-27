@@ -25,3 +25,26 @@ jobs:
         run: go test ./...
       - name: Build
         run: go build ./cmd/simplebrowser
+
+  render:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Build renderer
+        run: go build -o simplebrowser ./cmd/simplebrowser
+      - name: Render Hacker News fixture
+        run: |
+          mkdir -p render-artifacts
+          ./simplebrowser -o render-artifacts/hn-fixture.png testdata/hn/news.html
+      - name: Upload render
+        uses: actions/upload-artifact@v4
+        with:
+          name: hn-render-${{ github.run_id }}
+          path: render-artifacts/*.png
+          if-no-files-found: error
+          retention-days: 14
