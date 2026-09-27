@@ -43,7 +43,7 @@ func TestCompareExactPixels(t *testing.T) {
 func TestDeterministicMarkdown(t *testing.T) {
 	r := report{Revision: revision, Viewport: "800x600", Total: 1, Pass: 1,
 		Results: []result{{Test: "a.html", Reference: "b.html", Relation: "mismatch", Status: "pass", Pixels: 1}}}
-	if got := string(markdown(r)); !strings.Contains(got, "1/1 passing") || !strings.Contains(got, "`a.html` | `b.html` | mismatch | **pass** | 1") {
+	if got := string(markdown(r)); !strings.Contains(got, "1/1 reference assertions passing") || !strings.Contains(got, "`a.html` | `b.html` | mismatch | **pass** | 1") {
 		t.Fatal("unexpected markdown output")
 	}
 }
@@ -73,6 +73,7 @@ func TestRunAllRelationsAndPerReferenceErrors(t *testing.T) {
 		`<link rel="mismatch" href="different.html">` +
 		`<link rel="match" href="different.html">` +
 		`<link rel="match">` +
+		`<link rel="match" href="same.html">` +
 		`<link rel="match" href="missing.html">` +
 		`<link rel="match" href="../../outside.html">` +
 		page("red")
@@ -91,13 +92,13 @@ func TestRunAllRelationsAndPerReferenceErrors(t *testing.T) {
 	defer func() { tests = originalTests }()
 	diagnostics := filepath.Join(t.TempDir(), "diagnostics")
 	r := run(root, diagnostics)
-	if r.Total != 6 || r.Pass != 2 || r.Fail != 1 || r.Error != 3 || len(r.Results) != 6 {
+	if r.Total != 7 || r.Pass != 3 || r.Fail != 1 || r.Error != 3 || len(r.Results) != 7 {
 		t.Fatalf("unexpected multi-relation report: %+v", r)
 	}
 	if again := run(root, diagnostics); !reflect.DeepEqual(r, again) {
 		t.Fatalf("multi-relation output was nondeterministic:\nfirst:  %+v\nsecond: %+v", r, again)
 	}
-	for i, relation := range []string{"match", "mismatch", "match", "match", "match", "match"} {
+	for i, relation := range []string{"match", "mismatch", "match", "match", "match", "match", "match"} {
 		if r.Results[i].Relation != relation || r.Results[i].Test != "relations/test.html" {
 			t.Fatalf("relation %d out of deterministic order: %+v", i, r.Results[i])
 		}
@@ -105,11 +106,14 @@ func TestRunAllRelationsAndPerReferenceErrors(t *testing.T) {
 	if r.Results[3].Status != "error" || !strings.Contains(r.Results[3].Error, "empty reference href") {
 		t.Fatalf("missing href should be a per-reference error: %+v", r.Results[3])
 	}
-	if r.Results[4].Status != "error" || !strings.Contains(r.Results[4].Error, "missing.html") {
-		t.Fatalf("missing reference should be a per-reference error: %+v", r.Results[4])
+	if r.Results[4].Status != "pass" || r.Results[4].Error != "" {
+		t.Fatalf("valid relation after an error should still pass independently: %+v", r.Results[4])
 	}
-	if r.Results[5].Status != "error" || !strings.Contains(r.Results[5].Error, "escapes vendor directory") {
-		t.Fatalf("escaping reference should be a per-reference error: %+v", r.Results[5])
+	if r.Results[5].Status != "error" || !strings.Contains(r.Results[5].Error, "missing.html") {
+		t.Fatalf("missing reference should be a per-reference error: %+v", r.Results[5])
+	}
+	if r.Results[6].Status != "error" || !strings.Contains(r.Results[6].Error, "escapes vendor directory") {
+		t.Fatalf("escaping reference should be a per-reference error: %+v", r.Results[6])
 	}
 	if _, err := os.Stat(filepath.Join(diagnostics, "relations", "test", "reference-003-match", "diff.png")); err != nil {
 		t.Fatalf("failed relation did not get its own diagnostic: %v", err)

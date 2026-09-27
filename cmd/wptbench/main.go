@@ -158,6 +158,9 @@ func run(root, diagnostics string) report {
 
 		testImg, renderErr := render(testPath)
 		for index, ref := range references {
+			// Each relation is an independent assertion. Do not let a prior
+			// reference's validation or rendering error poison the next one.
+			err = nil
 			r.Total++
 			item := result{Test: name, Relation: ref.Relation, Reference: ref.Href}
 			refPath := filepath.Clean(filepath.Join(filepath.Dir(name), filepath.FromSlash(ref.Href)))
@@ -218,7 +221,7 @@ func run(root, diagnostics string) report {
 
 func markdown(r report) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# WPT compatibility: %d/%d passing\n\n", r.Pass, r.Total)
+	fmt.Fprintf(&b, "# WPT compatibility: %d/%d reference assertions passing\n\n", r.Pass, r.Total)
 	fmt.Fprintf(&b, "Pinned WPT revision: [`%s`](https://github.com/web-platform-tests/wpt/commit/%s). Viewport: %s. Exact PNG pixels; %d compatibility failures, %d runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).\n\n", r.Revision, r.Revision, r.Viewport, r.Fail, r.Error)
 	b.WriteString("| Test | Reference | Relation | Status | Different pixels |\n| --- | --- | --- | --- | ---: |\n")
 	for _, item := range r.Results {
@@ -254,7 +257,7 @@ func main() {
 	}
 	if *check {
 		readme, e := os.ReadFile("README.md")
-		score := fmt.Sprintf("%d/%d pinned WPT reftests passing", r.Pass, r.Total)
+		score := fmt.Sprintf("%d/%d pinned WPT reference assertions passing", r.Pass, r.Total)
 		if e != nil || !bytes.Contains(readme, []byte(score)) {
 			fmt.Fprintln(os.Stderr, "README compatibility score is stale:", score)
 			os.Exit(1)
