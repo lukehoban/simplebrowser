@@ -18,7 +18,7 @@ and About landmarks while making the current renderer's limitations visible.
 
   ![Current simplebrowser diagnostic baseline for the offline GitHub repository-page stand-in](screenshots/github-vscode/baseline.png)
 
-  [`baseline.png`](screenshots/github-vscode/baseline.png) is today's
+  [`baseline.png`](screenshots/github-vscode/baseline.png) is the checked-in
   simplebrowser output. It is a **diagnostic record, not a golden**: no CI job
   compares it. Refresh it with `make github-vscode-baseline` when the renderer
   changes. `make baselines` refreshes this diagnostic together with the Moon
@@ -70,6 +70,55 @@ and unchanged from the original PR: this stand-in contains no media queries.
 Integrating main `e3917f8d08751dc91aefc3167d7481303104859d` (overflow
 clipping) also left the baseline byte-identical in a fresh render. Both
 the Chrome reference and current baseline remain individual 800×600 images.
+
+## Fixed-viewport comparison after shared flex work (main `e33246e`)
+
+On 2026-09-27, `make github-vscode-baseline` on main `e33246e` (after
+#290/#291/#292 and earlier flex changes) reproduced the existing diagnostic
+**byte for byte**: SHA-256
+`e936969ccc40255741a9dbcb48e78ca4a359b30d1bcd27d5f0f5b95249377281`.
+The fixture and Chrome 154 reference are unchanged. No new baseline PNG
+was committed; the diagnostic remains non-blocking.
+
+![Pinned Chrome reference beside unchanged main e33246e output](screenshots/github-vscode/comparison-after-e33246e.png)
+
+Approximate landmarks at the fixed 800×600 viewport (Chrome → simplebrowser,
+pixels measured from the top left; not normative pixel targets), ordered by
+visible impact:
+
+1. Topbar **Sign in** begins at x735 → x411. The other links remain near their
+   expected x positions; a small fixed-width and auto-width flex repro confirms
+   unused space is not assigned to the item's `margin-left:auto` ([#315](https://github.com/lukehoban/simplebrowser/issues/315)).
+2. File table's first column ends at x235 → x255 with the same x28 left edge and
+   x520 right edge. Its first cell requests `width:42%` and the fixture sets
+   `box-sizing:border-box`; the isolated 400px table also shows an oversized
+   first column. This is covered by the already open [#310](https://github.com/lukehoban/simplebrowser/issues/310)
+   (specified widths still treated as content-box, including cell padding).
+3. Tabs rule sits around y196 → y200, branch controls y216 → y220, first table
+   row y260 → y265; the ninth row ends around y557 → y580. Relative row-height
+   drift is independently visible in a two-row padded table
+   ([#318](https://github.com/lukehoban/simplebrowser/issues/318)); its exact
+   interaction with font metrics [#120](https://github.com/lukehoban/simplebrowser/issues/120)
+   and the initial vertical offset has not been diagnosed.
+4. Public pill, buttons and borders have rectangular instead of rounded corners
+   ([#316](https://github.com/lukehoban/simplebrowser/issues/316)).
+   The About heading near x542 y218 is regular instead of bold despite the
+   browser's heading default ([#317](https://github.com/lukehoban/simplebrowser/issues/317)).
+
+The isolated tests are in
+[`testdata/github-vscode/layout-repros.html`](../testdata/github-vscode/layout-repros.html),
+**not** in the pinned stand-in fixture. The image compares Chrome 154 (left)
+with the renderer at main `e33246e` (right), both at 800×600:
+
+![Isolated layout repros, Chrome versus simplebrowser](screenshots/github-vscode/layout-repros-comparison.png)
+
+General shared follow-ups [#309](https://github.com/lukehoban/simplebrowser/issues/309)
+(block/flex min/max widths), [#304](https://github.com/lukehoban/simplebrowser/issues/304)
+(flex intrinsic calc lengths), [#288](https://github.com/lukehoban/simplebrowser/issues/288)
+(flex shorthand calc), [#296](https://github.com/lukehoban/simplebrowser/issues/296)
+(baseline alignment), and [#297](https://github.com/lukehoban/simplebrowser/issues/297)
+(safe/unsafe alignment) have no demonstrated use in this fixture. No new grid
+work or inference about the live page follows from this comparison.
 
 ## Source, scope, and asset notes
 
