@@ -508,6 +508,16 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		source: `<div style="display:flex;flex-wrap:wrap;align-content:center;width:100px;height:100px;row-gap:10px"><div id="a" style="width:60px;height:20px"></div><div id="b" style="width:60px;height:20px"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 25, 60, 45), "b": image.Rect(0, 55, 60, 75)},
 	}, {
+		name:   "align-content center with overflowing wrapped lines",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap;align-content:center;align-items:flex-start;width:50px;height:50px"><div id="a" style="flex:none;width:50px;height:40px;background:red"></div><div id="b" style="flex:none;width:50px;height:40px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 50, 50), "a": image.Rect(0, -15, 50, 25), "b": image.Rect(0, 25, 50, 65)},
+		pixels: map[image.Point]color.RGBA{{5, 0}: red, {5, 24}: red, {5, 25}: blue, {5, 49}: blue},
+	}, {
+		name:   "align-content end with overflowing wrapped lines and gap",
+		source: `<div id="c" style="display:flex;flex-wrap:wrap;align-content:end;align-items:flex-start;width:50px;height:50px;row-gap:10px"><div id="a" style="flex:none;width:50px;height:40px;background:red"></div><div id="b" style="flex:none;width:50px;height:40px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 50, 50), "a": image.Rect(0, -40, 50, 0), "b": image.Rect(0, 10, 50, 50)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: {255, 255, 255, 255}, {5, 10}: blue, {5, 49}: blue},
+	}, {
 		name:   "wrapped line stretches auto-height items",
 		source: `<div style="display:flex;flex-wrap:wrap;width:100px"><div id="a" style="width:60px;height:15px"></div><div id="e" style="width:30px"></div><div id="b" style="width:60px;height:20px"></div><div id="d" style="width:30px"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 60, 15), "e": image.Rect(60, 0, 90, 15), "b": image.Rect(0, 15, 60, 35), "d": image.Rect(60, 15, 90, 35)},
