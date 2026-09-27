@@ -8,4 +8,6 @@ Use the following:
 
 Keep them up to date as progress is made.  Work incrementally and show progress as you go so that other participants can follow along and guide the work if needed.
 
+Feel free to work on concurrent work in parallel, but then ensure you manage reconciling design, implementation and merge conflicts between this work via PRs.
+
 If input is needed from a reviewer on whether, what or how to accomplish something - assign the issue/PR to @lukehoban or tag them.  The user can also be asked to add Actions variables/secrets for access to additional systems.
