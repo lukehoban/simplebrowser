@@ -87,6 +87,9 @@ func TestSmallCapsFullCaseMapping(t *testing.T) {
 	faces := newFaceSet()
 	defer faces.close()
 	m := faces.metrics(ComputedStyle{"font-size": "30px", "font-family": "sans-serif", "font-variant": "small-caps"})
+	// Case mapping only; per-glyph fallback splits are covered in
+	// glyph_fallback_test.go.
+	m.fallback = nil
 	type part struct {
 		small bool
 		text  string

@@ -18,18 +18,19 @@ small regression benchmark with known unsupported behavior. Selection is in
 `cmd/wptbench/main.go`; add a vendored test and its reference/assets there
 and regenerate the report with `make compatibility`.
 
-`make compatibility` renders at 800×600, reads `rel=match` or `rel=mismatch`
-from each original test, compares exact pixel colors against its reference,
-and writes `docs/compatibility.{json,md}`. `make compatibility-check` checks
+`make compatibility` renders at 800×600, reads every `rel=match` and
+`rel=mismatch` relation in document order, compares exact pixel colors against
+each reference, and writes one report entry per relation to
+`docs/compatibility.{json,md}`. `make compatibility-check` checks
 committed reports and the README score without rewriting them. Update the
-README score when refreshing the report. Currently only the first reftest
-relation in each selected file is evaluated; multiple relations per file are
-deferred. Mismatches are reported as failures,
-while missing references, render/decode errors, or diagnostic write failures
-are runner errors. Test/reference/diff PNGs are generated for failures under
-`artifacts/wpt/` (ignored by Git and uploaded by CI). Red pixels in diff PNGs
-are different pixels; transparent pixels match. Network dialing is forbidden
-during the run, including CSS/image loads.
+README score when refreshing the report. Each relation has an independent
+status; mismatches are reported as failures, while missing references, invalid
+paths, render/decode errors, or diagnostic write failures are runner errors.
+Test/reference/diff PNGs are generated per failed relation under
+`artifacts/wpt/<test>/reference-<number>-<relation>/` (ignored by Git and
+uploaded by CI). Red pixels in diff PNGs are different pixels; transparent
+pixels match. Network dialing is forbidden during the run, including CSS/image
+loads.
 
 The fixed viewport and embedded font produce repeatable output on a given
 platform, but cross-platform font rasterization can differ. CI checks its
