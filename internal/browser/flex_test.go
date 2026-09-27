@@ -654,3 +654,93 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		})
 	}
 }
+
+// Main-axis `margin:auto` absorbs positive remaining free space (#315).
+func TestFlexMainAxisAutoMarginsAbsorbFreeSpace(t *testing.T) {
+	red, blue, white := color.RGBA{255, 0, 0, 255}, color.RGBA{0, 0, 255, 255}, color.RGBA{255, 255, 255, 255}
+	cases := []struct {
+		name, source string
+		want         map[string]image.Rectangle
+		pixels       map[image.Point]color.RGBA
+	}{{
+		name:   "row margin-left auto pushes item to the main end",
+		source: `<div style="display:flex;width:100px"><div id="a" style="width:20px;height:10px;background:red"></div><div id="b" style="width:20px;height:10px;margin-left:auto;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 20, 10), "b": image.Rect(80, 0, 100, 10)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: red, {90, 5}: blue, {50, 5}: white},
+	}, {
+		name:   "two auto margins center the item and share free space equally",
+		source: `<div style="display:flex;width:100px"><div id="a" style="width:20px;height:10px;margin-left:auto;margin-right:auto;background:red"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(40, 0, 60, 10)},
+	}, {
+		name:   "odd free space leaves the remainder pixel on the last auto margin",
+		source: `<div style="display:flex;width:101px"><div id="a" style="width:20px;height:10px;margin-left:auto;margin-right:auto;background:red"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(40, 0, 60, 10)},
+	}, {
+		name:   "auto margins on separate items split the free space",
+		source: `<div style="display:flex;width:100px"><div id="a" style="width:20px;height:10px;margin-left:auto"></div><div id="b" style="width:20px;height:10px;margin-left:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(30, 0, 50, 10), "b": image.Rect(80, 0, 100, 10)},
+	}, {
+		name:   "auto margins leave nothing for justify-content",
+		source: `<div style="display:flex;width:100px;justify-content:space-between"><div id="a" style="width:20px;height:10px"></div><div id="b" style="width:20px;height:10px;margin-left:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 20, 10), "b": image.Rect(80, 0, 100, 10)},
+	}, {
+		name:   "negative free space keeps auto margins at zero",
+		source: `<div style="display:flex;width:60px"><div id="a" style="flex:none;width:50px;height:10px"></div><div id="b" style="flex:none;width:50px;height:10px;margin-left:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 50, 10), "b": image.Rect(50, 0, 100, 10)},
+	}, {
+		name:   "row-reverse distributes to the physical margin edge",
+		source: `<div style="display:flex;flex-direction:row-reverse;width:100px"><div id="a" style="width:20px;height:10px"></div><div id="b" style="width:20px;height:10px;margin-right:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(80, 0, 100, 10), "b": image.Rect(0, 0, 20, 10)},
+	}, {
+		name:   "flexible items leave no free space for auto margins",
+		source: `<div style="display:flex;width:100px"><div id="a" style="flex:1;height:10px"></div><div id="b" style="width:20px;height:10px;margin-left:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 80, 10), "b": image.Rect(80, 0, 100, 10)},
+	}, {
+		name:   "wrapping distributes per line",
+		source: `<div style="display:flex;flex-wrap:wrap;width:100px"><div id="a" style="flex:none;width:60px;height:10px"></div><div id="b" style="flex:none;width:20px;height:10px;margin-left:auto"></div><div id="c" style="flex:none;width:30px;height:10px;margin-left:auto"></div></div>`,
+		want: map[string]image.Rectangle{"a": image.Rect(0, 0, 60, 10), "b": image.Rect(80, 0, 100, 10),
+			"c": image.Rect(70, 10, 100, 20)},
+	}, {
+		name:   "column margin-top auto pushes the item to the main end",
+		source: `<div style="display:flex;flex-direction:column;width:40px;height:100px"><div id="a" style="width:10px;height:20px;background:red"></div><div id="b" style="width:10px;height:20px;margin-top:auto;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 10, 20), "b": image.Rect(0, 80, 10, 100)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: red, {5, 90}: blue, {5, 50}: white},
+	}, {
+		name:   "column with two auto margins centers the item",
+		source: `<div style="display:flex;flex-direction:column;width:40px;height:100px"><div id="a" style="width:10px;height:20px;margin-top:auto;margin-bottom:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 40, 10, 60)},
+	}, {
+		name:   "column-reverse uses the physical margin edge",
+		source: `<div style="display:flex;flex-direction:column-reverse;width:40px;height:100px"><div id="a" style="width:10px;height:20px"></div><div id="b" style="width:10px;height:20px;margin-bottom:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 80, 10, 100), "b": image.Rect(0, 0, 10, 20)},
+	}, {
+		name:   "auto-height column has no free space to distribute",
+		source: `<div style="display:flex;flex-direction:column;width:40px"><div id="a" style="width:10px;height:20px"></div><div id="b" style="width:10px;height:20px;margin-top:auto"></div></div>`,
+		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 10, 20), "b": image.Rect(0, 20, 10, 40)},
+	}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `<body style="margin:0">` + tc.source + `</body>`
+			layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 120, 120))
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids := make([]string, 0, len(tc.want))
+			for id := range tc.want {
+				ids = append(ids, id)
+			}
+			b := boxesByID(layout.Root, ids...)
+			for id, rect := range tc.want {
+				if b[id] == nil || b[id].Rect != rect {
+					t.Errorf("%s: got %v want %v", id, b[id], rect)
+				}
+			}
+			if len(tc.pixels) > 0 {
+				img := painted(t, source, image.Rect(0, 0, 120, 120))
+				for p, c := range tc.pixels {
+					pixel(t, img, p.X, p.Y, c)
+				}
+			}
+		})
+	}
+}

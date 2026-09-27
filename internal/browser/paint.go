@@ -438,24 +438,31 @@ func documentOrder(root *Node) map[*Node]int {
 
 // stacking reports whether box is positioned and, if so, its z-index. Only
 // positioned boxes with an integer z-index form a stacking context; z-index
-// on non-positioned boxes is ignored.
+// on non-positioned boxes is ignored. A masked element also forms a stacking
+// context and, when not positioned, paints in the z-index 0 layer (CSS
+// Masking §6 and CSS 2.1 Appendix E, as for opacity), so that it can be
+// composited through its mask as a unit.
 func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 	if box == nil || box.Node == nil || box.Node.Type != ElementNode {
 		return false, 0, false
 	}
 	style := p.document.Styles[box.Node]
+	masked := !box.Anonymous && hasMask(style)
 	switch strings.ToLower(strings.TrimSpace(style["position"])) {
 	case "relative", "absolute", "fixed", "sticky":
 	default:
+		if masked {
+			return true, 0, true
+		}
 		return false, 0, false
 	}
 	value := strings.TrimSpace(style["z-index"])
 	if value == "" || strings.EqualFold(value, "auto") {
-		return true, 0, false
+		return true, 0, masked
 	}
 	z, err := strconv.Atoi(value)
 	if err != nil {
-		return true, 0, false
+		return true, 0, masked
 	}
 	return true, z, true
 }
@@ -463,11 +470,16 @@ func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 // paintStackingContext paints ctx and every box it owns. includeSelf is false
 // for the anonymous viewport box, which has no background of its own.
 func (p *painter) paintStackingContext(ctx *Box, includeSelf bool) {
+	paint := func() { p.paintStackingContextContents(ctx, includeSelf) }
+	if includeSelf && ctx.Node != nil && !ctx.Anonymous && hasMask(p.document.Styles[ctx.Node]) {
+		contents := paint
+		paint = func() { p.paintMasked(ctx, contents) }
+	}
 	if clip, ok := p.legacyClip(ctx); ok {
-		p.withClip(clip, func() { p.paintStackingContextContents(ctx, includeSelf) })
+		p.withClip(clip, paint)
 		return
 	}
-	p.paintStackingContextContents(ctx, includeSelf)
+	paint()
 }
 
 func (p *painter) paintStackingContextContents(ctx *Box, includeSelf bool) {
