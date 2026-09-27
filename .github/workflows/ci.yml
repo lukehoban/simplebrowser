@@ -58,10 +58,5 @@ jobs:
           path: render-artifacts/*.png
           if-no-files-found: error
           retention-days: 14
-      # Embedded font rasterization differs by a few pixels across macOS and
-      # Linux; keep this diagnostic non-blocking until we normalize it.
-      - name: Compare committed screenshot (cross-OS warning)
-        run: |
-          cmp docs/screenshots/hn-fixture.png render-artifacts/hn-fixture.png || {
-            echo "::warning::Screenshot differs from the checked-in macOS render; if painting changed, run 'make screenshot' and commit docs/screenshots/hn-fixture.png"
-          }
+      - name: Verify committed screenshot
+        run: go run ./cmd/screenshotcheck docs/screenshots/hn-fixture.png render-artifacts/hn-fixture.png
