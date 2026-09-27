@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Atomic inline-block content regression</title>
+<style>
+  body { margin: 24px; font: 18px/1.5 sans-serif; color: #16324c; background: #f1f5f9 }
+  h1 { font-size: 22px }
+  .demo { width: 490px; margin: 16px 0; padding: 16px; background: white; border: 1px solid #ccd6e0 }
+  .highlight { background: #ffe187 }
+  .card { display: inline-block; width: 120px; height: 60px; padding: 8px;
+          border: 3px solid #2177bf; background: #ddf0ff; vertical-align: baseline }
+  .small { display: inline-block; padding: 8px; border: 3px solid #42a777; background: #dcf5e6 }
+</style>
+<body>
+  <h1>Inline-block content: independent layout</h1>
+  <div class="demo"><span class="highlight">Before <span class="card">first line<br>last line</span> after</span></div>
+  <div class="demo">Native block tag: <div class="small">shrink-to-fit text</div> after</div>
+  <div class="demo" style="width:210px">Wrap atomically: <span class="card">content</span> after</div>
+</body>
