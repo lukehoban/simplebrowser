@@ -170,3 +170,42 @@ func TestCalcExpressionNestingIsBounded(t *testing.T) {
 		t.Fatal("excessively nested calc() expression was accepted")
 	}
 }
+
+func TestCalcFlexBasisResolvesPercentageAgainstContainer(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0">
+		<div style="display:flex;width:400px"><div id="mixed" style="flex-basis:calc(50% - 10px);flex-shrink:0;height:5px"></div></div>
+		<div style="display:flex;width:400px"><div id="plain" style="flex-basis:50%;flex-shrink:0;height:5px"></div></div>
+		<div style="display:flex;width:400px"><div id="fixed" style="flex-basis:calc(100px + 20px);flex-shrink:0;height:5px"></div></div>
+		<div style="display:flex;width:400px"><div id="em" style="font-size:10px;flex-basis:calc(25% + 2em);flex-shrink:0;height:5px"></div></div>
+		<div style="display:flex;width:400px"><div id="negative" style="flex-basis:calc(10% - 100px);flex-shrink:0;height:5px"></div></div>
+		</body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]int{"mixed": 190, "plain": 200, "fixed": 120, "em": 120, "negative": 0} {
+		box := boxesByID(got.Root, id)[id]
+		if box == nil {
+			t.Fatalf("missing #%s box", id)
+		}
+		if box.Rect.Dx() != want {
+			t.Errorf("#%s width = %d, want %d", id, box.Rect.Dx(), want)
+		}
+	}
+	if !featureSupported("flex-basis", "calc(50% - 10px)") {
+		t.Error("@supports rejected a supported flex-basis calc()")
+	}
+}
+
+func TestCalcPercentageRejectedWhereGrammarDisallowsIt(t *testing.T) {
+	if featureSupported("border-width", "calc(10% + 1px)") {
+		t.Error("@supports accepted a percentage border-width calc()")
+	}
+	if !featureSupported("border-width", "calc(1em + 1px)") {
+		t.Error("@supports rejected a length-only border-width calc()")
+	}
+	doc := styledForLayout(t, `<div id="b" style="border:2px solid red;border-left-width:calc(10% + 1px)"></div>`)
+	if got := borderWidth(styledElementByID(doc.StyleRoot, "b").Style, "left"); got != 2 {
+		t.Errorf("left border width = %d, want invalid calc() ignored (2)", got)
+	}
+}

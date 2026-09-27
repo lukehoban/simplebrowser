@@ -185,7 +185,8 @@ func supportsDeclaration(s string) (string, string, bool) {
 // values this renderer implements are accepted. It is intentionally
 // conservative; extend it when a feature lands. Unlisted properties such as
 // mask-image, and values such as display:grid or math functions like
-// calc()/round(), are unsupported.
+// min()/round(), are unsupported. A single calc() length is accepted for the
+// properties listed by calcLengthProperty (see docs/css-calc.md).
 var supportValidators = map[string]func(string) bool{
 	"display": keywordValidator("none", "block", "inline", "inline-block", "flex", "inline-flex", "list-item", "flow-root",
 		"table", "inline-table", "table-row", "table-cell", "table-row-group", "table-header-group",

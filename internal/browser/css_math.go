@@ -36,6 +36,12 @@ func calcLengthProperty(property string) bool {
 	return false
 }
 
+// calcPercentAllowed reports whether the property's length grammar accepts
+// percentages; border widths do not, so calc() there must not either.
+func calcPercentAllowed(property string) bool {
+	return !strings.HasPrefix(property, "border-")
+}
+
 func parseCSSMath(value string, convert func(float64, string) (cssMathValue, bool)) (cssMathValue, bool) {
 	value = strings.TrimSpace(value)
 	if len(value) < 6 || !strings.EqualFold(value[:5], "calc(") || value[len(value)-1] != ')' {
@@ -337,6 +343,9 @@ func validCalcDeclaration(property, value string) bool {
 		switch unit {
 		case "%", "px", "em", "rem", "ex", "ch", "vw", "vh":
 			if unit == "%" {
+				if !calcPercentAllowed(property) {
+					return cssMathValue{}, false
+				}
 				return cssMathValue{percent: n / 100}, true
 			}
 			return cssMathValue{px: n}, true
