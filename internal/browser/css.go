@@ -22,13 +22,15 @@ type CSSRule struct {
 }
 
 // A selector is stored left-to-right. The first part has no combinator;
-// later parts use " " (descendant) or ">" (child).
+// later parts use " " (descendant), ">" (child), "+" (adjacent sibling),
+// or "~" (general sibling).
 type Selector struct{ Parts []SelectorPart }
 type SelectorPart struct {
 	Combinator string
 	Tag        string
 	ID         string
 	Classes    []string
+	Attributes []AttributeSelector
 	// PseudoClasses holds lower-cased pseudo-class names such as "link".
 	// Unsupported functions keep their name with a trailing "(";
 	// pseudo-elements are stored with a leading ":".
@@ -37,6 +39,15 @@ type SelectorPart struct {
 	// Each :not() contributes one unforgiving selector list. Its specificity
 	// is the maximum argument specificity, not an extra pseudo-class unit.
 	Negations [][]Selector
+}
+
+// AttributeSelector is the deliberately bounded attribute-selector grammar
+// supported by the renderer: [name] and [name=value]. Other operators and
+// modifiers are rejected with the containing rule rather than approximated.
+type AttributeSelector struct {
+	Name     string
+	Value    string
+	HasValue bool
 }
 
 type Declaration struct {
@@ -209,8 +220,8 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 			}
 			part := SelectorPart{}
 			if len(selector.Parts) > 0 {
-				if p.s[p.i] == '>' {
-					part.Combinator = ">"
+				if strings.ContainsRune(">+~", rune(p.s[p.i])) {
+					part.Combinator = p.s[p.i : p.i+1]
 					p.i++
 					p.skip()
 				} else if space {
@@ -218,6 +229,11 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 				} else {
 					return nil, false
 				}
+				if p.i < len(p.s) && strings.ContainsRune(">+~", rune(p.s[p.i])) {
+					return nil, false
+				}
+			} else if strings.ContainsRune(">+~", rune(p.s[p.i])) {
+				return nil, false
 			}
 			if p.i >= len(p.s) {
 				return nil, false
@@ -229,9 +245,17 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 			} else if isLetter(p.s[p.i]) {
 				part.Tag = strings.ToLower(p.ident())
 			}
-			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':') {
+			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':' || p.s[p.i] == '[') {
 				kind := p.s[p.i]
 				p.i++
+				if kind == '[' {
+					attribute, ok := parseAttributeSelector(&p)
+					if !ok {
+						return nil, false
+					}
+					part.Attributes = append(part.Attributes, attribute)
+					continue
+				}
 				if kind == ':' {
 					pseudo, args, ok := parsePseudo(&p)
 					if !ok {
@@ -272,6 +296,69 @@ func parseSelectorGroupDepth(s string, depth int) ([]Selector, bool) {
 		result = append(result, selector)
 	}
 	return result, len(result) > 0
+}
+
+func parseAttributeSelector(p *cssScanner) (AttributeSelector, bool) {
+	p.skip()
+	name := strings.ToLower(p.ident())
+	if name == "" {
+		return AttributeSelector{}, false
+	}
+	p.skip()
+	if p.i >= len(p.s) {
+		return AttributeSelector{}, false
+	}
+	if p.s[p.i] == ']' {
+		p.i++
+		return AttributeSelector{Name: name}, true
+	}
+	// Reject every operator other than exact equality. In particular, do not
+	// accidentally treat ~=, |=, ^=, $=, or *= as equality.
+	if p.s[p.i] != '=' {
+		return AttributeSelector{}, false
+	}
+	p.i++
+	p.skip()
+	if p.i >= len(p.s) {
+		return AttributeSelector{}, false
+	}
+	var value string
+	if p.s[p.i] == '"' || p.s[p.i] == '\'' {
+		quote := p.s[p.i]
+		p.i++
+		var b strings.Builder
+		closed := false
+		for p.i < len(p.s) {
+			if p.s[p.i] == quote {
+				p.i++
+				closed = true
+				break
+			}
+			if p.s[p.i] == '\\' {
+				p.i++
+				if p.i >= len(p.s) {
+					return AttributeSelector{}, false
+				}
+			}
+			b.WriteByte(p.s[p.i])
+			p.i++
+		}
+		if !closed {
+			return AttributeSelector{}, false
+		}
+		value = b.String()
+	} else {
+		value = p.ident()
+		if value == "" {
+			return AttributeSelector{}, false
+		}
+	}
+	p.skip()
+	if p.i >= len(p.s) || p.s[p.i] != ']' {
+		return AttributeSelector{}, false
+	}
+	p.i++
+	return AttributeSelector{Name: name, Value: value, HasValue: true}, true
 }
 
 // Unknown pseudo-classes and pseudo-elements normally never match. Inside

@@ -430,6 +430,7 @@ func specificity(s Selector) [3]int {
 			result[0]++
 		}
 		result[1] += len(p.Classes)
+		result[1] += len(p.Attributes)
 		for _, pseudo := range p.PseudoClasses {
 			if strings.HasPrefix(pseudo, ":") {
 				result[2]++ // pseudo-elements count like type selectors
@@ -468,14 +469,38 @@ func matchesSelector(n *Node, s Selector) bool {
 	}
 	var match func(*Node, int) bool
 	match = func(node *Node, index int) bool {
-		if node == nil || !matchesPart(node, s.Parts[index]) {
+		if node == nil || node.Type != ElementNode || !matchesPart(node, s.Parts[index]) {
 			return false
 		}
 		if index == 0 {
 			return true
 		}
-		if s.Parts[index].Combinator == ">" {
+		switch s.Parts[index].Combinator {
+		case ">":
 			return match(node.Parent, index-1)
+		case "+", "~":
+			if node.Parent == nil {
+				return false
+			}
+			for i := len(node.Parent.Children) - 1; i >= 0; i-- {
+				if node.Parent.Children[i] != node {
+					continue
+				}
+				for j := i - 1; j >= 0; j-- {
+					sibling := node.Parent.Children[j]
+					if sibling.Type != ElementNode {
+						continue
+					}
+					if match(sibling, index-1) {
+						return true
+					}
+					if s.Parts[index].Combinator == "+" {
+						return false
+					}
+				}
+				return false
+			}
+			return false
 		}
 		for parent := node.Parent; parent != nil; parent = parent.Parent {
 			if match(parent, index-1) {
@@ -507,6 +532,12 @@ func matchesPart(n *Node, p SelectorPart) bool {
 	}
 	for _, c := range p.Classes {
 		if !classes[c] {
+			return false
+		}
+	}
+	for _, selector := range p.Attributes {
+		attr, ok := n.Attribute(selector.Name)
+		if !ok || selector.HasValue && attr.Value != selector.Value {
 			return false
 		}
 	}
