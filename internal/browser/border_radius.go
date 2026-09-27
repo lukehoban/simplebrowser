@@ -3,6 +3,7 @@ package browser
 import (
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 	"strings"
 )
@@ -180,9 +181,7 @@ func paintRoundedBox(dst *image.RGBA, rect image.Rectangle, style ComputedStyle,
 				continue
 			}
 			if !inner.Empty() && insideCorners(cx, cy, inner, inset) {
-				if c := layer.RGBAAt(x, y); c.A != 0 {
-					dst.Set(x, y, c)
-				}
+				draw.Draw(dst, image.Rect(x, y, x+1, y+1), layer, image.Pt(x, y), draw.Over)
 				continue
 			}
 			side := -1
@@ -194,9 +193,9 @@ func paintRoundedBox(dst *image.RGBA, rect image.Rectangle, style ComputedStyle,
 				}
 			}
 			if side >= 0 {
-				dst.Set(x, y, colors[side])
-			} else if c := layer.RGBAAt(x, y); c.A != 0 {
-				dst.Set(x, y, c)
+				fill(dst, image.Rect(x, y, x+1, y+1), colors[side])
+			} else {
+				draw.Draw(dst, image.Rect(x, y, x+1, y+1), layer, image.Pt(x, y), draw.Over)
 			}
 		}
 	}
