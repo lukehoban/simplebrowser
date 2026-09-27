@@ -16,7 +16,9 @@ import (
 
 // A minimal SVG subset, enough for simple icons such as the Hacker News logo
 // and vote arrow: <svg> sizing/viewBox/preserveAspectRatio, <g>, <path>, and
-// <rect> with solid fills, strokes and transforms. Other elements are skipped.
+// the basic shapes (<rect>, <circle>, <ellipse>, <line>, <polyline>,
+// <polygon>) with solid fills, strokes and transforms. Other elements are
+// skipped.
 // A document that cannot be parsed returns an error so
 // callers keep their existing placeholder or empty-background behavior.
 
@@ -145,9 +147,9 @@ func decodeSVG(data []byte) (*svgImage, error) {
 				current.skip = true
 			}
 			switch {
-			case elements == 1, t.Name.Local == "g", t.Name.Local == "path", t.Name.Local == "rect":
+			case elements == 1, svgRenderedElements[t.Name.Local]:
 			default:
-				// Nested <svg>, <defs>, <title>, <circle>, <text>, ... are
+				// Nested <svg>, <defs>, <use>, <title>, <text>, ... are
 				// not rendered by this subset; skip the whole subtree.
 				current.skip = true
 			}
@@ -205,6 +207,17 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					shape = parseSVGPath(attrs["d"], maxSVGPathSegs-segments)
 				case "rect":
 					shape = svgRect(attrs)
+				case "circle":
+					r, ok := svgLength(attrs["r"])
+					if ok {
+						shape = svgEllipse(attrs, r, r)
+					}
+				case "ellipse":
+					shape = svgEllipseAttrs(attrs)
+				case "line":
+					shape = svgLine(attrs)
+				case "polyline", "polygon":
+					shape = svgPolyline(attrs["points"], t.Name.Local == "polygon", maxSVGPathSegs-segments)
 				}
 				segments += len(shape)
 				if segments >= maxSVGPathSegs {
@@ -813,6 +826,114 @@ func svgRect(attrs map[string]string) []svgSegment {
 		{op: 'C', pts: [3][2]float64{pt(x, y+ry-ky), pt(x+rx-kx, y), pt(x+rx, y)}},
 		{op: 'Z'},
 	}
+}
+
+var svgRenderedElements = map[string]bool{
+	"g": true, "path": true, "rect": true, "circle": true, "ellipse": true,
+	"line": true, "polyline": true, "polygon": true,
+}
+
+// svgEllipseAttrs resolves ellipse radii. A missing or "auto" radius takes
+// the other one (SVG 2); a negative or unparseable radius disables rendering.
+func svgEllipseAttrs(attrs map[string]string) []svgSegment {
+	radius := func(name string) (r float64, auto, ok bool) {
+		value, present := attrs[name]
+		if !present || strings.TrimSpace(value) == "auto" {
+			return 0, true, true
+		}
+		r, ok = svgLength(value)
+		return r, false, ok
+	}
+	rx, autoX, okX := radius("rx")
+	ry, autoY, okY := radius("ry")
+	if !okX || !okY || (autoX && autoY) {
+		return nil
+	}
+	if autoX {
+		rx = ry
+	}
+	if autoY {
+		ry = rx
+	}
+	return svgEllipse(attrs, rx, ry)
+}
+
+// svgEllipse outlines an ellipse centered at (cx, cy) with four cubics,
+// starting at the rightmost point and proceeding clockwise (positive angle
+// direction in SVG's y-down space). Zero radii disable rendering.
+func svgEllipse(attrs map[string]string, rx, ry float64) []svgSegment {
+	if !(rx > 0 && ry > 0) || math.IsInf(rx, 0) || math.IsInf(ry, 0) {
+		return nil
+	}
+	cx, _ := svgCoordinate(attrs["cx"])
+	cy, _ := svgCoordinate(attrs["cy"])
+	kx, ky := rx*svgCircleConstant, ry*svgCircleConstant
+	pt := func(px, py float64) [2]float64 { return [2]float64{px, py} }
+	return []svgSegment{
+		{op: 'M', pts: [3][2]float64{pt(cx+rx, cy)}},
+		{op: 'C', pts: [3][2]float64{pt(cx+rx, cy+ky), pt(cx+kx, cy+ry), pt(cx, cy+ry)}},
+		{op: 'C', pts: [3][2]float64{pt(cx-kx, cy+ry), pt(cx-rx, cy+ky), pt(cx-rx, cy)}},
+		{op: 'C', pts: [3][2]float64{pt(cx-rx, cy-ky), pt(cx-kx, cy-ry), pt(cx, cy-ry)}},
+		{op: 'C', pts: [3][2]float64{pt(cx+kx, cy-ry), pt(cx+rx, cy-ky), pt(cx+rx, cy)}},
+		{op: 'Z'},
+	}
+}
+
+// svgLine is an open two-point subpath; its fill has no area, so only a
+// stroke is visible.
+func svgLine(attrs map[string]string) []svgSegment {
+	var p [4]float64
+	for i, name := range []string{"x1", "y1", "x2", "y2"} {
+		if value, ok := attrs[name]; ok {
+			n, valid := svgCoordinate(value)
+			if !valid {
+				return nil
+			}
+			p[i] = n
+		}
+	}
+	return []svgSegment{
+		{op: 'M', pts: [3][2]float64{{p[0], p[1]}}},
+		{op: 'L', pts: [3][2]float64{{p[2], p[3]}}},
+	}
+}
+
+// svgPolyline converts a points list into M/L segments, closing it for
+// <polygon>. Following SVG error handling, points up to the first parse error
+// render, and an odd trailing coordinate is dropped. At most limit segments
+// are returned (including the closing Z), so callers can enforce the global
+// segment budget.
+func svgPolyline(points string, closed bool, limit int) []svgSegment {
+	p := &svgNumbers{s: points}
+	var out []svgSegment
+	for len(out) < limit {
+		p.skipSeparators()
+		if p.i >= len(p.s) {
+			break
+		}
+		x, ok := p.number()
+		if !ok {
+			break
+		}
+		p.skipSeparators()
+		y, ok := p.number()
+		if !ok {
+			break
+		}
+		op := byte('L')
+		if len(out) == 0 {
+			op = 'M'
+		}
+		out = append(out, svgSegment{op: op, pts: [3][2]float64{{x, y}}})
+	}
+	if len(out) < 2 {
+		// A single point has nothing to fill or stroke.
+		return nil
+	}
+	if closed && len(out) < limit {
+		out = append(out, svgSegment{op: 'Z'})
+	}
+	return out
 }
 
 // parseSVGTransform parses a transform list such as
