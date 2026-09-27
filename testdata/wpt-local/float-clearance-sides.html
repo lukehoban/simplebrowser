@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<title>clear: left/right/both with preceding margins and a cleared float (#68)</title>
+<link rel="match" href="float-clearance-sides-ref.html">
+<style>
+body{margin:0}
+.l{float:left;width:40px;height:60px;background:navy}
+.f{float:left;clear:left;width:20px;height:10px;background:yellow}
+.r{float:right;width:40px;height:30px;background:purple}
+.a,.c,.d,.e{margin-left:50px;margin-right:50px;height:10px}
+.a{margin-bottom:20px;background:green}
+.c{clear:right;margin-top:10px;background:blue}
+.d{clear:both;margin-top:5px;background:orange}
+.e{margin-top:10px;background:black}
+</style>
+<div class="l"></div><div class="f"></div><div class="r"></div>
+<div class="a"></div><div class="c"></div><div class="d"></div><div class="e"></div>
