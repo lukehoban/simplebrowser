@@ -167,7 +167,8 @@ func borderWidth(style ComputedStyle, side string) int {
 	}
 	if value == "" {
 		for _, part := range strings.Fields(shorthand) {
-			if classifyValue(part).Kind == "length" || classifyValue(part).Kind == "number" {
+			if isBorderWidthKeyword(part) ||
+				classifyValue(part).Kind == "length" || classifyValue(part).Kind == "number" {
 				value = part
 				break
 			}
@@ -176,13 +177,12 @@ func borderWidth(style ComputedStyle, side string) int {
 	if value == "" {
 		return 0
 	}
-	if value == "thin" {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "thin":
 		return 1
-	}
-	if value == "medium" {
+	case "medium":
 		return 3
-	}
-	if value == "thick" {
+	case "thick":
 		return 5
 	}
 	n := px(value, 0, 0)
@@ -190,6 +190,14 @@ func borderWidth(style ComputedStyle, side string) int {
 		return 0
 	}
 	return int(math.Min(4096, math.Round(n)))
+}
+
+func isBorderWidthKeyword(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "thin", "medium", "thick":
+		return true
+	}
+	return false
 }
 
 func borderColor(style ComputedStyle, side string) color.RGBA {
@@ -499,6 +507,9 @@ func (p *painter) paintContent(box *Box) {
 	if box == nil {
 		return
 	}
+	for _, fragment := range box.InlineBackgrounds {
+		p.paintInlineBackground(fragment)
+	}
 	for _, run := range box.Text {
 		drawText(p.canvas, run, p.document.Styles, p.faces)
 	}
@@ -508,6 +519,34 @@ func (p *painter) paintContent(box *Box) {
 		} else {
 			drawImageBox(p.canvas, picture)
 		}
+	}
+}
+
+// paintInlineBackground paints the background layers for one line fragment.
+// Inline borders and padding are not represented by the current inline layout
+// model; unlike paintBackground, this deliberately does not invent borders
+// around the text rectangle.
+func (p *painter) paintInlineBackground(fragment InlineBackground) {
+	style := p.document.Styles[fragment.Node]
+	if style == nil || fragment.Rect.Empty() {
+		return
+	}
+	if c, ok := backgroundColor(style); ok {
+		fill(p.canvas, fragment.Rect, c)
+	}
+	layers := p.document.BackgroundImages[fragment.Node]
+	for i := len(layers) - 1; i >= 0; i-- {
+		src := layers[i]
+		if src == nil {
+			values := backgroundLayers(style["background-image"])
+			if i < len(values) {
+				if gradient := parseGradient(values[i], fragment.Rect.Dx(), fragment.Rect.Dy()); gradient != nil {
+					src = gradient
+				}
+			}
+		}
+		drawBackgroundImage(p.canvas, &Box{Node: fragment.Node, Rect: fragment.Rect},
+			src, backgroundLayerStyle(style, i))
 	}
 }
 
