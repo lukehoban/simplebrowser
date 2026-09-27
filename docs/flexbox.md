@@ -35,13 +35,13 @@ its second item must stay inside the 180px container.
 - Intrinsic (shrink-to-fit) widths: a row's max-content width is its items
   plus gaps on one line; its min-content width is the widest item when
   wrapping, else the sum of items.
+- Direct text children become anonymous flex items, including NBSP-only runs
+  ([#278](https://github.com/lukehoban/simplebrowser/issues/278)).
 
 ## Not supported
 
 - Wrapping in an auto-height column (no definite main size, so it never
   wraps; this matches browsers without `max-height`).
-- Direct text children become anonymous flex items, including NBSP-only runs
-  ([#278](https://github.com/lukehoban/simplebrowser/issues/278)).
 - `order`, `align-self`, baseline alignment, `safe`/`unsafe` and
   `first`/`last` keywords, `place-content`, and automatic minimum sizes
   (`min-width:auto` resolves to 0).
