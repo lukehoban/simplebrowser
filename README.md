@@ -16,15 +16,17 @@ remain future work.
 
 ![Current Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
 
-*Offline Hacker News snapshot with link styling from
-[ff7ddad](https://github.com/lukehoban/simplebrowser/commit/ff7ddad40dd590d6cbf4b320e5450b36b2b5119f)
+*Offline Hacker News snapshot with link styling and text-width fixes through
+[a63d208](https://github.com/lukehoban/simplebrowser/commit/a63d2084abf54bbe66050d20e0fa322e0f455a0a)
 (2026-09-26). The screenshot is a progress snapshot, not a pixel-accurate
 Hacker News reference.*
 
 **What's next**
 - [Paint decoded images (#11)](https://github.com/lukehoban/simplebrowser/issues/11).
-- [Fix trailing whitespace (#25)](https://github.com/lukehoban/simplebrowser/issues/25).
 - [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
+
+[Trailing-whitespace underlines (#25)](https://github.com/lukehoban/simplebrowser/issues/25)
+are now fixed.
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
@@ -40,9 +42,9 @@ make screenshot
 
 The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
 captured snapshot; rendering does not depend on live Hacker News availability.
-HN's black titles and gray subtext now use the page's link styles. Remaining
-gaps include [trailing whitespace (#25)](https://github.com/lukehoban/simplebrowser/issues/25)
-and [typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
+HN's black titles and gray subtext now use the page's link styles, and the
+trailing-whitespace underline fix has landed. Remaining gaps include
+[typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
 Images are fetched, decoded, and laid out but [not yet painted (#11)](https://github.com/lukehoban/simplebrowser/issues/11);
 the missing logo and vote arrows also need
 [SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31) and
