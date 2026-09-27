@@ -75,3 +75,57 @@ func TestFloatContainingBFCExtendsToFloatBottom(t *testing.T) {
 		t.Fatalf("context %v next %v", boxes["context"].Rect, boxes["next"].Rect)
 	}
 }
+
+// A shrink-to-fit box sizes to its max-content width, in which consecutive
+// floats sit side by side rather than stacking (#349). A clearing float
+// starts a new line, so it contributes only its own width.
+func TestShrinkToFitWidthSumsConsecutiveFloats(t *testing.T) {
+	const source = `<body style="margin:0">
+	<div id="row" style="float:right"><div id="a" style="float:left;width:90px;height:20px;margin-right:8px"></div><div id="b" style="float:left;width:40px;height:20px;margin-right:8px"></div><div id="c" style="float:left;width:30px;height:20px"></div></div>
+	<div id="cleared" style="float:left"><div style="float:left;width:90px;height:20px"></div><div style="float:left;clear:left;width:40px;height:20px"></div></div>
+	</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 400, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "row", "a", "b", "c", "cleared")
+	if got := boxes["row"].Rect; got != image.Rect(224, 0, 400, 20) {
+		t.Errorf("float row %v, want 176px wide and one float tall at the right edge", got)
+	}
+	if boxes["a"].Rect.Min.Y != 0 || boxes["b"].Rect.Min.X != 322 || boxes["c"].Rect != image.Rect(370, 0, 400, 20) {
+		t.Errorf("inner floats should share one line: a %v b %v c %v", boxes["a"].Rect, boxes["b"].Rect, boxes["c"].Rect)
+	}
+	if got := boxes["cleared"].Rect; got != image.Rect(0, 0, 90, 40) {
+		t.Errorf("clearing float container %v, want 90x40", got)
+	}
+}
+
+// Flex items establish independent formatting contexts: they contain their
+// floats, and a stretch re-layout must not see floats from the first pass
+// (#349). Column items are also measured by laying them out.
+func TestFlexItemsContainTheirFloats(t *testing.T) {
+	const source = `<body style="margin:0">
+	<div id="row" style="display:flex"><div id="item"><div id="float" style="float:left;width:50px;height:30px"></div></div><div id="tall" style="width:10px;height:40px"></div></div>
+	<div id="column" style="display:flex;flex-direction:column"><div id="citem"><div id="cfloat" style="float:right;width:20px;height:25px"></div></div></div>
+	</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 400, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "row", "item", "float", "column", "citem", "cfloat")
+	if got := boxes["float"].Rect; got != image.Rect(0, 0, 50, 30) {
+		t.Errorf("float in stretched flex item %v, want at the item's top", got)
+	}
+	if got := boxes["item"].Rect; got != image.Rect(0, 0, 50, 40) {
+		t.Errorf("stretched flex item %v, want 50x40", got)
+	}
+	if got := boxes["row"].Rect; got.Dy() != 40 {
+		t.Errorf("row container %v, want 40px tall", got)
+	}
+	if got := boxes["citem"].Rect; got != image.Rect(0, 40, 400, 65) {
+		t.Errorf("column flex item %v, want to contain its 25px float", got)
+	}
+	if got := boxes["cfloat"].Rect; got != image.Rect(380, 40, 400, 65) {
+		t.Errorf("float in column flex item %v", got)
+	}
+}
