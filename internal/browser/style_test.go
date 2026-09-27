@@ -49,6 +49,7 @@ func TestStylePresentationalAttributesAndDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var table, tr, td *StyledNode
 	var walk func(*StyledNode)
 	walk = func(n *StyledNode) {
@@ -69,5 +70,23 @@ func TestStylePresentationalAttributesAndDefaults(t *testing.T) {
 		table.Style["background-color"] != "#fff" || tr.Style["text-align"] != "center" ||
 		td.Style["width"] != "20px" || td.Style["display"] != "table-cell" {
 		t.Fatalf("presentational styles: table=%#v tr=%#v td=%#v", table.Style, tr.Style, td.Style)
+	}
+}
+
+func TestStyleAppliesXHTMLCDATAStylesheet(t *testing.T) {
+	doc, err := parse(Resource{
+		URL:  "fixture.xht",
+		Body: []byte(`<style><![CDATA[p { color: green }]]></style><p>pass</p>`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := styled.StyleRoot.Children[1]
+	if p.Node.Name != "p" || p.Style["color"] != "green" {
+		t.Fatalf("paragraph style = %#v", p.Style)
 	}
 }

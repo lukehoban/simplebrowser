@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,5 +53,25 @@ func TestMissingFixtureIsRunnerError(t *testing.T) {
 		if item.Status != "error" || !strings.Contains(item.Error, "testdata/wpt/") {
 			t.Fatalf("error should have deterministic path: %+v", item)
 		}
+	}
+}
+
+func TestRunOriginalXHTMLFixtureWithCDATA(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "wpt")
+	path := filepath.Join(root, "colors", "color-175-ref.xht")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("<![CDATA[")) || !bytes.Contains(data, []byte("]]>")) {
+		t.Fatal("vendored fixture must retain its original CDATA delimiters")
+	}
+
+	originalTests := tests
+	tests = []string{"colors/color-175.xht"}
+	defer func() { tests = originalTests }()
+	r := run(root, filepath.Join(t.TempDir(), "diagnostics"))
+	if r.Pass != 1 || r.Fail != 0 || r.Error != 0 {
+		t.Fatalf("runner did not apply CDATA stylesheet from original fixture: %+v", r)
 	}
 }

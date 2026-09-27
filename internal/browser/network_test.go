@@ -80,6 +80,22 @@ func TestFetcherFollowsRelativeRedirectAndReadsContentLength(t *testing.T) {
 	}
 }
 
+func TestFetcherRetainsResponseContentType(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/xhtml+xml; charset=utf-8")
+		_, _ = io.WriteString(w, "<html/>")
+	}))
+	defer server.Close()
+
+	resource, err := (&Fetcher{}).Fetch(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resource.ContentType != "application/xhtml+xml; charset=utf-8" {
+		t.Fatalf("ContentType = %q", resource.ContentType)
+	}
+}
+
 func TestFetcherReadsChunkedAndConnectionCloseBodies(t *testing.T) {
 	chunked := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
