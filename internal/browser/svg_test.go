@@ -218,6 +218,7 @@ func TestSVGViewBoxScaling(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if img.Bounds() != image.Rect(0, 0, 18, 18) {
 		t.Fatalf("intrinsic bounds = %v", img.Bounds())
 	}
@@ -251,6 +252,107 @@ func TestSVGViewBoxScaling(t *testing.T) {
 	if ratio.Bounds().Size() != image.Pt(40, 10) {
 		t.Errorf("ratio size = %v", ratio.Bounds().Size())
 	}
+}
+
+func TestSVGNestedViewportRepro(t *testing.T) {
+	img, err := decodeSVG([]byte(`<svg width="40" height="40"><svg x="8" y="8" width="24" height="24" viewBox="0 0 24 24"><rect width="24" height="24" fill="red"/></svg></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{8, 8, color.RGBA{255, 0, 0, 255}},
+		{31, 31, color.RGBA{255, 0, 0, 255}},
+		{7, 20, color.RGBA{}},
+		{32, 20, color.RGBA{}},
+		{20, 7, color.RGBA{}},
+		{20, 32, color.RGBA{}},
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	if len(img.shapes) != 3 || img.shapes[0].kind != svgClipPush ||
+		img.shapes[1].kind != svgShapePaint || img.shapes[2].kind != svgClipPop {
+		t.Fatalf("nested viewport shape stream = %#v", img.shapes)
+	}
+}
+
+func TestSVGNestedViewportViewBoxAndClip(t *testing.T) {
+	src := `<svg width="80" height="50">
+		<svg x="10" y="5" width="40" height="20" viewBox="0 0 10 10" preserveAspectRatio="none">
+			<rect x="-5" y="-5" width="20" height="20" fill="blue"/>
+			<rect x="25%" y="25%" width="50%" height="50%" fill="red"/>
+		</svg>
+	</svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{10, 5, color.RGBA{0, 0, 255, 255}},
+		{49, 24, color.RGBA{0, 0, 255, 255}},
+		{30, 15, color.RGBA{255, 0, 0, 255}},
+		{9, 15, color.RGBA{}},
+		{50, 15, color.RGBA{}},
+		{30, 25, color.RGBA{}},
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	if img.Bounds().Size() != image.Pt(80, 50) {
+		t.Errorf("nested viewport changed root intrinsic size: %v", img.Bounds())
+	}
+}
+
+func TestSVGNestedViewportVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "nested-viewports.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{12, 12, color.RGBA{211, 38, 74, 255}},
+		{40, 40, color.RGBA{255, 255, 255, 255}},
+		{92, 12, color.RGBA{34, 153, 85, 255}},
+		{148, 40, color.RGBA{245, 247, 250, 255}},
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("fixture pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	write := func(path string, render *svgImage) {
+		if path == "" {
+			return
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, render.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write nested viewport render: %v, %v", encodeErr, closeErr)
+		}
+	}
+	before, err := decodeSVG([]byte(`<svg width="160" height="80"><rect width="160" height="80" fill="#f5f7fa"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(os.Getenv("SVG_NESTED_BEFORE_VISUAL_PATH"), before)
+	write(os.Getenv("SVG_NESTED_VISUAL_PATH"), img)
 }
 
 func TestSVGShapeLengthsResolveAgainstViewportAndFont(t *testing.T) {
