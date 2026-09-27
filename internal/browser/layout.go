@@ -403,7 +403,7 @@ func displayBlock(n *StyledNode) bool {
 	// margins when laid out inside the table wrapper's caption row.
 	display := n.Style["display"]
 	return strings.EqualFold(display, "block") || strings.EqualFold(display, "list-item") ||
-		strings.EqualFold(display, "table-caption")
+		strings.EqualFold(display, "table-caption") || strings.EqualFold(display, "flex")
 }
 
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
@@ -565,7 +565,8 @@ func isAtomicInline(n *StyledNode) bool {
 	if strings.EqualFold(n.Node.Name, "img") || strings.EqualFold(n.Node.Name, "br") {
 		return false
 	}
-	if !strings.EqualFold(strings.TrimSpace(n.Style["display"]), "inline-block") {
+	display := strings.ToLower(strings.TrimSpace(n.Style["display"]))
+	if display != "inline-block" && display != "inline-flex" {
 		return false
 	}
 	return true
@@ -1185,8 +1186,15 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	if establishesContext(n) {
 		childCB.floats = &floatContext{}
 	}
-	children, childBottom, trailing := layoutFlow(n, contentX, contentY, contentWidth, faces,
-		collapsesThroughTop(n, width), collapseBottom, childCB)
+	var children []*Box
+	var childBottom int
+	var trailing collapsedMargin
+	if isFlexContainer(n) {
+		children, childBottom = layoutFlex(n, contentX, contentY, contentWidth, usedHeight, definite, faces, childCB)
+	} else {
+		children, childBottom, trailing = layoutFlow(n, contentX, contentY, contentWidth, faces,
+			collapsesThroughTop(n, width), collapseBottom, childCB)
+	}
 	if establishesContext(n) {
 		childBottom = max(childBottom, childCB.floats.bottom())
 	}

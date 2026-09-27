@@ -29,7 +29,14 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(mask-image: none)", false},
 		{"(-webkit-mask-image: none)", false},
 		{"(display: grid)", false},
-		{"(display: flex)", false},
+		{"(display: flex)", true},
+		{"(display: inline-flex)", true},
+		{"(flex: 1 1 50%)", true},
+		{"(flex-wrap: nowrap)", true},
+		{"(flex-wrap: wrap)", false},
+		{"(gap: 8px 12px)", true},
+		{"(justify-content: space-between)", true},
+		{"(align-items: center)", true},
 		{"(width: round(1.5px, 1px))", false},
 		{"(width: calc(1px + 1px))", false},
 		{"(float: left)", true},
@@ -101,7 +108,7 @@ func TestParseCSSSupportsBlocks(t *testing.T) {
 		}
 		@supports (display: block) {
 			@media print { .print { color: red } }
-			@supports not (display: flex) { .nested { color: green } }
+			@supports not (display: grid) { .nested { color: green } }
 		}
 		.after { color: blue }`)
 	var got []string

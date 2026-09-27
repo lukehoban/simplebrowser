@@ -183,13 +183,24 @@ func supportsDeclaration(s string) (string, string, bool) {
 // supportValidators is the engine's honest feature registry: a property is
 // listed only when the cascade, layout or painting consumes it, and only
 // values this renderer implements are accepted. It is intentionally
-// conservative; extend it when a feature lands (for example flex with #247).
-// Unlisted properties such as mask-image, and values such as display:grid/flex
-// or math functions like calc()/round(), are unsupported.
+// conservative; extend it when a feature lands. Unlisted properties such as
+// mask-image, and values such as display:grid or math functions like
+// calc()/round(), are unsupported.
 var supportValidators = map[string]func(string) bool{
-	"display": keywordValidator("none", "block", "inline", "inline-block", "list-item", "flow-root",
+	"display": keywordValidator("none", "block", "inline", "inline-block", "flex", "inline-flex", "list-item", "flow-root",
 		"table", "inline-table", "table-row", "table-cell", "table-row-group", "table-header-group",
 		"table-footer-group", "table-column", "table-column-group", "table-caption"),
+	"flex":                 flexValue,
+	"flex-grow":            nonNegativeNumber,
+	"flex-shrink":          nonNegativeNumber,
+	"flex-basis":           supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"flex-direction":       keywordValidator("row", "row-reverse", "column", "column-reverse"),
+	"flex-wrap":            keywordValidator("nowrap"),
+	"gap":                  oneOrTwo(nonNegativeLength),
+	"row-gap":              supportsOr(keywordValidator("normal"), nonNegativeLength),
+	"column-gap":           supportsOr(keywordValidator("normal"), nonNegativeLength),
+	"justify-content":      keywordValidator("normal", "start", "end", "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"),
+	"align-items":          keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center"),
 	"position":             keywordValidator("static", "relative", "absolute", "fixed"),
 	"float":                keywordValidator("none", "left", "right"),
 	"overflow":             keywordValidator("visible", "hidden", "clip"),
@@ -304,6 +315,40 @@ func integerValue(v string) bool {
 func unitNumber(v string) bool {
 	n, err := strconv.ParseFloat(v, 64)
 	return err == nil && n >= 0 && n <= 1
+}
+
+func nonNegativeNumber(v string) bool {
+	n, err := strconv.ParseFloat(v, 64)
+	return err == nil && n >= 0
+}
+
+func flexValue(v string) bool {
+	if strings.EqualFold(strings.TrimSpace(v), "none") {
+		return true
+	}
+	parts := strings.Fields(v)
+	if len(parts) < 1 || len(parts) > 3 || !nonNegativeNumber(parts[0]) {
+		return false
+	}
+	if len(parts) >= 2 && !nonNegativeNumber(parts[1]) && !nonNegativeLength(parts[1]) {
+		return false
+	}
+	return len(parts) < 3 || nonNegativeLength(parts[2])
+}
+
+func oneOrTwo(valid func(string) bool) func(string) bool {
+	return func(v string) bool {
+		parts := strings.Fields(v)
+		if len(parts) < 1 || len(parts) > 2 {
+			return false
+		}
+		for _, part := range parts {
+			if !valid(part) {
+				return false
+			}
+		}
+		return true
+	}
 }
 
 func boxShorthand(valid func(string) bool) func(string) bool {
