@@ -16,15 +16,17 @@ for unsupported images. SVG and advanced CSS remain future work.
 
 ![Current Hacker News fixture render: orange header, painted story text, and gray SVG logo placeholder](docs/screenshots/hn-fixture.png)
 
-*Offline Hacker News snapshot after image painting (2026-09-26). The SVG logo
-is a placeholder; the fixture's vote arrows are CSS backgrounds, not `<img>`
-elements. This is a progress snapshot, not a pixel-accurate HN reference.*
+*Offline Hacker News snapshot generated from the repository's current source
+(2026-09-26), with image painting and fixed-point line wrapping. The SVG logo
+is a neutral placeholder; the fixture's vote arrows are CSS backgrounds, not
+`<img>` elements. This is a progress snapshot, not a pixel-accurate HN
+reference.*
 
 **What's next**
-- [Improve wrapped text measurement (#29)](https://github.com/lukehoban/simplebrowser/issues/29).
 - [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
 - [Paint CSS background vote arrows (#32)](https://github.com/lukehoban/simplebrowser/issues/32).
 - [Render the SVG logo (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
+- [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
@@ -136,7 +138,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
-- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, and layout implemented; painting and SVG pending
+- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, layout, and painting implemented; SVG tracked in [#31](https://github.com/lukehoban/simplebrowser/issues/31)
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture, checked-in screenshot, and render artifact in CI; visual fidelity in progress
 
 See the linked issues for current status and implementation scope.

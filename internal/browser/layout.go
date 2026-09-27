@@ -11,6 +11,7 @@ import (
 	"golang.org/x/image/font/gofont/gobold"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
 )
 
 // Box is a laid out element. Coordinates are in viewport pixels and include
@@ -48,10 +49,14 @@ type metrics struct {
 }
 
 func (m metrics) width(s string) int {
+	return int((m.advance(s) + 63) / 64)
+}
+
+func (m metrics) advance(s string) fixed.Int26_6 {
 	if m.face == nil {
-		return utf8.RuneCountInString(s) * int(m.size*0.55)
+		return fixed.I(utf8.RuneCountInString(s) * int(m.size*0.55))
 	}
-	return int((font.MeasureString(m.face, s) + 63) / 64)
+	return font.MeasureString(m.face, s)
 }
 
 func (m metrics) lineHeight() int { return int(math.Ceil(m.size * 1.2)) }
@@ -350,7 +355,7 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 
 type inlineLine struct {
 	parts  []inlinePart
-	width  int
+	width  fixed.Int26_6
 	height int
 }
 
@@ -364,28 +369,28 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	add := func(p inlinePart) {
 		if p.isImage {
 			line.parts = append(line.parts, p)
-			line.width += p.imageW
+			line.width += fixed.I(p.imageW)
 			line.height = max(line.height, p.imageH)
 			return
 		}
 		m := faces.metrics(p.style)
 		line.parts = append(line.parts, p)
-		line.width += m.width(p.text)
+		line.width += m.advance(p.text)
 		line.height = max(line.height, m.lineHeight())
 	}
 	flushWord := func() {
 		if len(word) == 0 {
 			return
 		}
-		wordWidth := 0
+		var wordWidth fixed.Int26_6
 		for _, p := range word {
-			wordWidth += faces.metrics(p.style).width(p.text)
+			wordWidth += faces.metrics(p.style).advance(p.text)
 		}
-		gap := 0
+		var gap fixed.Int26_6
 		if space != nil && len(line.parts) != 0 {
-			gap = faces.metrics(space.style).width(" ")
+			gap = faces.metrics(space.style).advance(" ")
 		}
-		if len(line.parts) != 0 && line.width+gap+wordWidth > width {
+		if len(line.parts) != 0 && line.width+gap+wordWidth > fixed.I(width) {
 			lines = append(lines, line)
 			line = inlineLine{}
 		}
@@ -413,11 +418,11 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 		}
 		if part.isImage {
 			flushWord()
-			gap := 0
+			var gap fixed.Int26_6
 			if space != nil && len(line.parts) != 0 {
-				gap = faces.metrics(space.style).width(" ")
+				gap = faces.metrics(space.style).advance(" ")
 			}
-			if len(line.parts) != 0 && line.width+gap+part.imageW > width {
+			if len(line.parts) != 0 && line.width+gap+fixed.I(part.imageW) > fixed.I(width) {
 				lines = append(lines, line)
 				line = inlineLine{}
 				gap = 0
