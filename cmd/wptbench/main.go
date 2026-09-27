@@ -36,6 +36,31 @@ var tests = []string{
 	"normal-flow/block-in-inline-align-001.html",
 	"tables/anonymous-table-box-width-001.xht",
 	"tables/border-collapse-005.html",
+	"box/ltr-basic.xht",
+	"box/rtl-basic.xht",
+	"box/ltr-ib.xht",
+	"box/rtl-ib.xht",
+	"margin-padding-clear/margin-001.xht",
+	"margin-padding-clear/margin-002.xht",
+	"margin-padding-clear/margin-003.xht",
+	"margin-padding-clear/margin-004.xht",
+	"positioning/absolute-non-replaced-height-003.xht",
+	"positioning/absolute-non-replaced-height-006.xht",
+	"positioning/position-relative-001.xht",
+	"positioning/position-relative-003.xht",
+	"abspos/abspos-containing-block-initial-004a.xht",
+	"abspos/abspos-containing-block-initial-007.xht",
+	"tables/border-collapse-offset-001.xht",
+	"tables/border-collapse-offset-002.xht",
+	"tables/border-collapse-empty-row.html",
+	"tables/separated-border-model-007.xht",
+	"tables/caption-position-001.xht",
+	"tables/fixed-table-layout-002a.xht",
+	"colors/color-applies-to-004.xht",
+	"colors/color-applies-to-005.xht",
+	"colors/colors-007.xht",
+	"colors/color-applies-to-002.xht",
+	"colors/color-applies-to-003.xht",
 }
 
 type result struct {
@@ -223,6 +248,7 @@ func markdown(r report) []byte {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# WPT compatibility: %d/%d reference assertions passing\n\n", r.Pass, r.Total)
 	fmt.Fprintf(&b, "Pinned WPT revision: [`%s`](https://github.com/web-platform-tests/wpt/commit/%s). Viewport: %s. Exact PNG pixels; %d compatibility failures, %d runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).\n\n", r.Revision, r.Revision, r.Viewport, r.Fail, r.Error)
+	b.WriteString("![Stacked pass/fail graph by selected WPT tranche and area](compatibility.svg)\n\n")
 	b.WriteString("| Test | Reference | Relation | Status | Different pixels |\n| --- | --- | --- | --- | ---: |\n")
 	for _, item := range r.Results {
 		fmt.Fprintf(&b, "| `%s` | `%s` | %s | **%s** | %d |\n", item.Test, item.Reference, item.Relation, item.Status, item.Pixels)
@@ -231,6 +257,70 @@ func markdown(r report) []byte {
 		}
 	}
 	b.WriteString("\nOn failures, run `make compatibility` and inspect `artifacts/wpt/<test>/` (test, reference, red pixel diff). A failure is a pixel mismatch, not a test process failure.\n")
+	return []byte(b.String())
+}
+
+// graph is an SVG rather than a raster chart so the committed visual can be
+// reproduced exactly on every platform without a font or rasterizer dependency.
+func graph(r report) []byte {
+	type bucket struct {
+		name               string
+		pass, fail, errors int
+	}
+	buckets := []bucket{
+		{name: "Initial baseline"},
+		{name: "Box direction"},
+		{name: "Margins"},
+		{name: "Positioning"},
+		{name: "Tables"},
+		{name: "Colors"},
+	}
+	for i, item := range r.Results {
+		index := 0
+		if i >= 13 {
+			switch {
+			case strings.HasPrefix(item.Test, "box/"):
+				index = 1
+			case strings.HasPrefix(item.Test, "margin-padding-clear/"):
+				index = 2
+			case strings.HasPrefix(item.Test, "positioning/"), strings.HasPrefix(item.Test, "abspos/"):
+				index = 3
+			case strings.HasPrefix(item.Test, "tables/"):
+				index = 4
+			case strings.HasPrefix(item.Test, "colors/"):
+				index = 5
+			}
+		}
+		switch item.Status {
+		case "pass":
+			buckets[index].pass++
+		case "fail":
+			buckets[index].fail++
+		default:
+			buckets[index].errors++
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"680\" height=\"%d\" viewBox=\"0 0 680 %d\" role=\"img\" aria-label=\"WPT selected reference assertions: %d pass, %d fail, %d runner errors\">\n", 92+len(buckets)*34, 92+len(buckets)*34, r.Pass, r.Fail, r.Error)
+	b.WriteString("<rect width=\"100%\" height=\"100%\" fill=\"white\"/>\n")
+	fmt.Fprintf(&b, "<text x=\"16\" y=\"27\" font-family=\"sans-serif\" font-size=\"18\">Pinned WPT: %d/%d passing</text>\n", r.Pass, r.Total)
+	b.WriteString("<text x=\"16\" y=\"53\" font-family=\"sans-serif\" font-size=\"13\">Green: pass   Red: compatibility failure   Gray: runner error</text>\n")
+	for i, item := range buckets {
+		y := 76 + i*34
+		fmt.Fprintf(&b, "<text x=\"16\" y=\"%d\" font-family=\"sans-serif\" font-size=\"13\">%s</text>\n", y+13, item.name)
+		x := 180
+		for _, part := range []struct {
+			count int
+			color string
+		}{{item.pass, "#21864b"}, {item.fail, "#bd3636"}, {item.errors, "#666666"}} {
+			if part.count > 0 {
+				fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"20\" fill=\"%s\"/>\n", x, y, part.count*25, part.color)
+				x += part.count * 25
+			}
+		}
+		fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" font-family=\"sans-serif\" font-size=\"13\">%d / %d</text>\n", x+8, y+15, item.pass, item.pass+item.fail+item.errors)
+	}
+	b.WriteString("</svg>\n")
 	return []byte(b.String())
 }
 
@@ -243,7 +333,7 @@ func main() {
 		panic(err)
 	}
 	j = append(j, '\n')
-	for path, content := range map[string][]byte{"docs/compatibility.json": j, "docs/compatibility.md": markdown(r)} {
+	for path, content := range map[string][]byte{"docs/compatibility.json": j, "docs/compatibility.md": markdown(r), "docs/compatibility.svg": graph(r)} {
 		if *check {
 			old, e := os.ReadFile(path)
 			if e != nil || !bytes.Equal(old, content) {

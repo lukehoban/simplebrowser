@@ -3,13 +3,9 @@
 These are unmodified files from [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt)
 at commit [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db),
 under the upstream [WPT 3-clause BSD license](https://github.com/web-platform-tests/wpt/blob/647d3bdf133159739b57cfb7afa0be3f5d76b9db/LICENSE.md).
-Each path here corresponds to `css/CSS2/<path>` upstream. Only the 13
-manifest-listed tests, their references, and three PNG support assets are
-included, plus `colors/colors-007.xht` and its reference for a focused renderer
-regression (#181), `tables/fixed-table-layout-002a.xht` and its reference/assets
-(#180), and `tables/border-collapse-empty-row.html` and its reference (#191).
-Benchmark expansion is tracked in #159.
-No local edits were made to these upstream fixtures.
+Each path here corresponds to `css/CSS2/<path>` upstream. Only the 38
+manifest-listed tests, their references, and required PNG support assets are
+included. No local edits were made to these upstream fixtures.
 The harness renders the vendored files directly without adapting their
 contents. Local `.xht` files use the browser's focused XHTML mode, so XML
 `<![CDATA[` / `]]>` wrappers around CSS are interpreted while the fixtures
@@ -21,6 +17,24 @@ borders. This is **not** a representative aggregate WPT pass rate; it is a
 small regression benchmark with known unsupported behavior. Selection is in
 `cmd/wptbench/main.go`; add a vendored test and its reference/assets there
 and regenerate the report with `make compatibility`.
+
+The second tranche was selected for coverage **before** looking at results:
+four direction/inline-box cases (`box/ltr-basic.xht`, `rtl-basic.xht`,
+`ltr-ib.xht`, `rtl-ib.xht`), four margin cases
+(`margin-padding-clear/margin-001.xht` through `margin-004.xht`), four
+absolute/relative position cases (`positioning/absolute-non-replaced-height-003.xht`,
+`absolute-non-replaced-height-006.xht`, `position-relative-001.xht`,
+`position-relative-003.xht`), two initial containing-block cases
+(`abspos/abspos-containing-block-initial-004a.xht`, `007.xht`), six table
+cases (`tables/border-collapse-offset-001.xht`, `002.xht`,
+`border-collapse-empty-row.html`, `separated-border-model-007.xht`,
+`caption-position-001.xht`, `fixed-table-layout-002a.xht`), and five
+color cases (`colors/color-applies-to-002.xht` through `005.xht` and
+`colors-007.xht`). All paths are relative to upstream `css/CSS2/`.
+Candidates requiring scripts, remote dependencies, or WPT's server-root Ahem
+font were excluded because these fixtures must run unchanged and offline.
+Tests and references are byte-for-byte upstream files, including the required
+`support/` images. Results here are diagnostic, not a representative score.
 
 `make compatibility` renders at 800×600, reads every `rel=match` and
 `rel=mismatch` relation in document order, compares exact pixel colors against

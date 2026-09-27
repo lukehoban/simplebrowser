@@ -3,20 +3,20 @@
 [![CI](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml)
 
 An educational browser built from scratch in Go: render a URL or local HTML file
-to a PNG. The [browser epic (#2)](https://github.com/lukehoban/simplebrowser/issues/2)
-tracks progress toward a recognizable Hacker News page.
+to a PNG. The completed [browser epic (#2)](https://github.com/lukehoban/simplebrowser/issues/2)
+records the initial Hacker News rendering milestone.
 
 ![Hacker News offline fixture rendered by simplebrowser](docs/screenshots/hn-fixture.png)
 
 *Current render of the checked-in, offline [Hacker News fixture](testdata/hn/news.html);
 not a pixel-perfect browser reference.*
 
-**Compatibility benchmark: [13/13 pinned WPT reference assertions passing](docs/compatibility.md)**
+**Compatibility benchmark: [36/38 pinned WPT reference assertions passing](docs/compatibility.md)**
 ([JSON results](docs/compatibility.json)). The 800×600 exact-pixel subset covers
-colors, backgrounds, normal flow, and tables. This is a small, pinned test set,
-not a general web-platform conformance score. Run `make compatibility` to
-regenerate the committed report and inspect failure diagnostics in
-`artifacts/wpt/`.
+colors, backgrounds, normal flow, box layout, positioning, and tables. This is
+a small, pinned test set, not a general web-platform conformance score. Run
+`make compatibility` to regenerate the report and inspect failure diagnostics
+in `artifacts/wpt/`.
 
 **What works:** HTTP(S) and local-file loading; HTML parsing; CSS cascade; block,
 inline, and table layout; PNG painting of text, borders, images, and a subset of
@@ -29,10 +29,9 @@ and percentages; basic shapes and stroke widths resolve font-relative
 fixture is rendered in CI, with the result available as a
 [workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
 
-**What's next:** Improve [HN fidelity (#12)](https://github.com/lukehoban/simplebrowser/issues/12)
-and [SVG gradients and opacity (#84)](https://github.com/lukehoban/simplebrowser/issues/84).
-See [epic #2](https://github.com/lukehoban/simplebrowser/issues/2) for the live
-checklist and further scope.
+**What's next:** Track [renderer follow-ups (#154)](https://github.com/lukehoban/simplebrowser/issues/154)
+and [pinned benchmark expansion (#158)](https://github.com/lukehoban/simplebrowser/issues/158)
+for current scope and live checklists.
 
 ## Usage
 

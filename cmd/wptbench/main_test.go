@@ -48,6 +48,29 @@ func TestDeterministicMarkdown(t *testing.T) {
 	}
 }
 
+func TestPinnedSecondTrancheAndGraph(t *testing.T) {
+	if len(tests) != 38 {
+		t.Fatalf("expected 13 baseline + 25 second-tranche tests, got %d", len(tests))
+	}
+	seen := make(map[string]bool)
+	for _, name := range tests {
+		if seen[name] {
+			t.Fatalf("duplicate selected reftest: %s", name)
+		}
+		seen[name] = true
+	}
+	r := report{Total: 2, Pass: 1, Fail: 1, Results: []result{
+		{Test: "colors/color-175.xht", Status: "pass"},
+		{Test: "tables/border-collapse-offset-001.xht", Status: "fail"},
+	}}
+	svg := string(graph(r))
+	for _, want := range []string{"Pinned WPT: 1/2 passing", "Initial baseline", "Tables", "#21864b", "#bd3636"} {
+		if !strings.Contains(svg, want) {
+			t.Fatalf("graph missing %q", want)
+		}
+	}
+}
+
 func TestMissingFixtureIsRunnerError(t *testing.T) {
 	r := run(t.TempDir(), filepath.Join(t.TempDir(), "diagnostics"))
 	if r.Error != len(tests) || r.Pass != 0 || r.Fail != 0 {
