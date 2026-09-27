@@ -31,7 +31,10 @@ type Document struct {
 
 // StyledDocument is the output of the style stage.
 type StyledDocument struct {
-	Document Document
+	Document     Document
+	UserAgent    Stylesheet
+	Stylesheets  []Stylesheet
+	InlineStyles map[*Node][]Declaration
 }
 
 // Layout is the output of the layout stage.
@@ -64,7 +67,7 @@ func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error 
 		return fmt.Errorf("parse: %w", err)
 	}
 
-	styled, err := style(document)
+	styled, err := style(document, fetcher)
 	if err != nil {
 		return fmt.Errorf("style: %w", err)
 	}
@@ -80,9 +83,13 @@ func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error 
 	return nil
 }
 
-func style(document Document) (StyledDocument, error) {
-	// Issues #6 and #7 will parse CSS and compute styles.
-	return StyledDocument{Document: document}, nil
+func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
+	sheets, inline, err := ExtractStyles(document, fetcher)
+	if err != nil {
+		return StyledDocument{}, err
+	}
+	// Issue #7 will match selectors and compute the cascade.
+	return StyledDocument{Document: document, UserAgent: UserAgentStylesheet(), Stylesheets: sheets, InlineStyles: inline}, nil
 }
 
 func layout(document StyledDocument) (Layout, error) {
