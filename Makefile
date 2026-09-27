@@ -1,10 +1,14 @@
-.PHONY: screenshot moon-baseline image-boxes compatibility compatibility-check
+.PHONY: baselines screenshot moon-baseline github-vscode-baseline image-boxes compatibility compatibility-check
 
 compatibility:
 	go run ./cmd/wptbench
 
 compatibility-check:
 	go run ./cmd/wptbench -check
+
+# Refresh every checked-in current renderer output. The HN screenshot is the
+# blocking golden; the Moon and GitHub VS Code images are diagnostic baselines.
+baselines: screenshot moon-baseline github-vscode-baseline
 
 # Refresh the checked-in offline render after intentional painting changes.
 screenshot:
@@ -18,6 +22,14 @@ moon-baseline:
 	mkdir -p docs/screenshots/wikipedia-moon
 	go run ./cmd/simplebrowser -o docs/screenshots/wikipedia-moon/baseline.png testdata/wikipedia-moon/moon.html
 	chmod 644 docs/screenshots/wikipedia-moon/baseline.png
+
+# Refresh the non-blocking GitHub repository-page stand-in baseline (#260).
+# This is a record of current output, not a golden; see
+# docs/github-vscode-baseline.md.
+github-vscode-baseline:
+	mkdir -p docs/screenshots/github-vscode
+	go run ./cmd/simplebrowser -o docs/screenshots/github-vscode/baseline.png testdata/github-vscode/index.html
+	chmod 644 docs/screenshots/github-vscode/baseline.png
 
 # Refresh the image-box layout diagnostic (magenta = decoded, gray = placeholder).
 image-boxes:

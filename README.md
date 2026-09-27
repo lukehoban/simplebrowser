@@ -35,7 +35,8 @@ for current scope and live checklists. The bounded
 [Wikipedia Moon target (#243)](https://github.com/lukehoban/simplebrowser/issues/243)
 has an [offline baseline, reference and gap inventory](docs/wikipedia-moon-baseline.md).
 [GitHub repository-page target (#242)](https://github.com/lukehoban/simplebrowser/issues/242)
-has an [offline baseline and evidence notes](docs/github-vscode-baseline.md).
+has an [offline Chrome reference, diagnostic baseline and evidence
+notes](docs/github-vscode-baseline.md).
 
 ## Usage
 
@@ -72,5 +73,7 @@ make compatibility-check
 CI runs these checks and verifies the committed HN screenshot. To regenerate
 the pinned [compatibility report](docs/compatibility.md) and inspect mismatch
 images under `artifacts/wpt/`, run `make compatibility`. After an intentional
-rendering change, run `make screenshot` to refresh the checked-in HN image;
-`make image-boxes` refreshes its [image-box diagnostic](docs/screenshots/hn-image-boxes.png).
+rendering change, run `make baselines` to refresh the blocking HN golden plus
+the non-blocking Moon and GitHub VS Code diagnostic baselines. The individual
+targets remain available; `make image-boxes` refreshes the HN
+[image-box diagnostic](docs/screenshots/hn-image-boxes.png).

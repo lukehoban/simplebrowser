@@ -5,18 +5,25 @@ milestone: a deterministic, static, above-the-fold render of the default-skin
 [Moon](https://en.wikipedia.org/wiki/Moon) article. Fixture, provenance and
 licenses: [`testdata/wikipedia-moon/`](../testdata/wikipedia-moon/README.md).
 
-![Chrome reference (left) vs current simplebrowser baseline (right)](screenshots/wikipedia-moon/comparison.png)
+- **Chrome reference:**
 
-- **Reference (left):** [`chrome-reference.png`](screenshots/wikipedia-moon/chrome-reference.png).
+  ![Chrome reference for the offline Moon fixture](screenshots/wikipedia-moon/chrome-reference.png)
+
+  [`chrome-reference.png`](screenshots/wikipedia-moon/chrome-reference.png)
   Headless Chrome 154 on macOS renders the same offline fixture served over
   local HTTP at 800×600, device scale 1. macOS font substitution:
   `sans-serif` → Helvetica, and `"Linux Libertine", Georgia, …` → Georgia.
   Only a 70×18 px header area, where live JavaScript adds a reading-list icon,
   differs from a live capture of the page.
-- **Baseline (right):** [`baseline.png`](screenshots/wikipedia-moon/baseline.png)
+- **Current simplebrowser baseline:**
+
+  ![Current simplebrowser diagnostic baseline for the offline Moon fixture](screenshots/wikipedia-moon/baseline.png)
+
+  [`baseline.png`](screenshots/wikipedia-moon/baseline.png)
   is today's output. It is a **non-blocking record, not a golden**: CI renders
   it as a `render` job artifact but never compares it. Refresh it with
-  `make moon-baseline` when the renderer changes.
+  `make moon-baseline` when the renderer changes. `make baselines` refreshes
+  this diagnostic together with the GitHub diagnostic and blocking HN golden.
 
 Reproduce offline from a clean checkout:
 
@@ -36,7 +43,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | viewport media conditions and nested rules supported → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
 | `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | evaluated against the features this engine actually renders → [#251](https://github.com/lukehoban/simplebrowser/issues/251); `mask-image`, `grid` and `round()` report unsupported, so icon fallbacks are selected, but their `data:` SVG backgrounds are not decoded yet → [#268](https://github.com/lukehoban/simplebrowser/issues/268) |
 | Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | [#247](https://github.com/lukehoban/simplebrowser/issues/247) (shared with #242) |
-| Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | not placed → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
+| Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping implemented → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | [#246](https://github.com/lukehoban/simplebrowser/issues/246) (shared with #242) |
 | `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
 | `overflow:hidden` / `clip` | hidden skip link, dropdown label text | descendant padding-box and absolute `clip:rect()` painting implemented → [#253](https://github.com/lukehoban/simplebrowser/issues/253); [before/after repro](screenshots/wikipedia-moon/jump-link-before-after.png) |
@@ -47,13 +54,16 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 
 ## Prioritized next behaviors
 
-1. [#268](https://github.com/lukehoban/simplebrowser/issues/268) `data:` URL
-   backgrounds for the icon fallbacks that `@supports` (#251) now selects.
-2. [#246](https://github.com/lukehoban/simplebrowser/issues/246) custom
+1. [#266](https://github.com/lukehoban/simplebrowser/issues/266) unresolved
+   `var()` font-size fallback. Today it hides the lead text and infobox.
+2. [#268](https://github.com/lukehoban/simplebrowser/issues/268) `data:` URL
+   backgrounds for the icon fallbacks that `@supports` (#251) now selects,
+   then [#246](https://github.com/lukehoban/simplebrowser/issues/246) custom
    properties and [#254](https://github.com/lukehoban/simplebrowser/issues/254)
    `calc()`: colors, sizes and the image width.
-3. [#252](https://github.com/lukehoban/simplebrowser/issues/252) floats: the
-   infobox beside the lead text.
+3. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
+   clearance and margin collapse, after [#252](https://github.com/lukehoban/simplebrowser/issues/252)
+   float placement.
 4. [#247](https://github.com/lukehoban/simplebrowser/issues/247) flexbox: the
    header, title bar and tabs.
 5. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
@@ -62,6 +72,11 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 Each new issue has a small repro in
 [`testdata/wikipedia-moon/repros/`](../testdata/wikipedia-moon/repros) and an
 expected-versus-current visual in `docs/screenshots/wikipedia-moon/`.
+The [float before/after comparison](screenshots/wikipedia-moon/float-before-after.png)
+shows the right box and line wrapping in isolation. In the full Moon baseline
+the infobox now floats right, but it and the lead text collapse because an
+unresolved `var()` font-size becomes zero
+([#266](https://github.com/lukehoban/simplebrowser/issues/266)).
 
 ## Out of scope
 

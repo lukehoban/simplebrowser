@@ -819,6 +819,59 @@ type containingBlock struct {
 	// externalPosition is cleared when a positioned ancestor establishes a
 	// containing block within the atomic inline's temporary coordinates.
 	atomicLocal, externalPosition bool
+	floats                        *floatContext
+}
+
+type placedFloat struct {
+	outer image.Rectangle
+	right bool
+}
+
+// Float coordinates are absolute, but each block formatting context owns its
+// own list: descendants of an ordinary block share the enclosing list.
+type floatContext struct {
+	items []placedFloat
+}
+
+func (f *floatContext) bounds(x, y, width, height int) (left, right, next int) {
+	left, right = x, x+width
+	if f == nil {
+		return
+	}
+	for _, item := range f.items {
+		r := item.outer
+		if r.Min.Y >= y+height || r.Max.Y <= y || r.Max.X <= x || r.Min.X >= x+width {
+			continue
+		}
+		if item.right {
+			right = min(right, r.Min.X)
+		} else {
+			left = max(left, r.Max.X)
+		}
+		if next == 0 || r.Max.Y < next {
+			next = r.Max.Y
+		}
+	}
+	return
+}
+
+func (f *floatContext) bottom() int {
+	bottom := 0
+	for _, item := range f.items {
+		bottom = max(bottom, item.outer.Max.Y)
+	}
+	return bottom
+}
+
+func floatSide(n *StyledNode) string {
+	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
+		return ""
+	}
+	switch strings.ToLower(strings.TrimSpace(n.Style["float"])) {
+	case "left", "right":
+		return strings.ToLower(strings.TrimSpace(n.Style["float"]))
+	}
+	return ""
 }
 
 // specifiedHeight resolves a block's CSS height against a percentage basis.
@@ -879,6 +932,9 @@ func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet, cb cont
 // through the parent). When keepTrailing is set, the last child's bottom
 // margin is returned instead of added, so the parent can collapse it.
 func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, keepTrailing bool, cb containingBlock) ([]*Box, int, collapsedMargin) {
+	if cb.floats == nil {
+		cb.floats = &floatContext{}
+	}
 	var boxes []*Box
 	var positionedBoxes []*Box
 	cursor := y
@@ -938,6 +994,57 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			positionedBoxes = append(positionedBoxes, placed)
 			continue
 		}
+		if side := floatSide(child); side != "" {
+			flush()
+			// Floats do not consume the normal-flow cursor or its pending
+			// collapsed margin. Their margin boxes must fit beside earlier
+			// floats, and must not rise above them.
+			margin := boxEdges(child, "margin", float64(width))
+			inner := inlineInnerEdges(child, width)
+			used := child
+			outerWidth := 0
+			if kind != flowTable {
+				if w := strings.TrimSpace(child.Style["width"]); w == "" || strings.EqualFold(w, "auto") {
+					minimum, preferred := contentIntrinsicWidths(child, faces)
+					available := max(0, width-margin[1]-margin[3]-inner[1]-inner[3])
+					style := cloneStyle(child.Style)
+					style["width"] = strconv.Itoa(min(max(minimum, available), preferred)) + "px"
+					used = &StyledNode{Node: child.Node, Style: style, Children: child.Children}
+				}
+				outerWidth = blockContentWidth(used, width) + inner[1] + inner[3] + margin[1] + margin[3]
+			} else {
+				// A table's auto width is determined by its grid.
+				_, preferred := tableIntrinsic(child, faces)
+				outerWidth = min(width, preferred+margin[1]+margin[3])
+				if w := strings.TrimSpace(child.Style["width"]); w != "" && !strings.EqualFold(w, "auto") {
+					outerWidth = min(width, int(px(w, float64(width), float64(width)))+margin[1]+margin[3])
+				}
+			}
+			top := cursor + pending.value() + margin[0]
+			for {
+				left, right, next := cb.floats.bounds(x, top-margin[0], width, 1)
+				if outerWidth <= right-left || next <= top {
+					outerX := left
+					if side == "right" {
+						outerX = max(left, right-outerWidth)
+					}
+					var b *Box
+					if kind == flowTable {
+						b, _ = layoutTable(child, outerX, top-margin[0], max(0, outerWidth), parent.Style["text-align"], faces)
+					} else {
+						b, _ = layoutBlock(used, outerX, top, width, faces, cb)
+					}
+					cb.floats.items = append(cb.floats.items, placedFloat{
+						outer: image.Rect(outerX, top-margin[0], outerX+outerWidth, b.Rect.Max.Y+margin[2]),
+						right: side == "right",
+					})
+					boxes = append(boxes, b)
+					break
+				}
+				top = next
+			}
+			continue
+		}
 		switch kind {
 		case flowInline:
 			inline = append(inline, child)
@@ -952,6 +1059,25 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			top += pending.join(topMargin(child, kind, width)).value()
 		}
 		first = false
+		childX, childWidth := x, width
+		if establishesContext(child) && cb.floats != nil {
+			// BFC roots cannot overlap a float's margin box. Auto-width
+			// roots take the remaining width; fixed-width roots move below
+			// floats when they cannot fit.
+			for {
+				left, right, next := cb.floats.bounds(x, top, width, 1)
+				available := max(0, right-left)
+				required := available
+				if w := strings.TrimSpace(child.Style["width"]); w != "" && !strings.EqualFold(w, "auto") {
+					required = int(px(w, float64(width), 0))
+				}
+				if required+boxEdges(child, "margin", float64(width))[1]+boxEdges(child, "margin", float64(width))[3] <= available || next <= top {
+					childX, childWidth = left, available
+					break
+				}
+				top = next
+			}
+		}
 		var b *Box
 		var bottom collapsedMargin
 		flowEnd := 0
@@ -959,16 +1085,16 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		case flowReplaced:
 			// Positive margins are applied inside; offset so the border box
 			// starts at top.
-			b, _ = layoutReplacedBlock(child, x, top-boxEdges(child, "margin", float64(width))[0], width, faces)
+			b, _ = layoutReplacedBlock(child, childX, top-boxEdges(child, "margin", float64(width))[0], childWidth, faces)
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		case flowTable:
 			margin := boxEdges(child, "margin", float64(width))
 			var height int
-			b, height = layoutTable(child, x, top-margin[0], width, parent.Style["text-align"], faces)
+			b, height = layoutTable(child, childX, top-margin[0], childWidth, parent.Style["text-align"], faces)
 			flowEnd = top - margin[0] + height - margin[2]
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		default:
-			b, bottom = layoutBlock(child, x, top, width, faces, cb)
+			b, bottom = layoutBlock(child, childX, top, childWidth, faces, cb)
 		}
 		boxes = append(boxes, b)
 		cursor = b.Rect.Max.Y
@@ -1015,8 +1141,14 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 		}
 	}
 	childCB.flowHeight, childCB.flowHeightDefinite = usedHeight, definite
+	if establishesContext(n) {
+		childCB.floats = &floatContext{}
+	}
 	children, childBottom, trailing := layoutFlow(n, contentX, contentY, contentWidth, faces,
 		collapsesThroughTop(n, width), collapseBottom, childCB)
+	if establishesContext(n) {
+		childBottom = max(childBottom, childCB.floats.bottom())
+	}
 	height := childBottom - contentY
 	if definite {
 		height = usedHeight
@@ -1346,11 +1478,12 @@ func (p inlinePart) borderBox(outerX, outerY int) image.Rectangle {
 }
 
 type inlineLine struct {
-	parts   []inlinePart
-	width   fixed.Int26_6
-	ascent  int
-	descent int
-	height  int
+	parts                []inlinePart
+	width                fixed.Int26_6
+	ascent               int
+	descent              int
+	height               int
+	left, available, top int
 }
 
 // inlineVerticalAlignment describes an atomic inline's vertical placement.
@@ -1444,6 +1577,30 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 	var word []inlinePart
 	var space *inlinePart
 	forced := false
+	lineY := y
+	lineBounds := func() {
+		if cb.floats == nil {
+			line.left, line.available, line.top = x, width, lineY
+			return
+		}
+		// Use the line's font height to avoid placing glyphs through a
+		// float which starts partway down the line.
+		ascent, descent := faces.metrics(parentStyle).lineMetrics()
+		for {
+			left, right, next := cb.floats.bounds(x, lineY, width, max(1, ascent+descent))
+			if left < right || next <= lineY {
+				line.left, line.available, line.top = left, max(0, right-left), lineY
+				return
+			}
+			lineY = next
+		}
+	}
+	lineBounds()
+	newLine := func() {
+		lineY = line.top + line.height
+		line = inlineLine{}
+		lineBounds()
+	}
 	add := func(p inlinePart) {
 		if p.atomic() {
 			line.parts = append(line.parts, p)
@@ -1491,10 +1648,20 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		if space != nil && len(line.parts) != 0 {
 			gap = faces.metrics(space.style).advance(" ")
 		}
-		if len(line.parts) != 0 && line.width+gap+wordWidth > fixed.I(width) {
+		if len(line.parts) != 0 && line.width+gap+wordWidth > fixed.I(line.available) {
 			finalize(&line)
 			lines = append(lines, line)
-			line = inlineLine{}
+			newLine()
+		}
+		if len(line.parts) == 0 {
+			for wordWidth > fixed.I(line.available) && cb.floats != nil {
+				_, _, next := cb.floats.bounds(x, line.top, width, 1)
+				if next <= line.top {
+					break
+				}
+				lineY = next
+				lineBounds()
+			}
 		}
 		if space != nil && len(line.parts) != 0 {
 			add(*space)
@@ -1514,7 +1681,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			}
 			finalize(&line)
 			lines = append(lines, line)
-			line = inlineLine{}
+			newLine()
 			space = nil
 			forced = true
 			continue
@@ -1525,18 +1692,18 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			if space != nil && len(line.parts) != 0 {
 				gap = faces.metrics(space.style).advance(" ")
 			}
-			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(width) &&
+			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(line.available) &&
 				part.shrink {
 				// Shrink-to-fit uses the width available at the box's actual
 				// line position, so retry against the remaining space.
-				if remaining := (fixed.I(width) - line.width - gap).Floor(); part.shrinkMin <= remaining {
+				if remaining := (fixed.I(line.available) - line.width - gap).Floor(); part.shrinkMin <= remaining {
 					part = inlineBlockPartFit(part.shrinkNode, part.shrinkAvailable, remaining, faces, part.shrinkCB)
 				}
 			}
-			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(width) {
+			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(line.available) {
 				finalize(&line)
 				lines = append(lines, line)
-				line = inlineLine{}
+				newLine()
 				gap = 0
 			}
 			if gap > 0 && space != nil {
@@ -1578,12 +1745,13 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 	box := &Box{Node: parent, Anonymous: true}
 	cursor := y
 	for _, l := range lines {
-		xpos := x
+		cursor = l.top
+		xpos := l.left
 		switch strings.ToLower(strings.TrimSpace(parentStyle["text-align"])) {
 		case "right", "end":
-			xpos += max(0, width-int((l.width+63)/64))
+			xpos += max(0, l.available-int((l.width+63)/64))
 		case "center":
-			xpos += max(0, (width-int((l.width+63)/64))/2)
+			xpos += max(0, (l.available-int((l.width+63)/64))/2)
 		}
 		baseline := cursor + l.ascent
 		box.LastBaseline, box.HasBaseline = baseline, true

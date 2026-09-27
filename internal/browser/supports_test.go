@@ -32,7 +32,8 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(display: flex)", false},
 		{"(width: round(1.5px, 1px))", false},
 		{"(width: calc(1px + 1px))", false},
-		{"(float: left)", false},
+		{"(float: left)", true},
+		{"(float: inline-start)", false},
 		{"(opacity: 0.5)", false},
 		// Boolean operators and nesting.
 		{"not (mask-image: none)", true},

@@ -183,15 +183,15 @@ func supportsDeclaration(s string) (string, string, bool) {
 // supportValidators is the engine's honest feature registry: a property is
 // listed only when the cascade, layout or painting consumes it, and only
 // values this renderer implements are accepted. It is intentionally
-// conservative; extend it when a feature lands (for example float:left/right
-// with #252). Unlisted properties such as mask-image, and values such as
-// display:grid/flex or math functions like calc()/round(), are unsupported.
+// conservative; extend it when a feature lands (for example flex with #247).
+// Unlisted properties such as mask-image, and values such as display:grid/flex
+// or math functions like calc()/round(), are unsupported.
 var supportValidators = map[string]func(string) bool{
 	"display": keywordValidator("none", "block", "inline", "inline-block", "list-item", "flow-root",
 		"table", "inline-table", "table-row", "table-cell", "table-row-group", "table-header-group",
 		"table-footer-group", "table-column", "table-column-group", "table-caption"),
 	"position":             keywordValidator("static", "relative", "absolute", "fixed"),
-	"float":                keywordValidator("none"),
+	"float":                keywordValidator("none", "left", "right"),
 	"overflow":             keywordValidator("visible", "hidden", "clip"),
 	"text-align":           keywordValidator("left", "right", "center", "start", "end"),
 	"vertical-align":       supportsOr(keywordValidator("baseline", "top", "bottom", "middle", "text-top", "text-bottom"), lengthOrPercentage),
