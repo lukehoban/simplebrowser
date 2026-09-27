@@ -88,6 +88,39 @@ func TestStylePresentationalAttributesAndDefaults(t *testing.T) {
 	}
 }
 
+func TestComputedBorderShorthandWidthKeywordsMatchLonghands(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<div id=thin style="border:black solid thin"></div>
+		<div id=medium style="border:MEDIUM solid black"></div>
+		<div id=thick style="border:solid thick black"></div>
+		<div id=longhand style="border-width:medium;border-style:solid"></div>
+		<div id=invalid style="border:black solid wide"></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id    string
+		width int
+	}{
+		{"thin", 1},
+		{"medium", 3},
+		{"thick", 5},
+		{"longhand", 3},
+		{"invalid", 0},
+	} {
+		got := styledElementByID(styled.StyleRoot, tc.id).Style
+		for _, side := range []string{"top", "right", "bottom", "left"} {
+			if width := borderWidth(got, side); width != tc.width {
+				t.Errorf("%s %s width = %d, want %d; style=%#v", tc.id, side, width, tc.width, got)
+			}
+		}
+	}
+}
+
 func TestComputedFontSizesAndFontRelativeLengths(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 		<html id=root style="font-size:20px;margin-left:1rem"><body>

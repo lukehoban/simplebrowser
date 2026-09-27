@@ -101,6 +101,27 @@ func TestPaintPerSideBordersAndTransparentBackground(t *testing.T) {
 	pixel(t, img, 5, 3, color.RGBA{0, 128, 0, 255})
 }
 
+func TestPaintBorderShorthandWidthKeywordsMatchPixels(t *testing.T) {
+	viewport := image.Rect(0, 0, 80, 50)
+	for _, tc := range []struct {
+		keyword, pixels string
+	}{
+		{"thin", "1px"},
+		{"medium", "3px"},
+		{"thick", "5px"},
+	} {
+		t.Run(tc.keyword, func(t *testing.T) {
+			render := func(width string) *image.RGBA {
+				return painted(t, `<body style="margin:0"><div style="width:40px;height:20px;border:solid `+
+					width+` #1769aa;background:#e8f0ff"></div></body>`, viewport)
+			}
+			if keyword, numeric := render(tc.keyword), render(tc.pixels); !bytes.Equal(keyword.Pix, numeric.Pix) {
+				t.Fatalf("%s shorthand pixels differ from %s", tc.keyword, tc.pixels)
+			}
+		})
+	}
+}
+
 func TestPaintFontShorthandMatchesLonghands(t *testing.T) {
 	viewport := image.Rect(0, 0, 260, 100)
 	shorthand := painted(t, `<p style="margin:0;font:italic bold 24px/1.5 monospace">Shorthand text</p>`, viewport)
