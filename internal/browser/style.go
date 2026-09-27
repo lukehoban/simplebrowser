@@ -25,7 +25,8 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 		for j := range sheets[i].Rules {
 			for k := range sheets[i].Rules[j].Declarations {
 				d := &sheets[i].Rules[j].Declarations[k]
-				if d.Property == "background" || d.Property == "background-image" {
+				if d.Property == "background" || d.Property == "background-image" ||
+					canonicalMaskProperty(d.Property) == "mask" || canonicalMaskProperty(d.Property) == "mask-image" {
 					d.Value = resolveBackgroundURL(d.Value, base)
 				} else if strings.HasPrefix(d.Property, "--") {
 					// A custom property retains the URL's declaration base when
@@ -38,7 +39,7 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 	}
 	styled := computeStyles(StyledDocument{Document: document, UserAgent: UserAgentStylesheet(),
 		Stylesheets: sheets, InlineStyles: inline}, image.Pt(placeholderWidth, placeholderHeight))
-	styled.Images, styled.BackgroundImages = fetchImages(document, styled.StyleRoot, fetcher)
+	styled.Images, styled.BackgroundImages, styled.MaskImages = fetchImages(document, styled.StyleRoot, fetcher)
 	return styled, nil
 }
 
@@ -130,6 +131,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		})
 	}
 	consider := func(candidate winningDeclaration) {
+		candidate.d.Property = canonicalMaskProperty(candidate.d.Property)
 		// Box shorthands are a single declaration: an invalid component must
 		// not apply its valid siblings to the cascade.
 		switch candidate.d.Property {
@@ -145,6 +147,11 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		if candidate.validateAfterSubstitution && candidate.d.Property == "background" &&
 			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
 			!validBackground(candidate.d.Value) {
+			candidate.d.Value = invalidVariable
+		}
+		if candidate.validateAfterSubstitution && candidate.d.Property == "mask" &&
+			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
+			!validMask(candidate.d.Value) {
 			candidate.d.Value = invalidVariable
 		}
 		expandedDeclarations := []Declaration(nil)
@@ -354,6 +361,8 @@ func expandCSSWideDeclaration(d Declaration, keyword string) []Declaration {
 		properties = []string{"font-style", "font-variant", "font-weight", "font-size", "line-height", "font-family"}
 	case "background":
 		properties = []string{"background-color", "background-image", "background-repeat", "background-position", "background-size"}
+	case "mask":
+		properties = maskLonghands
 	case "margin", "padding", "border-width", "border-color", "border-style":
 		properties = []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
 	case "border":
@@ -382,7 +391,8 @@ var initialComputedValues = map[string]string{
 	"font-style": "normal", "font-variant": "normal", "font-weight": "normal",
 	"line-height": "normal", "text-align": "start", "visibility": "visible", "background-color": "transparent",
 	"background-image": "none", "background-repeat": "repeat", "background-position": "0% 0%",
-	"background-size": "auto",
+	"background-size": "auto", "mask-image": "none", "mask-repeat": "repeat", "mask-position": "0% 0%",
+	"mask-size": "auto",
 }
 
 func setInitialComputedValue(values ComputedStyle, property string) {
@@ -750,7 +760,7 @@ func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 // and CSS functions, whose internals must not be rewritten as free lengths).
 func compoundLengthProperty(property string) bool {
 	switch property {
-	case "border-spacing", "background-position", "background-size", "border",
+	case "border-spacing", "background-position", "background-size", "mask-position", "mask-size", "border",
 		"border-top", "border-right", "border-bottom", "border-left":
 		return true
 	}
@@ -1027,12 +1037,17 @@ func expandDeclaration(d Declaration) []Declaration {
 			return invalidLonghands(d, "border-top-width", "border-right-width", "border-bottom-width", "border-left-width")
 		case "background":
 			return invalidLonghands(d, "background-color", "background-image", "background-repeat", "background-position", "background-size")
+		case "mask":
+			return invalidLonghands(d, maskLonghands...)
 		case "font":
 			return invalidLonghands(d, "font-size", "font-family", "font-style", "font-variant", "font-weight", "line-height")
 		}
 	}
 	if d.Property == "background" {
 		return expandBackground(d)
+	}
+	if d.Property == "mask" {
+		return expandMask(d)
 	}
 
 	if d.Property == "font" {
