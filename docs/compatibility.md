@@ -1,6 +1,6 @@
-# WPT compatibility: 8/13 passing
+# WPT compatibility: 9/13 passing
 
-Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels; 5 compatibility failures, 0 runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
+Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels; 4 compatibility failures, 0 runner errors. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
 
 | Test | Reference | Relation | Status | Different pixels |
 | --- | --- | --- | --- | ---: |
