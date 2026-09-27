@@ -216,8 +216,8 @@ func TestFixedTableLayoutUsesColumnWidthsIncludingCellPadding(t *testing.T) {
 	if cells[0].Content.Min.X != 169 || cells[0].Content.Max.X != 296 {
 		t.Fatalf("cell padding must fit inside 382px column: rect %v content %v", cells[0].Rect, cells[0].Content)
 	}
-	if tables[0].Rect.Dy() != 120 {
-		t.Fatalf("table plus caption height = %d, want 120", tables[0].Rect.Dy())
+	if tables[0].Rect != image.Rect(0, 20, 758, 120) {
+		t.Fatalf("table border box = %v, want (0,20)-(758,120) below caption", tables[0].Rect)
 	}
 
 	img := painted(t, source, image.Rect(0, 0, 800, 160))
@@ -583,8 +583,8 @@ func TestTableCollapsedOuterCellTrailingBordersContributeToGeometry(t *testing.T
 	if want := image.Rect(0, 28, 110, 68); cells[0].Rect != want {
 		t.Fatalf("collapsed cell rect = %v, want %v", cells[0].Rect, want)
 	}
-	if table[0].Rect.Dx() != 110 || table[0].Rect.Dy() != 68 {
-		t.Fatalf("collapsed table rect = %v, want 110x68", table[0].Rect)
+	if table[0].Rect != image.Rect(0, 28, 110, 68) {
+		t.Fatalf("collapsed table border box = %v, want (0,28)-(110,68)", table[0].Rect)
 	}
 }
 

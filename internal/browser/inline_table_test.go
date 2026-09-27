@@ -150,6 +150,7 @@ func TestPaintInlineTablesSideBySideKeepBorders(t *testing.T) {
 	if len(tables) != 2 {
 		t.Fatalf("got %d table boxes, want 2", len(tables))
 	}
+
 	img := painted(t, markup, image.Rect(0, 0, 200, 100))
 	for _, probe := range []struct {
 		box  *Box
@@ -159,4 +160,36 @@ func TestPaintInlineTablesSideBySideKeepBorders(t *testing.T) {
 		pixel(t, img, probe.box.Rect.Min.X+1, mid, probe.want)
 		pixel(t, img, probe.box.Rect.Max.X-1, mid, probe.want)
 	}
+}
+
+// The two kinds of atomic inline box must share the pen and retain their own
+// paint layers above an ancestor inline background.
+func TestInlineTableAndEmptyInlineBlockShareLineAndPaint(t *testing.T) {
+	const markup = `<body style="margin:0"><div><span style="background:yellow">start` +
+		`<table style="display:inline-table;border:3px solid red;border-spacing:0"><tr><td>T</td></tr></table>` +
+		`<span style="display:inline-block;width:16px;height:12px;background:grey;border:2px solid blue"></span>` +
+		`end</span></div></body>`
+	viewport := image.Rect(0, 0, 400, 100)
+	root := layoutMarkup(t, markup, viewport)
+	tables, spans := collectBoxes(root, "table"), collectBoxes(root, "span")
+	if len(tables) != 1 || len(spans) != 1 {
+		t.Fatalf("got %d tables and %d atomic spans, want one each", len(tables), len(spans))
+	}
+	table, block := tables[0], spans[0]
+	before, okBefore := firstRun(root, "start")
+	after, okAfter := firstRun(root, "end")
+	if !okBefore || !okAfter {
+		t.Fatalf("missing surrounding text: before=%v after=%v", okBefore, okAfter)
+	}
+	if before.Rect.Min.Y != after.Rect.Min.Y ||
+		before.Rect.Max.X > table.Rect.Min.X+1 || // rounded glyph bounds may overlap by 1px
+		table.Rect.Max.X > block.Rect.Min.X ||
+		block.Rect.Max.X > after.Rect.Min.X {
+		t.Errorf("line order: before=%v table=%v block=%v after=%v",
+			before.Rect, table.Rect, block.Rect, after.Rect)
+	}
+	img := painted(t, markup, viewport)
+	pixel(t, img, table.Rect.Min.X+1, table.Rect.Min.Y+table.Rect.Dy()/2, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, block.Rect.Min.X, block.Rect.Min.Y, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, block.Content.Min.X, block.Content.Min.Y, color.RGBA{128, 128, 128, 255})
 }

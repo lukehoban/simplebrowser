@@ -27,9 +27,8 @@ import (
 //     get an anonymous row, and non-cell content inside a row (or directly
 //     inside a table) gets an anonymous cell. Runs of misparented
 //     table-internal boxes in block flow are wrapped in an anonymous table.
-//   - Each caption occupies a full row of the wrapper: `caption-side: top`
-//     captions precede the grid and `bottom` captions follow it. Captions
-//     do not yet span multiple columns.
+//   - Captions occupy the full width of the wrapper outside the grid border;
+//     `caption-side: top` precedes the grid and `bottom` follows it.
 //   - Cell content is top aligned; `valign` and vertical centering are not
 //     implemented yet.
 //   - `border-collapse: collapse` is partial: border-spacing is dropped,
@@ -80,15 +79,16 @@ type tableGroupBox struct {
 }
 
 type tableGrid struct {
-	rows     []*tableRowBox
-	groups   []*tableGroupBox
-	cols     []*StyledNode // expanded <col>/<colgroup> definitions, in grid order
-	columns  int
-	hspacing int    // horizontal border-spacing between/around columns
-	vspacing int    // vertical border-spacing between/around rows
-	collapse bool   // border-collapse: collapse
-	caption  bool   // a direct caption participates in the anonymous wrapper
-	padding  [4]int // default cell padding contributed by cellpadding
+	rows                        []*tableRowBox
+	topCaptions, bottomCaptions []*StyledNode
+	groups                      []*tableGroupBox
+	cols                        []*StyledNode // expanded <col>/<colgroup> definitions, in grid order
+	columns                     int
+	hspacing                    int    // horizontal border-spacing between/around columns
+	vspacing                    int    // vertical border-spacing between/around rows
+	collapse                    bool   // border-collapse: collapse
+	caption                     bool   // a direct caption participates in the anonymous wrapper
+	padding                     [4]int // default cell padding contributed by cellpadding
 }
 
 func displayIs(n *StyledNode, values ...string) bool {
@@ -321,10 +321,13 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 		case hiddenNode(child) || blankText(child) || isColumnNode(child) || isColumnGroupNode(child):
 			continue
 		case isTableCaptionNode(child):
-			// Each caption occupies its own anonymous-wrapper row, placed
-			// above or below the grid by orderedTableChildren.
 			flushPending()
-			grid.addRow(nil, []*StyledNode{child}, nil)
+			grid.caption = true
+			if captionSideBottom(child) {
+				grid.bottomCaptions = append(grid.bottomCaptions, child)
+			} else {
+				grid.topCaptions = append(grid.topCaptions, child)
+			}
 		case isRowNode(child):
 			flushPending()
 			grid.addRow(child, child.Children, nil)
@@ -1053,7 +1056,6 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	}
 
 	originX := x + margin[3] + border[3]
-	originY := y + margin[0] + border[0]
 
 	columnX := make([]int, grid.columns+1)
 	cursorX := originX + grid.hspacing
@@ -1062,7 +1064,37 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		cursorX += columnWidths[i] + grid.hspacing
 	}
 	columnX[grid.columns] = cursorX
-	tableWidth := max(0, cursorX-originX)
+	tableWidth := max(contentWidth, cursorX-originX)
+	// Captions are block containers of the anonymous table wrapper, not
+	// cells. Lay them out against its border-box width before positioning the
+	// grid, so their margins/backgrounds and inline alignment remain intact.
+	captionX := x + margin[3]
+	captionWidth := tableWidth + border[1] + border[3]
+	layoutCaptions := func(nodes []*StyledNode, top int) ([]*Box, int) {
+		var boxes []*Box
+		for _, caption := range nodes {
+			wrapper := &StyledNode{Style: ComputedStyle{}, Children: []*StyledNode{caption}}
+			children, height := layoutChildren(wrapper, captionX, top, captionWidth, faces,
+				containingBlock{x: captionX, y: top, width: captionWidth})
+			// Inline line boxes reuse their parent's DOM node for text context.
+			// They must not paint the caption background a second time: a line
+			// taller than an explicit caption height can overflow into the grid.
+			for _, box := range children {
+				if box.Node == caption.Node {
+					for _, line := range box.Children {
+						if line.Node == caption.Node {
+							line.Node = nil
+						}
+					}
+				}
+			}
+			boxes = append(boxes, children...)
+			top += height
+		}
+		return boxes, top
+	}
+	topCaptions, gridTop := layoutCaptions(grid.topCaptions, y+margin[0])
+	originY := gridTop + border[0]
 
 	// Keep fractional content-sized column boundaries for text in the next
 	// cell. Pixel box widths still use columnWidths; only inline pen origins
@@ -1283,9 +1315,12 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	}
 
 	content := image.Rect(originX, originY, originX+tableWidth, originY+tableHeight)
-	rect := image.Rect(x+margin[3], y+margin[0], content.Max.X+border[1], content.Max.Y+border[2])
-	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: rowBoxes}
-	return box, rect.Dy() + margin[0] + margin[2]
+	rect := image.Rect(captionX, gridTop, content.Max.X+border[1], content.Max.Y+border[2])
+	bottomCaptions, end := layoutCaptions(grid.bottomCaptions, rect.Max.Y)
+	children := append(topCaptions, rowBoxes...)
+	children = append(children, bottomCaptions...)
+	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: children}
+	return box, end - y + margin[2]
 }
 
 func translateBox(b *Box, dx, dy int) {
@@ -1428,6 +1463,9 @@ func inlineTablePart(n *StyledNode, available int, faces *faceSet) inlinePart {
 	available = max(0, available)
 	_, preferred := tableIntrinsic(n, faces)
 	box, height := layoutTable(n, 0, 0, min(available, max(0, preferred)), "", faces)
+	// The table and its descendants form a single atomic inline paint layer,
+	// after the surrounding line's inline background fragments.
+	box.AtomicInline = true
 	margin := boxEdges(n, "margin", float64(available))
 	width := box.Rect.Max.X + margin[1]
 	baseline, ok := firstTextBaseline(box, faces)

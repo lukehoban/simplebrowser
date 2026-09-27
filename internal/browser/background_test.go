@@ -73,8 +73,10 @@ func TestExternalStylesheetQuotedBackgroundURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pixel(t, img.(*image.RGBA), 12, 12, color.RGBA{225, 49, 58, 255})
-	pixel(t, img.(*image.RGBA), 12, 44, color.RGBA{35, 96, 210, 255})
+	// Both fixture divs are empty inline-blocks, so they sit side by side on
+	// one line; each tile is centred in its 24x24 box.
+	pixel(t, img.(*image.RGBA), 16, 16, color.RGBA{225, 49, 58, 255})
+	pixel(t, img.(*image.RGBA), 52, 16, color.RGBA{35, 96, 210, 255})
 }
 
 func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
