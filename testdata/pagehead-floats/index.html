@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- Authored offline repro for #349: a repository-header row whose action
+     buttons are floats inside a flex item. No GitHub HTML, CSS or assets. -->
+<html>
+<head>
+<style>
+  body { margin: 0; font: 14px sans-serif; color: #1f2328; background: #fff; }
+  .row { display: flex; justify-content: flex-end; gap: 16px; padding: 16px 24px 0; }
+  .title { flex-grow: 1; font-size: 20px; line-height: 32px; }
+  .actions { margin: 0; padding: 2px 0; display: inline; }
+  .actions > li { float: left; list-style: none; margin-right: 8px; }
+  .actions > li:last-child { margin-right: 0; }
+  .btn { display: block; padding: 5px 12px; border: 1px solid #d1d9e0; border-radius: 6px; background: #f6f8fa; line-height: 16px; }
+  .tabs { margin-top: 16px; padding: 0 24px; border-bottom: 1px solid #d1d9e0; }
+  .tab { display: inline-block; padding: 8px; margin-right: 8px; }
+  .tab.selected { border-bottom: 2px solid #fd8c73; font-weight: bold; }
+  .files { margin: 16px 24px; border: 1px solid #d1d9e0; border-radius: 6px; }
+  .file { padding: 8px 16px; border-top: 1px solid #d1d9e0; }
+  .file:first-child { border-top: 0; background: #f6f8fa; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="title">octo-org / sample-repo</div>
+    <div>
+      <ul class="actions">
+        <li><span class="btn">Notifications</span></li>
+        <li><span class="btn">Fork 42</span></li>
+        <li><span class="btn">Star 1.2k</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="tabs"><span class="tab selected">Code</span><span class="tab">Issues</span><span class="tab">Pull requests</span><span class="tab">Actions</span></div>
+  <div class="files">
+    <div class="file">main · 3 branches</div>
+    <div class="file">.github</div>
+    <div class="file">docs</div>
+    <div class="file">src</div>
+    <div class="file">test</div>
+    <div class="file">README.md</div>
+  </div>
+</body>
+</html>
