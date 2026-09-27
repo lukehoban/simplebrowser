@@ -4,9 +4,9 @@
 to turn a URL or HTML file into a PNG, with enough web-platform support to
 render [Hacker News](https://news.ycombinator.com/) recognizably.
 
-The project is at the **networking stage**. The CLI fetches HTTP(S) pages and
-local files, then runs them through the pipeline. Painting still emits a
-deterministic placeholder image; HTML parsing and page rendering are not
+The project is at the **HTML parsing stage**. The CLI fetches HTTP(S) pages and
+local files, tokenizes HTML, and builds a DOM. Painting still emits a
+deterministic placeholder image; CSS, layout, and page rendering are not
 implemented yet.
 
 ## Architecture
@@ -21,8 +21,11 @@ flowchart LR
     Paint --> PNG
 ```
 
-The pipeline lives in `internal/browser`. Each stage has a small typed boundary
-so its placeholder can be replaced incrementally without changing the CLI.
+The pipeline lives in `internal/browser`. `Document.Root` is a fragment-friendly
+DOM with parent/child links, text, comments, doctypes, and ordered attributes.
+`Document.BaseURL` holds the effective fetched source (including redirects) for
+future relative resource resolution. This is a practical tolerant HTML subset,
+not a complete HTML5 parsing algorithm.
 
 ## Usage
 
@@ -42,6 +45,7 @@ Run the project checks locally with:
 gofmt -w .
 go vet ./...
 go test ./...
+go test -race ./...
 go build ./cmd/simplebrowser
 ```
 
@@ -50,8 +54,8 @@ go build ./cmd/simplebrowser
 Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simplebrowser/issues/2):
 
 - [Project scaffold and CI (#3)](https://github.com/lukehoban/simplebrowser/issues/3)
-- [HTTP/1.1 networking over TCP/TLS (#4)](https://github.com/lukehoban/simplebrowser/issues/4) — in progress
-- [HTML tokenizer, parser, and DOM (#5)](https://github.com/lukehoban/simplebrowser/issues/5)
+- [HTTP/1.1 networking over TCP/TLS (#4)](https://github.com/lukehoban/simplebrowser/issues/4) — implemented
+- [HTML tokenizer, parser, and DOM (#5)](https://github.com/lukehoban/simplebrowser/issues/5) — implemented; review pending
 - [CSS parser and user-agent stylesheet (#6)](https://github.com/lukehoban/simplebrowser/issues/6)
 - [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7)
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8)

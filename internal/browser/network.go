@@ -67,7 +67,7 @@ func (f *Fetcher) FetchContext(parent context.Context, source string) (Resource,
 		if err != nil {
 			return Resource{}, err
 		}
-		return Resource{Source: source, Body: body}, nil
+		return Resource{Source: source, URL: source, Body: body}, nil
 	}
 
 	timeout := f.Timeout
@@ -110,7 +110,7 @@ func (f *Fetcher) FetchContext(parent context.Context, source string) (Resource,
 		if status < 200 || status >= 300 {
 			return Resource{}, fmt.Errorf("HTTP %d %s", status, statusText(status))
 		}
-		return Resource{Source: source, Body: body}, nil
+		return Resource{Source: source, URL: current.String(), Body: body}, nil
 	}
 }
 

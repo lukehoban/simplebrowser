@@ -17,13 +17,16 @@ const (
 
 // Resource is the output of the fetch stage.
 type Resource struct {
-	Source string
+	Source string // Requested source (for display and diagnostics).
+	URL    string // Effective source after redirects; base for relative links.
 	Body   []byte
 }
 
 // Document is the output of the parse stage.
 type Document struct {
 	Resource Resource
+	Root     *Node
+	BaseURL  string // Effective resource URL or path; not the requested redirect URL.
 }
 
 // StyledDocument is the output of the style stage.
@@ -75,11 +78,6 @@ func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error 
 		return fmt.Errorf("paint: %w", err)
 	}
 	return nil
-}
-
-func parse(resource Resource) (Document, error) {
-	// Issue #5 will tokenize HTML and build a DOM.
-	return Document{Resource: resource}, nil
 }
 
 func style(document Document) (StyledDocument, error) {
