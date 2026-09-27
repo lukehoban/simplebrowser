@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 8px; font: 14px sans-serif; }
+  .case { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; }
+  .label { width: 190px; }
+  .frame { width: 150px; outline: 1px dashed #999; background: #f2f2f2; }
+  .red { background: red; border: 3px solid black; color: black; }
+  .after { height: 10px; background: green; }
+</style>
+</head>
+<body>
+  <div class="case">
+    <div class="label">hidden box keeps its space</div>
+    <div class="frame">
+      <div id="hidden" class="red" style="visibility:hidden;height:30px">hidden text</div>
+      <div id="after-hidden" class="after"></div>
+    </div>
+  </div>
+  <div class="case">
+    <div class="label">visible child of hidden</div>
+    <div class="frame">
+      <div id="hidden-parent" class="red" style="visibility:hidden;height:30px">
+        <span id="visible-child" style="visibility:visible;background:#39c;color:white">shown</span> gone
+      </div>
+    </div>
+  </div>
+  <div class="case">
+    <div class="label">hidden inline span</div>
+    <div class="frame">a <span style="visibility:hidden;background:red">gap</span> b</div>
+  </div>
+  <div class="case">
+    <div class="label">hidden and visible images</div>
+    <div class="frame" style="visibility:hidden">
+      <img src="../hn/y18.svg" width="24" height="24" style="border:2px solid red">
+      <img id="visible-image" src="../hn/y18.svg" width="24" height="24" style="visibility:visible">
+    </div>
+  </div>
+  <div class="case">
+    <div class="label">collapse outside tables</div>
+    <div class="frame">
+      <div class="red" style="visibility:collapse;height:20px">collapsed</div>
+      <div class="after"></div>
+    </div>
+  </div>
+</body>
+</html>
