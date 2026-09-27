@@ -122,6 +122,13 @@ func drawImageBox(dst *image.RGBA, picture ImageBox) {
 	if rect.Empty() || clip.Empty() {
 		return
 	}
+	if svg, ok := picture.Image.(*svgImage); ok {
+		// Vector images render at the used size rather than being resampled.
+		if raster := svg.rasterize(rect.Dx(), rect.Dy()); raster != nil {
+			draw.Draw(dst, clip, raster, clip.Min.Sub(rect.Min), draw.Over)
+			return
+		}
+	}
 	if picture.Image != nil && !picture.Image.Bounds().Empty() {
 		xdraw.ApproxBiLinear.Scale(dst.SubImage(clip).(draw.Image), rect,
 			picture.Image, picture.Image.Bounds(), draw.Over, nil)
@@ -136,7 +143,7 @@ func drawImageBox(dst *image.RGBA, picture ImageBox) {
 }
 
 // drawImageBoxOutline marks a laid-out replaced box: magenta when the image
-// decoded, gray when it is a placeholder (missing, broken, or SVG).
+// decoded, gray when it is a placeholder (missing, broken, or unsupported).
 func drawImageBoxOutline(dst *image.RGBA, picture ImageBox) {
 	outline := color.RGBA{R: 160, G: 160, B: 160, A: 255}
 	if picture.Image != nil {

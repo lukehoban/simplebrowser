@@ -712,7 +712,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			padding, cellBorder := grid.cellEdges(cell)
 			innerWidth := max(0, cellWidth-padding[1]-padding[3]-cellBorder[1]-cellBorder[3])
 			contentX := columnX[min(cell.col, grid.columns)] + padding[3] + cellBorder[3]
-			children, height := layoutChildren(cell.node, contentX, 0, innerWidth, faces)
+			children, height := layoutChildren(cell.node, contentX, 0, innerWidth, faces,
+				containingBlock{x: contentX, width: innerWidth})
 			if value := strings.TrimSpace(cell.node.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
 				height = max(height, int(math.Max(0, px(value, 0, float64(height)))))
 			}

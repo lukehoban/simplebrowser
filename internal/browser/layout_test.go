@@ -2,6 +2,7 @@ package browser
 
 import (
 	"image"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -38,6 +39,125 @@ func TestLayoutBlockGeometryAndWrapping(t *testing.T) {
 	if runs[0].Rect.Min.Y >= runs[1].Rect.Min.Y {
 		t.Fatal("text runs did not advance vertically")
 	}
+}
+
+func TestAbsolutelyPositionedBoxesDoNotContributeToFlowHeight(t *testing.T) {
+	doc := styledForLayout(t, `<div id="parent" style="margin:0;padding:10px">
+		<div id="out" style="position:absolute;width:20px;height:30px;margin:20px"></div>
+		<div id="flow" style="width:40px;height:10px"></div>
+	</div>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "parent", "out", "flow")
+	parent, out, flow := boxes["parent"], boxes["out"], boxes["flow"]
+	if parent.Content.Dy() != 10 {
+		t.Fatalf("parent content height = %d, want only the 10px in-flow child", parent.Content.Dy())
+	}
+	if len(parent.Children) != 2 || parent.Children[1] != out {
+		t.Fatalf("positioned box should remain in the layout tree after in-flow siblings: %#v", parent.Children)
+	}
+	if out.Rect.Min.Y != flow.Rect.Min.Y || out.Rect.Dy() != 30 {
+		t.Fatalf("positioned geometry = %v, flow geometry = %v", out.Rect, flow.Rect)
+	}
+}
+
+func TestPositionedOffsetsUseNearestPositionedAncestorPaddingBox(t *testing.T) {
+	doc := styledForLayout(t, `<div id="outer" style="position:relative;margin:0;padding:10px;width:100px;height:80px">
+		<div id="static">
+			<div id="abs" style="position:absolute;left:5px;top:7px;width:10px;height:12px"></div>
+			<div id="right-bottom" style="position:absolute;right:5px;bottom:6px;width:10px;height:12px"></div>
+		</div>
+	</div>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "outer", "abs", "right-bottom")
+	outer, abs, rightBottom := boxes["outer"], boxes["abs"], boxes["right-bottom"]
+	want := image.Pt(outer.Rect.Min.X+5, outer.Rect.Min.Y+7)
+	if abs.Rect.Min != want {
+		t.Fatalf("absolute box origin = %v, want %v from padding-box origin %v", abs.Rect.Min, want, outer.Rect.Min)
+	}
+	if rightBottom.Rect.Max.X != outer.Rect.Max.X-5 || rightBottom.Rect.Max.Y != outer.Rect.Max.Y-6 {
+		t.Fatalf("right/bottom offsets = %v, want bottom-right (%d,%d)", rightBottom.Rect,
+			outer.Rect.Max.X-5, outer.Rect.Max.Y-6)
+	}
+}
+
+func TestFixedPositionOffsetsUseViewport(t *testing.T) {
+	doc := styledForLayout(t, `<div style="position:relative;margin:0;width:100px;height:80px">
+		<div id="fixed" style="position:fixed;left:3px;top:4px;width:10px;height:12px"></div>
+	</div>`)
+	viewport := image.Rect(20, 30, 320, 230)
+	got, err := LayoutWithViewport(doc, viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixed := boxesByID(got.Root, "fixed")["fixed"]
+	if fixed.Rect.Min != image.Pt(viewport.Min.X+3, viewport.Min.Y+4) {
+		t.Fatalf("fixed box origin = %v, want viewport-relative (%d,%d)", fixed.Rect.Min,
+			viewport.Min.X+3, viewport.Min.Y+4)
+	}
+}
+
+func TestPositionedAutoOffsetsUseStaticPosition(t *testing.T) {
+	doc := styledForLayout(t, `<div id="parent" style="margin:0">
+		<div id="before" style="width:20px;height:11px"></div>
+		<div id="abs" style="position:absolute;left:auto;top:auto;width:8px;height:6px"></div>
+	</div>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "before", "abs")
+	before, abs := boxes["before"], boxes["abs"]
+	if abs.Rect.Min.X != before.Rect.Min.X || abs.Rect.Min.Y != before.Rect.Max.Y {
+		t.Fatalf("auto-offset static position = %v, want (%d,%d)", abs.Rect.Min, before.Rect.Min.X, before.Rect.Max.Y)
+	}
+}
+
+func TestAnonymousTableWPTAbsoluteBoxDoesNotMoveTable(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/wpt/tables/anonymous-table-box-width-001.xht")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := styledForLayout(t, string(source))
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := boxesByID(got.Root, "overlapping-green")["overlapping-green"]
+	if table.Rect.Min.Y != 52 {
+		t.Fatalf("table starts at y=%d, want y=52; absolute block affected flow", table.Rect.Min.Y)
+	}
+}
+
+func boxesByID(root *Box, ids ...string) map[string]*Box {
+	wanted := make(map[string]bool, len(ids))
+	found := make(map[string]*Box, len(ids))
+	for _, id := range ids {
+		wanted[id] = true
+	}
+	var walk func(*Box)
+	walk = func(box *Box) {
+		if box.Node != nil {
+			if value, ok := box.Node.Attribute("id"); ok && wanted[value.Value] {
+				found[value.Value] = box
+			}
+		}
+		for _, child := range box.Children {
+			walk(child)
+		}
+	}
+	walk(root)
+	for _, id := range ids {
+		if found[id] == nil {
+			panic("missing box id " + id)
+		}
+	}
+	return found
 }
 
 func TestLayoutCollapsesWhitespaceAndHonorsDisplayNone(t *testing.T) {
