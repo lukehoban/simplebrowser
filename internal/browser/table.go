@@ -25,6 +25,10 @@ import (
 //     inside a table) gets an anonymous cell.
 //   - Cell content is top aligned; `valign` and vertical centering are not
 //     implemented yet.
+//   - `border-collapse: collapse` is partial: border-spacing is dropped and
+//     row-group top/bottom borders collapse (wider wins) into gaps between
+//     rows. Cell, row and table borders still use the separated model.
+//   - The first header group renders first and the first footer group last.
 //   - `rowspan` is honored for geometry: a spanning cell covers its rows and
 //     any extra height it needs is added to the last row it spans.
 
@@ -64,11 +68,12 @@ type tableGroupBox struct {
 }
 
 type tableGrid struct {
-	rows    []*tableRowBox
-	groups  []*tableGroupBox
-	columns int
-	spacing int
-	padding [4]int // default cell padding contributed by cellpadding
+	rows     []*tableRowBox
+	groups   []*tableGroupBox
+	columns  int
+	spacing  int
+	collapse bool   // border-collapse: collapse
+	padding  [4]int // default cell padding contributed by cellpadding
 }
 
 func displayIs(n *StyledNode, values ...string) bool {
@@ -191,6 +196,10 @@ func spanAttribute(n *StyledNode, name string) int {
 // anonymous rows and cells so that every table produces usable geometry.
 func buildTableGrid(table *StyledNode) *tableGrid {
 	grid := &tableGrid{spacing: int(math.Max(0, math.Round(px(table.Style["border-spacing"], 0, 2))))}
+	if strings.EqualFold(strings.TrimSpace(table.Style["border-collapse"]), "collapse") {
+		// In the collapsing border model border-spacing does not apply.
+		grid.collapse, grid.spacing = true, 0
+	}
 	grid.padding = boxEdges(table, "padding", 0)
 
 	var pending []*StyledNode // cells or content awaiting an anonymous row
@@ -231,7 +240,7 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 		flushLoose()
 	}
 
-	for _, child := range table.Children {
+	for _, child := range orderedTableChildren(table.Children) {
 		switch {
 		case hiddenNode(child) || blankText(child):
 			continue
@@ -250,6 +259,67 @@ func buildTableGrid(table *StyledNode) *tableGrid {
 	flushPending()
 	grid.assignColumns()
 	return grid
+}
+
+// orderedTableChildren moves the first header group to the top and the first
+// footer group to the bottom of the table, as CSS 2.1 §17.2 requires,
+// regardless of their source order.
+func orderedTableChildren(children []*StyledNode) []*StyledNode {
+	header, footer := -1, -1
+	for i, child := range children {
+		if hiddenNode(child) || !isRowGroupNode(child) {
+			continue
+		}
+		if header < 0 && (displayIs(child, "table-header-group") ||
+			(strings.EqualFold(nodeName(child), "thead") && !displayIs(child, "table-row-group", "table-footer-group"))) {
+			header = i
+		} else if footer < 0 && (displayIs(child, "table-footer-group") ||
+			(strings.EqualFold(nodeName(child), "tfoot") && !displayIs(child, "table-row-group", "table-header-group"))) {
+			footer = i
+		}
+	}
+	if header < 0 && footer < 0 {
+		return children
+	}
+	ordered := make([]*StyledNode, 0, len(children))
+	if header >= 0 {
+		ordered = append(ordered, children[header])
+	}
+	for i, child := range children {
+		if i != header && i != footer {
+			ordered = append(ordered, child)
+		}
+	}
+	if footer >= 0 {
+		ordered = append(ordered, children[footer])
+	}
+	return ordered
+}
+
+// groupBorder returns a row group's border width on one side, or zero for
+// rows outside any group.
+func groupBorder(g *tableGroupBox, side string) int {
+	if g == nil || g.node == nil {
+		return 0
+	}
+	return borderWidth(g.node.Style, side)
+}
+
+// collapsedGapBefore returns the space reserved above row i for collapsed
+// row-group borders: where two groups meet, the wider border wins.
+func (g *tableGrid) collapsedGapBefore(i int) int {
+	if !g.collapse {
+		return 0
+	}
+	row := g.rows[i]
+	if i > 0 && g.rows[i-1].group == row.group {
+		return 0
+	}
+	gap := groupBorder(row.group, "top")
+	if i > 0 {
+		gap = max(gap, groupBorder(g.rows[i-1].group, "bottom"))
+	}
+	return gap
 }
 
 // addRow records one row, wrapping any non-cell children in anonymous cells.
@@ -654,9 +724,13 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	}
 
 	cursorY := originY + grid.spacing
-	for _, row := range grid.rows {
+	for i, row := range grid.rows {
+		cursorY += grid.collapsedGapBefore(i)
 		row.y = cursorY
 		cursorY += row.height + grid.spacing
+	}
+	if grid.collapse && len(grid.rows) > 0 {
+		cursorY += groupBorder(grid.rows[len(grid.rows)-1].group, "bottom")
 	}
 	tableHeight := max(0, cursorY-originY)
 
@@ -698,6 +772,17 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		groupBox.Children = append(groupBox.Children, rowBox)
 		groupBox.Rect = groupBox.Rect.Union(rowBox.Rect)
 		groupBox.Content = groupBox.Rect
+	}
+
+	if grid.collapse {
+		// Collapsed row-group borders sit in the gaps reserved between rows,
+		// so the group boxes grow to cover them.
+		for group, groupBox := range groupBoxes {
+			top, bottom := groupBorder(group, "top"), groupBorder(group, "bottom")
+			groupBox.Content = groupBox.Rect
+			groupBox.Rect.Min.Y -= top
+			groupBox.Rect.Max.Y += bottom
+		}
 	}
 
 	content := image.Rect(originX, originY, originX+tableWidth, originY+tableHeight)
