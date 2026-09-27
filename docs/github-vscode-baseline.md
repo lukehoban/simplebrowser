@@ -76,7 +76,10 @@ main `336d924`. The GitHub fixture and pinned Chrome reference are unchanged;
 the fresh simplebrowser diagnostic has SHA-256
 `297f2a4d92d19fac5aca7d8d277f95df8c7fad04c6ae51770d688e4d0bc21bf3`.
 The screenshot is evidence for this authored stand-in only, not a live-site
-capture or CI golden.
+capture or CI golden. Integrating main `bab1bfb` (float intrinsic width and
+flex-item float containment, #349/PR #357) left both this diagnostic and the
+isolated layout-repros render byte-identical, so the comparisons below still
+describe current main.
 
 ![Pinned Chrome reference beside current main 336d924 diagnostic](screenshots/github-vscode/comparison-after-336d924.png)
 
