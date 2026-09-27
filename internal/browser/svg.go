@@ -1293,7 +1293,8 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			useParityRasterizer := false
 			if shape.fillRule == "evenodd" {
 				paths = flattenSVGShape(shape, m)
-				useParityRasterizer = !svgFillRulesEquivalent(paths)
+				visiblePaths := svgVisibleFillPaths(paths, w, h)
+				useParityRasterizer = !svgFillRulesEquivalent(visiblePaths)
 			}
 			if useParityRasterizer {
 				if mask := svgEvenOddMask(paths, w, h); mask != nil {

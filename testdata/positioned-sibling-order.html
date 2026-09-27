@@ -1,0 +1,20 @@
+<!doctype html>
+<style>
+  body { margin: 24px; font: 18px sans-serif }
+  #stage { position: relative; margin-top: 20px }
+  #reference, #subject { position: absolute; left: 0; top: 0 }
+  #reference { width: 360px; height: 240px; border: 12px solid red }
+  #subject { border: 12px solid green }
+  #content {
+    width: 240px;
+    height: 120px;
+    margin: 48px;
+    border: 12px solid green;
+    background: #eefbea;
+  }
+</style>
+<p>Pass: the two green frames completely cover the red reference frame.</p>
+<div id="stage">
+  <div id="reference"></div>
+  <div id="subject"><div id="content"></div></div>
+</div>

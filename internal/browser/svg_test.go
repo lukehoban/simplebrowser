@@ -311,6 +311,34 @@ func TestSVGNestedViewportViewBoxAndClip(t *testing.T) {
 	}
 }
 
+func TestSVGNestedViewportClipsEvenOddParityFill(t *testing.T) {
+	// Overlapping even-odd rectangles whose union extends past a nested
+	// viewport: the parity hole must stay empty and the clip must still apply.
+	src := `<svg width="40" height="40"><svg x="10" y="10" width="20" height="20">
+		<path fill="blue" fill-rule="evenodd" d="M-10 -10H15V15H-10Z M5 5H30V30H5Z"/>
+	</svg></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blue := color.RGBA{0, 0, 255, 255}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{12, 12, blue},         // first rect only, inside clip
+		{27, 27, blue},         // second rect only, inside clip
+		{19, 19, color.RGBA{}}, // overlap: even-odd hole
+		{27, 12, color.RGBA{}}, // outside both rects
+		{5, 5, color.RGBA{}},   // first rect but clipped by nested viewport
+		{35, 35, color.RGBA{}}, // second rect but clipped by nested viewport
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
 func TestSVGNestedViewportVisual(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "nested-viewports.svg"))
 	if err != nil {
@@ -1370,27 +1398,77 @@ func TestSVGEquivalentFillRulesHaveSameAntialiasing(t *testing.T) {
 	}
 }
 
-// Complex paths still require parity rasterization. Its denser vertical
-// sampling keeps near-horizontal edge coverage within one alpha level of the
-// vector rasterizer. The off-canvas second subpath conservatively selects the
-// parity path without changing the visible geometry.
-func TestSVGFillRuleComplexPathAntialiasing(t *testing.T) {
+// Complex paths require parity rasterization. Exact area coverage must match
+// the equivalent non-zero geometry, including the five formerly one-alpha
+// edge differences caused by an off-canvas second subpath.
+func TestSVGFillRuleComplexPathExactAntialiasing(t *testing.T) {
 	const d = "M2 2.13L18 3.01L18 17L2 17Z M-10 -10L-9 -10L-9 -9Z"
 	nonzero, evenodd := renderSVGFillRulePair(t, d)
-	maxDelta := 0
 	for y := 0; y < 20; y++ {
 		for x := 0; x < 20; x++ {
-			delta := int(nonzero.RGBAAt(x, y).A) - int(evenodd.RGBAAt(x, y).A)
-			if delta < 0 {
-				delta = -delta
-			}
-			if delta > maxDelta {
-				maxDelta = delta
+			a, b := nonzero.RGBAAt(x, y).A, evenodd.RGBAAt(x, y).A
+			if a != b {
+				t.Errorf("alpha at (%d,%d): nonzero=%d evenodd=%d", x, y, a, b)
 			}
 		}
 	}
-	if maxDelta > 1 {
-		t.Errorf("maximum alpha difference = %d, want <= 1", maxDelta)
+	if path := os.Getenv("SVG_FILL_AA_EXACT_VISUAL_PATH"); path != "" {
+		writeSVGFillAACloseup(t, path, nonzero, evenodd)
+	}
+}
+
+func TestSVGEvenOddMaskExactFractionalRectangle(t *testing.T) {
+	paths := []svgSubpath{{points: []svgPoint{{2.25, 2.5}, {4.75, 2.5}, {4.75, 4.5}, {2.25, 4.5}}}}
+	mask, ok := svgEvenOddExactMask(paths, 8, 8)
+	if !ok || mask == nil {
+		t.Fatal("exact rasterization unexpectedly declined a small polygon")
+	}
+	for _, tc := range []struct {
+		x, y int
+		want uint8
+	}{
+		{2, 2, 96},  // 3/8 pixel area.
+		{3, 2, 128}, // 1/2 pixel area.
+		{4, 2, 96},  // 3/8 pixel area.
+		{2, 3, 191}, // 3/4 pixel area.
+		{3, 3, 255}, // Full pixel area.
+		{5, 3, 0},   // Outside.
+	} {
+		if got := mask.AlphaAt(tc.x, tc.y).A; got != tc.want {
+			t.Errorf("exact coverage alpha at (%d,%d) = %d, want %d", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
+func TestSVGEvenOddExactMaskEdgeBudget(t *testing.T) {
+	points := make([]svgPoint, maxSVGExactEdges+2)
+	for i := range points {
+		y := 1.0
+		if i%2 != 0 {
+			y = 2
+		}
+		points[i] = svgPoint{float64(i), y}
+	}
+	mask, ok := svgEvenOddExactMask([]svgSubpath{{points: points}}, 20, 20)
+	if ok || mask != nil {
+		t.Fatal("exact rasterizer should decline a path beyond the edge budget")
+	}
+}
+
+func TestSVGFillRuleExactCoverageKeepsHole(t *testing.T) {
+	const d = "M1.25 1.5L18.75 1.5L18.75 18.5L1.25 18.5Z M5 5L15 5L15 15L5 15Z"
+	_, evenodd := renderSVGFillRulePair(t, d)
+	for _, tc := range []struct {
+		x, y int
+		want uint8
+	}{
+		{2, 10, 255},  // Filled ring.
+		{5, 10, 0},    // Inner contour makes a hole.
+		{15, 10, 255}, // Ring resumes after the inner contour at x=15.
+	} {
+		if got := evenodd.RGBAAt(tc.x, tc.y).A; got != tc.want {
+			t.Errorf("even-odd alpha at (%d,%d) = %d, want %d", tc.x, tc.y, got, tc.want)
+		}
 	}
 }
 

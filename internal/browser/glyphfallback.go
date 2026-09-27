@@ -1,11 +1,13 @@
 package browser
 
 import (
+	"image"
 	"unicode"
 	"unicode/utf8"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
+	"golang.org/x/image/math/fixed"
 )
 
 // fallbackFamily is the bundled face consulted for runes the selected face has
@@ -28,6 +30,7 @@ type glyphFallback struct {
 	faces              *faceSet
 	primary, secondary *opentype.Font
 	key, smallKey      faceKey
+	monospace          bool
 	// Faces are resolved lazily so styles whose text never falls back do not
 	// allocate fallback faces.
 	face, smallFace         font.Face
@@ -47,7 +50,8 @@ func (f *faceSet) glyphFallback(key faceKey, variant fontVariant) *glyphFallback
 		return nil
 	}
 	fb := &glyphFallback{faces: f, primary: primary, secondary: secondary,
-		key: faceKey{size: key.size, family: fallbackFamily, bold: variant.bold, italic: variant.italic}}
+		key:       faceKey{size: key.size, family: fallbackFamily, bold: variant.bold, italic: variant.italic},
+		monospace: variant.family == "mono"}
 	fb.smallKey = fb.key
 	fb.smallKey.size = key.size * .8
 	return fb
@@ -138,8 +142,51 @@ func (g *glyphFallback) visitRun(face font.Face, small, fallback bool, text stri
 	}
 	if fallback {
 		if fb := g.faceFor(small); fb != nil {
+			if g.monospace {
+				if advance, ok := face.GlyphAdvance('0'); ok && advance > 0 {
+					fb = monospaceFallbackFace{Face: fb, advance: advance}
+				}
+			}
 			face = fb
 		}
 	}
 	visit(face, text)
+}
+
+// monospaceFallbackFace draws a fallback face's glyph outlines while advancing
+// each spacing glyph by the selected Go Mono face's 1ch width. Combining marks
+// retain their zero advance, and kerning is disabled as it is for a monospace
+// face. Wrapping the face keeps layout measurement and painting on the same
+// font.Face path.
+type monospaceFallbackFace struct {
+	font.Face
+	advance fixed.Int26_6
+}
+
+func (f monospaceFallbackFace) Glyph(dot fixed.Point26_6, r rune) (
+	dr image.Rectangle, mask image.Image, maskp image.Point, advance fixed.Int26_6, ok bool,
+) {
+	dr, mask, maskp, advance, ok = f.Face.Glyph(dot, r)
+	return dr, mask, maskp, f.fixedAdvance(advance, ok), ok
+}
+
+func (f monospaceFallbackFace) GlyphBounds(r rune) (fixed.Rectangle26_6, fixed.Int26_6, bool) {
+	bounds, advance, ok := f.Face.GlyphBounds(r)
+	return bounds, f.fixedAdvance(advance, ok), ok
+}
+
+func (f monospaceFallbackFace) GlyphAdvance(r rune) (fixed.Int26_6, bool) {
+	advance, ok := f.Face.GlyphAdvance(r)
+	return f.fixedAdvance(advance, ok), ok
+}
+
+func (f monospaceFallbackFace) Kern(_, _ rune) fixed.Int26_6 {
+	return 0
+}
+
+func (f monospaceFallbackFace) fixedAdvance(native fixed.Int26_6, ok bool) fixed.Int26_6 {
+	if ok && native != 0 {
+		return f.advance
+	}
+	return native
 }
