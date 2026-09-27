@@ -35,10 +35,12 @@ its second item must stay inside the 180px container.
   equally between that line's `auto` main margins before `justify-content`
   runs, so justification has nothing left to distribute
   ([#315](https://github.com/lukehoban/simplebrowser/issues/315)). Zero or
-  negative free space leaves them at zero, keeping the overflowing flex-start
-  behavior. Distribution is physical, so it also covers `row-reverse` /
-  `column-reverse`, and it runs per line when wrapping. An odd remainder pixel
-  lands on the last auto margin.
+  negative free space leaves them at zero. **Known gap:** the existing
+  justification path clamps negative free space, so overflowing
+  `justify-content:flex-end` does not reach the end; see
+  [#342](https://github.com/lukehoban/simplebrowser/issues/342). Distribution
+  is physical, so it also covers `row-reverse` / `column-reverse`, and it runs
+  per line when wrapping. An odd remainder pixel lands on the last auto margin.
   ![Main-axis auto margins before and after](screenshots/flex/auto-main-margins-before-after.png)
   ([`testdata/flex/auto-main-margins.html`](../testdata/flex/auto-main-margins.html))
 - `flex-wrap: wrap | wrap-reverse`
