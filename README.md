@@ -44,6 +44,24 @@ The output is currently an 800×600 placeholder PNG. HTTP(S) resources are
 fetched with bounded HTTP/1.1 responses, redirects, and gzip support. Local
 paths and `file://` URLs read the supplied file.
 
+## Rendering progress
+
+Every pull request and push to `main` renders the checked-in Hacker News
+snapshot. Open the latest [CI workflow run](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml)
+and download its `hn-render-*` artifact to inspect `hn-fixture.png`. The image
+is a placeholder while layout and painting are under development; keeping the
+artifact stable makes progress visible as those stages land.
+
+Render the same network-free fixture locally with:
+
+```sh
+go run ./cmd/simplebrowser -o hn-fixture.png testdata/hn/news.html
+```
+
+The HTML, stylesheet, and small image assets in `testdata/hn` are a captured
+snapshot, so this command and the end-to-end test do not depend on live Hacker
+News availability or content.
+
 Run the project checks locally with:
 
 ```sh
