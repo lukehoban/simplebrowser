@@ -1132,6 +1132,7 @@ func TestSVGFillRuleVisual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	img, err := decodeSVG(data)
 	if err != nil {
 		t.Fatal(err)
@@ -1160,6 +1161,95 @@ func TestSVGFillRuleVisual(t *testing.T) {
 		closeErr := f.Close()
 		if err != nil || closeErr != nil {
 			t.Fatalf("write fill-rule render: %v, %v", err, closeErr)
+		}
+	}
+}
+
+func TestSVGStylesheetRingVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "style-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without <style>, the output is identical to the old renderer, which
+	// skipped the element. Keep both renders for a reproducible comparison.
+	if path := os.Getenv("SVG_STYLE_BEFORE_VISUAL_PATH"); path != "" {
+		before := regexp.MustCompile(`(?s)<style>.*?</style>`).ReplaceAll(data, nil)
+		old, err := decodeSVG(before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, old.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write SVG stylesheet before visual: %v, %v", encodeErr, closeErr)
+		}
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{15, 15, color.RGBA{211, 38, 74, 255}},
+		{35, 30, color.RGBA{255, 255, 255, 255}},
+		{95, 15, color.RGBA{34, 153, 85, 255}},
+		{115, 30, color.RGBA{255, 255, 255, 255}},
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	if path := os.Getenv("SVG_STYLE_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write SVG stylesheet visual: %v, %v", encodeErr, closeErr)
+		}
+	}
+}
+
+func TestSVGStylesheetCascade(t *testing.T) {
+	const svg = `<svg width="100" height="20">
+	<style>
+	rect { fill: red; stroke: blue; stroke-width: 2 }
+	.group > rect.box { fill: green }
+	#specific { fill: blue }
+	.group rect.box { fill: #008000 !important }
+	@media print { rect { fill: black } }
+	rect:hover { fill: black }
+	</style>
+	<g class="group" fill="red"><rect class="box" id="specific" x="2" y="2" width="16" height="16" fill="yellow" style="fill: red; stroke: none"/></g>
+	<rect x="22" y="2" width="16" height="16" style="fill: yellow"/>
+	<rect x="42" y="2" width="16" height="16" fill="yellow"/>
+	<g fill="blue"><rect x="62" y="2" width="16" height="16" style="fill: inherit"/></g>
+	<rect x="82" y="2" width="16" height="16" class="box" fill="yellow"/>
+	</svg>`
+	img, err := decodeSVG([]byte(svg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x    int
+		want color.RGBA
+	}{
+		{10, color.RGBA{0, 128, 0, 255}},   // important beats inline and id
+		{30, color.RGBA{255, 255, 0, 255}}, // normal inline beats type
+		{50, color.RGBA{255, 0, 0, 255}},   // stylesheet beats presentation
+		{70, color.RGBA{0, 0, 255, 255}},   // explicit inherited value
+		{90, color.RGBA{255, 0, 0, 255}},   // descendant selector does not leak
+	} {
+		if got := img.RGBAAt(tc.x, 10); got != tc.want {
+			t.Errorf("pixel (%d,10) = %v, want %v", tc.x, got, tc.want)
 		}
 	}
 }
