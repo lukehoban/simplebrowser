@@ -114,7 +114,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	items := make([]flexItem, 0, len(nodes))
 	for _, child := range nodes {
 		margin := boxEdges(child, "margin", float64(width))
-		grow, shrink, basis, hasBasis := flexFactors(child.Style, availableMain)
+		grow, shrink, basis, hasBasis := flexFactors(child.Style, availableMain, mainDefinite)
 		main := 0.0
 		if column {
 			if hasBasis {
@@ -456,7 +456,7 @@ func resolveFlexLengths(items []flexItem, free float64, column bool, mainSize in
 	}
 }
 
-func flexFactors(style ComputedStyle, basisSize int) (grow, shrink, basis float64, hasBasis bool) {
+func flexFactors(style ComputedStyle, basisSize int, mainDefinite bool) (grow, shrink, basis float64, hasBasis bool) {
 	grow, shrink = 0, 1
 	if shorthand := strings.Fields(strings.TrimSpace(style["flex"])); len(shorthand) > 0 {
 		if strings.EqualFold(shorthand[0], "none") {
@@ -469,11 +469,11 @@ func flexFactors(style ComputedStyle, basisSize int) (grow, shrink, basis float6
 				if value, err = strconv.ParseFloat(shorthand[1], 64); err == nil {
 					shrink = math.Max(0, value)
 				} else {
-					basis, hasBasis = flexBasis(shorthand[1], basisSize)
+					basis, hasBasis = flexBasis(shorthand[1], basisSize, mainDefinite)
 				}
 			}
 			if len(shorthand) > 2 {
-				basis, hasBasis = flexBasis(shorthand[2], basisSize)
+				basis, hasBasis = flexBasis(shorthand[2], basisSize, mainDefinite)
 			}
 		}
 	}
@@ -484,12 +484,17 @@ func flexFactors(style ComputedStyle, basisSize int) (grow, shrink, basis float6
 		shrink = math.Max(0, value)
 	}
 	if value := strings.TrimSpace(style["flex-basis"]); value != "" && !strings.EqualFold(value, "auto") {
-		basis, hasBasis = flexBasis(value, basisSize)
+		basis, hasBasis = flexBasis(value, basisSize, mainDefinite)
 	}
 	return
 }
 
-func flexBasis(value string, basisSize int) (float64, bool) {
+func flexBasis(value string, basisSize int, mainDefinite bool) (float64, bool) {
+	// An indefinite column height is not a percentage basis. Even a mixed
+	// calc with a definite px term falls back to the item's auto/content size.
+	if !mainDefinite && strings.Contains(value, "%") {
+		return 0, false
+	}
 	if strings.EqualFold(value, "0") || strings.EqualFold(value, "0%") {
 		return 0, true
 	}

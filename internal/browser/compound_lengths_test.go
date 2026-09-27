@@ -269,6 +269,74 @@ func TestCalcBoxShorthandComponents(t *testing.T) {
 	}
 }
 
+func TestBoxShorthandInvalidComponentIsAtomic(t *testing.T) {
+	for _, tc := range []struct{ property, valid, invalid, prefix string }{
+		{"margin", "4px", "calc(10% - 1px) bogus", "margin"},
+		{"padding", "4px", "2px bogus", "padding"},
+		{"border-width", "4px", "calc(1px + 2px) bogus", "border"},
+		{"border-width", "4px", "calc(10% + 1px) 2px", "border"},
+		{"margin", "4px", "calc(1px + 2) 3px", "margin"},
+	} {
+		t.Run(tc.property+"/"+tc.invalid, func(t *testing.T) {
+			doc := styledForLayout(t, `<div id="target" style="`+tc.property+`:`+tc.valid+`;`+tc.property+`:`+tc.invalid+`"></div>`)
+			style := styledElementByID(doc.StyleRoot, "target").Style
+			for _, side := range []string{"top", "right", "bottom", "left"} {
+				name := tc.prefix + "-" + side
+				if tc.property == "border-width" {
+					name += "-width"
+				}
+				if got := style[name]; got != tc.valid {
+					t.Errorf("%s = %q, want %q; shorthand must be discarded as a unit", name, got, tc.valid)
+				}
+			}
+			if featureSupported(tc.property, tc.invalid) {
+				t.Errorf("@supports accepted invalid %s: %s", tc.property, tc.invalid)
+			}
+		})
+	}
+	// A substituted invalid shorthand wins the cascade but must invalidate
+	// all four sides rather than leaving valid components or earlier values.
+	doc := styledForLayout(t, `<div id="target" style="--bad:bogus;margin:4px;margin:calc(10% - 1px) var(--bad)"></div>`)
+	style := styledElementByID(doc.StyleRoot, "target").Style
+	for _, side := range []string{"top", "right", "bottom", "left"} {
+		if got := style["margin-"+side]; got == "4px" || got == "calc(10% - 1px)" {
+			t.Errorf("invalid substituted margin-%s = %q", side, got)
+		}
+	}
+}
+
+func TestCalcFlexBasisIndefiniteColumnUsesContent(t *testing.T) {
+	source := `<body style="margin:0">
+		<div style="display:flex;flex-direction:column;width:400px">
+			<div id="mixed" style="flex-basis:calc(50% - 10px);background:green;height:24px"></div>
+			<div id="plain" style="flex-basis:50%;background:blue;height:18px"></div>
+			<div id="fixed" style="flex-basis:calc(20px + 10px);background:red;height:24px"></div>
+		</div>
+		<div style="display:flex;flex-direction:column;width:400px;height:200px">
+			<div id="definite" style="flex-basis:calc(50% - 10px);background:green;height:24px"></div>
+		</div></body>`
+	doc := styledForLayout(t, source)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id   string
+		y, h int
+	}{
+		{"mixed", 0, 24}, {"plain", 24, 18}, {"fixed", 42, 30},
+		{"definite", 72, 90},
+	} {
+		box := boxesByID(got.Root, tc.id)[tc.id]
+		if box == nil || box.Rect.Min.Y != tc.y || box.Rect.Dy() != tc.h {
+			t.Errorf("#%s box = %v, want y=%d height=%d", tc.id, box, tc.y, tc.h)
+		}
+	}
+	img := painted(t, source, image.Rect(0, 0, 800, 600))
+	pixel(t, img, 2, 23, color.RGBA{0, 128, 0, 255})
+	pixel(t, img, 2, 24, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 2, 42, color.RGBA{255, 0, 0, 255})
+}
 func TestCalcHeightPercentageNeedsDefiniteContainingBlock(t *testing.T) {
 	n := &StyledNode{Style: ComputedStyle{"height": "calc(50% - 10px)"}}
 	if _, definite := specifiedHeight(n, 200, false); definite {

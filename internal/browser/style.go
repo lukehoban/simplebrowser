@@ -127,6 +127,18 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		})
 	}
 	consider := func(candidate winningDeclaration) {
+		// Box shorthands are a single declaration: an invalid component must
+		// not apply its valid siblings to the cascade.
+		switch candidate.d.Property {
+		case "margin", "padding", "border-width":
+			if cssWideKeyword(candidate.d.Value) == "" && candidate.d.Value != invalidVariable &&
+				!validSubstitutedDeclaration(candidate.d.Property, candidate.d.Value) {
+				if !candidate.validateAfterSubstitution {
+					return
+				}
+				candidate.d.Value = invalidVariable
+			}
+		}
 		if candidate.validateAfterSubstitution && candidate.d.Property == "background" &&
 			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
 			!validBackground(candidate.d.Value) {
@@ -949,6 +961,10 @@ func matchesPseudoClass(n *Node, pseudo string) bool {
 func expandDeclaration(d Declaration) []Declaration {
 	if d.Value == invalidVariable {
 		switch d.Property {
+		case "margin", "padding":
+			return invalidLonghands(d, d.Property+"-top", d.Property+"-right", d.Property+"-bottom", d.Property+"-left")
+		case "border-width":
+			return invalidLonghands(d, "border-top-width", "border-right-width", "border-bottom-width", "border-left-width")
 		case "background":
 			return invalidLonghands(d, "background-color", "background-image", "background-repeat", "background-position", "background-size")
 		case "font":
