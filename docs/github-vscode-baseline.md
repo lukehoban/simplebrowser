@@ -130,6 +130,12 @@ The isolated flex repro before and after the formatter:
 
 ![Flex row before and after](screenshots/github-vscode/flex-row-before-after.png)
 
+Negative horizontal margins ([#285](https://github.com/lukehoban/simplebrowser/issues/285))
+let the tab row's `margin: 0 -28px` reach the page edges, so the tabs start
+at x=28 and the bottom border spans the viewport, as in the Chrome reference:
+
+![Tabs before and after negative margins](screenshots/github-vscode/tabs-negative-margin-before-after.png)
+
 [The focused `var()` repro after rendering](screenshots/github-vscode/custom-property-after.png)
 shows the resolved blue text; compare the
 [prior red baseline](screenshots/github-vscode/custom-property-baseline.png).
