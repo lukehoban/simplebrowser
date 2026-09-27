@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GitHub stand-in layout diagnostics (not the fixture)</title>
+<style>
+  body { margin: 16px; font: 14px Arial, sans-serif; color: #1f2328; }
+  h2 { font-size: 14px; margin: 12px 0 8px; }
+  .row { display: flex; gap: 12px; width: 480px; border: 1px solid #567; }
+  .auto-row { display: flex; align-items: center; gap: 18px; padding: 12px 22px; border: 1px solid #567; }
+  .end { margin-left: auto; background: #ffdf93; }
+  .auto-end { margin-left: auto; background: #ffdf93; }
+  table { border-collapse: collapse; width: 400px; }
+  td { border: 1px solid #567; padding: 8px; }
+  td:first-child { width: 42%; background: #ffdf93; }
+  .sized { box-sizing: border-box; width: 100px; padding: 8px; border: 1px solid #567; background: #ffdf93; }
+  .rounded { width: 100px; height: 24px; border: 1px solid #567; border-radius: 8px; background: #ffdf93; }
+</style>
+</head>
+<body>
+<h2>Flex auto margin: final item should reach right edge</h2>
+<div class="row"><span>Product</span><span>Solutions</span><span class="end">Sign in</span></div>
+<h2>Auto-width header: final item should reach right edge</h2>
+<div class="auto-row"><span>GitHub</span><span>Product</span><span>Solutions</span><span>Open Source</span><span>Pricing</span><span class="auto-end">Sign in</span></div>
+<h2>Table: first cell requests 42% of the table width</h2>
+<table><tr><td>First</td><td>Second</td></tr><tr><td>Next</td><td>Content</td></tr></table>
+<h2>Border-box: outer width should be 100px</h2>
+<div class="sized">Box</div>
+<h2>Rounded border: corners should follow 8px radius</h2>
+<div class="rounded"></div>
+</body>
+</html>
