@@ -236,6 +236,24 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			}
 		} else {
 			offset, between = flexJustification(content, free, len(lines), crossGap)
+			// Unlike main-axis justification, overflowing lines still honor
+			// unsafeguarded center/end cross-axis alignment. Keep the gap
+			// unchanged even when the lines overflow.
+			if free < 0 {
+				switch content {
+				case "center":
+					offset = free / 2
+				case "end", "flex-end":
+					offset = free
+				}
+			}
+			// "end" follows the container's logical cross axis, while
+			// "flex-end" follows the flex cross axis. wrap-reverse flips only
+			// the latter. Line positions are mirrored below, so logical end
+			// must start at the unmirrored logical start.
+			if wrapReverse && content == "end" {
+				offset = 0
+			}
 		}
 		cursor := offset
 		for i := range lines {
