@@ -84,4 +84,14 @@ func TestCompoundBackgroundPixels(t *testing.T) {
 	pixel(t, img, 16, 18, color.RGBA{255, 0, 0, 255})
 	pixel(t, img, 95, 77, color.RGBA{255, 0, 0, 255})
 	pixel(t, img, 96, 78, color.RGBA{0, 128, 0, 255})
+
+	// Font-relative components must use this element's font, not the 16px
+	// fallback in px(), for both background positioning and tile size.
+	fontImg := painted(t, `<div style="margin:0;font-size:10px;width:50px;height:40px;
+		background:linear-gradient(red,red) no-repeat 1em 2em/2em 1em;
+		background-color:green"></div>`, image.Rect(0, 0, 800, 600))
+	pixel(t, fontImg, 9, 20, color.RGBA{0, 128, 0, 255})
+	pixel(t, fontImg, 10, 20, color.RGBA{255, 0, 0, 255})
+	pixel(t, fontImg, 29, 29, color.RGBA{255, 0, 0, 255})
+	pixel(t, fontImg, 30, 29, color.RGBA{0, 128, 0, 255})
 }
