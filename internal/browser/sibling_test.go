@@ -38,6 +38,15 @@ func TestSiblingSelectorGrammarAndSpecificity(t *testing.T) {
 	if rules := ParseCSS("p + { color:red } p { color:green }").Rules; len(rules) != 1 {
 		t.Fatalf("malformed combinator swallowed next rule: %+v", rules)
 	}
+	negated, ok := parseSelectorGroup("b:not(section > i + b, #key ~ b)")
+	if !ok || len(negated) != 1 || specificity(negated[0]) != [3]int{1, 0, 2} {
+		t.Fatalf("negated sibling argument grammar/specificity: %+v, %v", negated, ok)
+	}
+	for _, bad := range []string{"b:not(i +)", "b:not(+ i)", "b:not(i ~ > b)", "b:not(i ~ b:hoverz)"} {
+		if selectors, ok := parseSelectorGroup(bad); ok {
+			t.Errorf("accepted invalid negated sibling %q: %+v", bad, selectors)
+		}
+	}
 }
 
 func TestSiblingSelectorsIgnoreNonElementsAndRespectParent(t *testing.T) {
@@ -62,6 +71,8 @@ func TestSiblingSelectorsIgnoreNonElementsAndRespectParent(t *testing.T) {
 		{"i + b + em + b", "d", true}, {"i ~ b", "n", false},
 		{"section > i ~ b", "outside", false},
 		{"div + b", "outside", false}, {"section + b", "outside", true},
+		{"b:not(i + b)", "b", false}, {"b:not(i + b)", "d", true},
+		{"b:not(i ~ b)", "d", false}, {"b:not(i ~ b)", "outside", true},
 	} {
 		selectors, ok := parseSelectorGroup(tc.sel)
 		if !ok || matchesSelector(nodes[tc.id], selectors[0]) != tc.want {

@@ -1,7 +1,12 @@
 # Structural selector subset
 
 The renderer supports `:last-child` and bounded `:not()` alongside its existing
-type, universal, ID, class, descendant, child, and static link selectors.
+type, universal, ID, class, descendant, child, adjacent (`+`), general
+sibling (`~`), and static link selectors.
+
+- `+` looks at the nearest preceding **element** sibling; `~` looks at all
+  preceding element siblings under the same parent. Text and comment nodes
+  are ignored. Combinators also work inside supported `:not()` arguments.
 
 - `:last-child` counts **element siblings**, including `display:none` elements;
   trailing text and comments do not matter. A parentless element also matches.
@@ -28,6 +33,12 @@ row gets a lime background. The final span's computed background is lime too,
 but text-bearing inline backgrounds are an independent painting limitation
 tracked in [#197](https://github.com/lukehoban/simplebrowser/issues/197).
 
+Render `testdata/css/sibling-combinators.html` for the sibling regression:
+
+| Before | After |
+| --- | --- |
+| ![Before](screenshots/sibling-combinators-before.png) | ![After](screenshots/sibling-combinators-after.png) |
+
 `TestEmptyRowReferenceSelectors` checks the unmodified pinned WPT
 `tables/border-collapse-empty-row-ref.html` against equivalent explicit row
 classes. Complete test/reference equality also needs the collapsed-row painting
@@ -36,7 +47,6 @@ fix [#178](https://github.com/lukehoban/simplebrowser/issues/178).
 ## Known gaps / follow-ups
 
 - [#198](https://github.com/lukehoban/simplebrowser/issues/198): attribute selectors.
-- [#199](https://github.com/lukehoban/simplebrowser/issues/199): `+` / `~` sibling combinators.
 - Other functional pseudo-classes and pseudo-elements remain unsupported.
 - The empty-row WPT pair also exercises independently deferred
   [empty inline-block sizes (#192)](https://github.com/lukehoban/simplebrowser/issues/192)
