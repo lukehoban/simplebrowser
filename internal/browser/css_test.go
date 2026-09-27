@@ -13,7 +13,7 @@ import (
 
 func TestCSSSelectorsAndRecovery(t *testing.T) {
 	s := ParseCSS(`/* initial */ div.card#main.hot > a.link, * .item { color: #f60; broken; margin: 2px 0 ! important; }
-	[unsupported] { color: red } h1, h2 { font-size: 1.5rem } p { color: blue; }`)
+	[unsupported~=value] { color: red } h1, h2 { font-size: 1.5rem } p { color: blue; }`)
 	if len(s.Rules) != 3 {
 		t.Fatalf("rules: %+v", s.Rules)
 	}

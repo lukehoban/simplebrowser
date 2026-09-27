@@ -66,6 +66,7 @@ func TestAttributeSelectorMatchingAndSpecificity(t *testing.T) {
 		{`a:not([title])`, present, false},
 		{`a:not([title])`, absent, true},
 		{`a:not([href=next])`, absent, true},
+		{`a[title] + a:not([title])`, absent, true},
 	} {
 		sel := ParseCSS(tc.selector + `{}`).Rules[0].Selectors[0]
 		if got := matchesSelector(tc.node, sel); got != tc.want {

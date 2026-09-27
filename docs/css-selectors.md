@@ -1,8 +1,8 @@
 # Structural selector subset
 
-The renderer supports `[name]` and `[name=value]`, `:last-child`, and bounded
-`:not()` alongside its existing type, universal, ID, class, descendant, child,
-and static link selectors.
+The renderer supports `[name]` and `[name=value]`, `:last-child`, bounded
+`:not()`, and `+` / `~` sibling combinators alongside its existing type,
+universal, ID, class, descendant, child, and static link selectors.
 
 - Attribute names follow the HTML parser's case-insensitive lookup. Values are
   case-sensitive and may be identifiers or quoted strings. Attribute selectors
@@ -48,7 +48,6 @@ with the collapsed-row painting fix [#178](https://github.com/lukehoban/simplebr
 
 ## Known gaps / follow-ups
 
-- [#199](https://github.com/lukehoban/simplebrowser/issues/199): `+` / `~` sibling combinators.
 - Other functional pseudo-classes and pseudo-elements remain unsupported.
 - The empty-row WPT pair also exercises independently deferred
   [empty inline-block sizes (#192)](https://github.com/lukehoban/simplebrowser/issues/192)
