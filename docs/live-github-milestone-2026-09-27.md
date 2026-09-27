@@ -1,5 +1,59 @@
 # Live GitHub first-viewport check (2026-09-27)
 
+## Fresh recheck on `main` `3588c1f` (21:36 UTC)
+
+These paired 800×600 captures show the public, logged-out
+`https://github.com/microsoft/vscode` page on 2026-09-27. The CLI used source
+commit [`3588c1f572c18a56e5d4bb61607ff65f88d53b54`](https://github.com/lukehoban/simplebrowser/commit/3588c1f572c18a56e5d4bb61607ff65f88d53b54)
+and did not execute JavaScript. Chrome 154.0.8037.58 used a fresh temporary
+profile and normal JavaScript.
+
+| simplebrowser CLI (no JavaScript) | Clean-profile Chrome (JavaScript on) |
+| --- | --- |
+| ![Live CLI capture on main 3588c1f](screenshots/live-github-330/simplebrowser-3588c1f-2026-09-27.png) | ![Live Chrome reference at the same 800 by 600 viewport](screenshots/live-github-330/chrome-3588c1f-2026-09-27.png) |
+
+**Result: acceptance is not established.** The CLI shows the repository
+identity at approximately y=94, but its tabs wrap and occupy about y=190–265;
+branch/file controls are near y=300 and the first directory row begins around
+y=373. Chrome places the tabs around y=130–175, controls near y=200, its latest
+commit card at y=247–333, and the first directory row around y=334. Thus the
+tabs remain substantially lower in the CLI, while the first directory row is
+about 39px lower; the CLI shows about five full rows and part of a sixth,
+versus six full rows and part of a seventh in Chrome. The CLI capture visibly
+has an approximately 8px white outer inset and the persistent “Appearance
+settings” label. These observations support the already-open
+[#349](https://github.com/lukehoban/simplebrowser/issues/349),
+[#350](https://github.com/lukehoban/simplebrowser/issues/350), and
+[#351](https://github.com/lukehoban/simplebrowser/issues/351); no additional
+visual discrepancy merits a new issue.
+
+The previous nearly blank overlay regression
+[#352](https://github.com/lukehoban/simplebrowser/issues/352) is gone. The
+repository identity and rows are visible, but their vertical flow and the
+header presentation do not yet broadly preserve Chrome's first viewport; keep
+#330 open. The deterministic offline fixture
+[#242](https://github.com/lukehoban/simplebrowser/issues/242) remains separate.
+
+CLI command: `go run ./cmd/simplebrowser -o
+docs/screenshots/live-github-330/simplebrowser-3588c1f-2026-09-27.png
+https://github.com/microsoft/vscode`, started 21:36:02 UTC and finished
+21:36:14 UTC; SHA-256
+`5a350a0e9dd1903eed229bba5c2b892344287498db78e3cb66f202a13f7dc202`.
+Chrome capture: clean-profile headless Chrome at 800×600, device scale factor 1,
+with normal JavaScript; started 21:36:14 UTC and captured at 21:36:16 UTC;
+SHA-256
+`d49d7994062731a98bf8eec7e7c69084b95fca2b12fdfe7f43f43051b6ca126e`.
+For this reference, the page reached `document.readyState=complete`, 32
+stylesheet objects were present (26 stylesheet responses were HTTP 200, with
+zero network failures in the capture session), the computed body margin was
+0, navigation links were not underlined, and the hidden appearance tooltip
+was not displayed before screenshot capture. This excludes the earlier
+under-styled Chrome attempt from the comparison. Both PNGs are 800×600 RGB.
+The Chrome reference is a practical comparison, not a JS-off pixel-parity
+oracle. No raw response was committed.
+
+## Historical regression evidence (before opacity and float fixes)
+
 These are public, logged-out 800×600 captures of `https://github.com/microsoft/vscode`.
 The renderer fetches and renders the live page without running JavaScript. The
 reference is Google Chrome 154.0.8037.58 in headless mode, using a fresh
@@ -13,7 +67,7 @@ controlled script-on/script-off pixel test.
 
 ## Result
 
-**No, not on current `main`.** At `f955ee437098646457612cb2c0d43de15f13e002`
+**No, not on then-current `main`.** At `f955ee437098646457612cb2c0d43de15f13e002`
 the renderer's capture is a failed, nearly blank render. It shows a dark
 viewport with only **Sign in** and **Appearance settings** at the top right.
 It shows no repository identity, tabs, branch/file controls or file rows, so it
@@ -80,3 +134,4 @@ cookies, credentials or raw response content are included here.
 <!-- repo-agent-task:simplebrowser-issue330-live-js-free-milestone-check-9976c151-v1 -->
 <!-- repo-agent-task:6694d5f38f0a7e19cc80f31a0c9ecc82 -->
 <!-- repo-agent-task:simplebrowser-pr348-current-screenshot-evidence-reconciliation-9adaef6-v1 -->
+<!-- repo-agent-task:db8cabf6bd8029c25a472b612065934c -->
