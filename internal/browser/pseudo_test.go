@@ -118,7 +118,8 @@ func TestPseudoClassMatching(t *testing.T) {
 func TestNegationInvalidArgumentsFailClosed(t *testing.T) {
 	for _, selector := range []string{
 		":not()", ":not( )", ":not(.x,)", ":not(, .x)", ":not(.x,,.y)",
-		":not(> .x)", ":not(.x >)", ":not([title~=value])",
+		":not(> .x)", ":not(.x >)", ":not(.x +)",
+		":not([title~=value])", ":not([title^=x])",
 		":not(:unknown)", ":not(.x, :unknown)", ":not(::before)",
 		":not(:not(:unknown))", ":not(:is(.x))", ":not(:last-child())",
 		":not(.x))", ":not(.x", ":not(:not(.x)",

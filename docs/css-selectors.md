@@ -1,8 +1,12 @@
 # Structural selector subset
 
 The renderer supports `[name]` and `[name=value]`, `:last-child`, bounded
-`:not()`, and `+` / `~` sibling combinators alongside its existing type,
-universal, ID, class, descendant, child, and static link selectors.
+`:not()` alongside type, universal, ID, class, descendant, child, adjacent
+(`+`), general sibling (`~`), and static link selectors.
+
+- `+` looks at the nearest preceding **element** sibling; `~` looks at all
+  preceding element siblings under the same parent. Text and comment nodes
+  are ignored. Combinators also work inside supported `:not()` arguments.
 
 - Attribute names follow the HTML parser's case-insensitive lookup. Values are
   case-sensitive and may be identifiers or quoted strings. Attribute selectors
@@ -33,6 +37,12 @@ The first span now gets red text, non-final rows get red borders, and the final
 row gets a lime background. The final span's computed background is lime too,
 but text-bearing inline backgrounds are an independent painting limitation
 tracked in [#197](https://github.com/lukehoban/simplebrowser/issues/197).
+
+Render `testdata/css/sibling-combinators.html` for the sibling regression:
+
+| Before | After |
+| --- | --- |
+| ![Before](screenshots/sibling-combinators-before.png) | ![After](screenshots/sibling-combinators-after.png) |
 
 The focused attribute-selector fixture shows presence, equality, and negated
 presence:
