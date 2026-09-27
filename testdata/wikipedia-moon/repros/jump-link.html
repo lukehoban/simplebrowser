@@ -1,0 +1,9 @@
+<!DOCTYPE html>
+<!-- Vector's visually hidden skip link. The link must not paint: it is
+     absolutely positioned, 1x1 px with overflow:hidden and clip:rect(). -->
+<style>
+  body { font: 16px sans-serif; }
+  .mw-jump-link:not(:focus) { display: block; position: absolute !important; clip: rect(1px,1px,1px,1px); width: 1px; height: 1px; margin: -1px; border: 0; padding: 0; overflow: hidden; }
+</style>
+<a class="mw-jump-link" href="#content">Jump to content</a>
+<p>Only this paragraph should be visible.</p>

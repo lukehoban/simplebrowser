@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<!-- Moon infobox image sizing reduced to plain calc(): the green bar must
+     be 275px wide (250px * 1.1) and the blue bar 380px (100% - 20px of a
+     400px container). Without calc() both fall back to their auto width. -->
+<style>
+  .wrap { width: 400px; }
+  .a { width: calc(250px * 1.1); height: 30px; background: green; margin: 8px 0; }
+  .b { width: calc(100% - 20px); height: 30px; background: blue; margin: 8px 0; }
+</style>
+<div class="wrap"><div class="a"></div><div class="b"></div></div>
