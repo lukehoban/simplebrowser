@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Small caps visual regression</title>
+<style>
+body { margin: 20px; font: 20px sans-serif; color: #172e49; }
+p { margin: 12px 0; }
+.sample { font-variant: small-caps; font-size: 30px; }
+.mixed { font: italic small-caps bold 24px/1.4 monospace; }
+</style></head>
+<body>
+<p>Small caps: mixed case, accents, and numbers</p>
+<p class="sample">Hacker News: Stories 123 café</p>
+<p class="mixed">Type ABC deF 456</p>
+</body></html>

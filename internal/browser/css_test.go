@@ -88,11 +88,12 @@ func TestFontShorthandExpansionParsing(t *testing.T) {
 	}
 	got := expandDeclaration(declarations[0])
 	want := map[string]string{
-		"font-style":  "italic",
-		"font-weight": "700",
-		"font-size":   "18px",
-		"line-height": "1.5",
-		"font-family": `"Open Sans", Arial, sans-serif`,
+		"font-style":   "italic",
+		"font-variant": "small-caps",
+		"font-weight":  "700",
+		"font-size":    "18px",
+		"line-height":  "1.5",
+		"font-family":  `"Open Sans", Arial, sans-serif`,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("expanded declarations = %+v", got)
