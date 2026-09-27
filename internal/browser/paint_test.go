@@ -306,6 +306,42 @@ func TestPaintConcurrentRenders(t *testing.T) {
 	wg.Wait()
 }
 
+func TestPaintInlineBackgroundsBelowTextInAncestorOrder(t *testing.T) {
+	const markup = `<style>.sheet { background:#00ff00 }</style>
+		<body style="margin:0"><p style="margin:0"><span id="outer" style="background:#ff0000">A<span id="inner" class="sheet">B</span>C</span></p></body>`
+	doc := styledForLayout(t, markup)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineBox := layout.Root.Children[0].Children[0].Children[0]
+	if len(lineBox.InlineBackgrounds) != 2 {
+		t.Fatalf("inline backgrounds = %#v, want outer and inner fragments", lineBox.InlineBackgrounds)
+	}
+	outer, inner := lineBox.InlineBackgrounds[0], lineBox.InlineBackgrounds[1]
+	if outer.Rect.Min.X >= inner.Rect.Min.X || outer.Rect.Max.X <= inner.Rect.Max.X {
+		t.Fatalf("nested fragment geometry = outer %v inner %v", outer.Rect, inner.Rect)
+	}
+
+	img := painted(t, markup, image.Rect(0, 0, 100, 40))
+	y := inner.Rect.Max.Y - 1 // below the glyph ink, but inside both backgrounds
+	pixel(t, img, outer.Rect.Min.X, y, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, inner.Rect.Min.X, y, color.RGBA{0, 255, 0, 255})
+
+	// Text must paint after both inline backgrounds.
+	foundInk := false
+	for py := inner.Rect.Min.Y; py < inner.Rect.Max.Y; py++ {
+		for px := inner.Rect.Min.X; px < inner.Rect.Max.X; px++ {
+			if img.RGBAAt(px, py) == (color.RGBA{0, 0, 0, 255}) {
+				foundInk = true
+			}
+		}
+	}
+	if !foundInk {
+		t.Fatal("inner text was not painted over its stylesheet background")
+	}
+}
+
 func imagePainted(t *testing.T, viewport image.Rectangle, pictures ...ImageBox) *image.RGBA {
 	t.Helper()
 	var buf bytes.Buffer
