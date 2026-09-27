@@ -39,6 +39,9 @@ type StyledDocument struct {
 	BackgroundImages map[*Node][]image.Image
 	MaskImages       map[*Node][]image.Image // mask-image layers; nil entries paint as transparent
 	styleViewport    image.Point             // Size used for computed values; zero for manually constructed styles.
+	// pseudoNodes caches the synthetic nodes of ::before/::after boxes so a
+	// restyle keeps stable node identity for fetched images.
+	pseudoNodes map[pseudoKey]*Node
 }
 
 // ComputedStyle contains the values used by later layout and painting stages.

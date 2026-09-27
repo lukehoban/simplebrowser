@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>::before / ::after generated content</title>
+<style>
+  body { margin: 0; padding: 16px; font: 16px sans-serif; color: #202122; background: #fff }
+  h1 { font-size: 20px; margin: 0 0 12px }
+  .row { margin-bottom: 12px }
+
+  /* Empty string content: an icon-shaped box, as Vector's dropdown chevrons. */
+  .chevron::after {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    background: #36c;
+    vertical-align: text-bottom;
+  }
+
+  /* String content around the element's own text. */
+  .quoted::before { content: "\201C"; color: #a2a9b1 }
+  .quoted::after { content: "\201D"; color: #a2a9b1 }
+  .labelled::before { content: "Note: "; font-weight: bold }
+  .labelled::after { content: " (" "end" ")"; color: #72777d }
+
+  /* Block-level generated boxes wrap the element's children. */
+  .banner::before,
+  .banner::after {
+    content: "";
+    display: block;
+    height: 6px;
+    background: #36c;
+  }
+  .banner { background: #eaf3ff; padding: 6px }
+
+  /* Unsupported content values generate no box at all. */
+  .skipped::before { content: url(missing.png) }
+  .skipped::after { content: counter(section) }
+</style>
+</head>
+<body>
+  <h1>Generated content</h1>
+  <div class="row"><span class="chevron">293 languages</span></div>
+  <div class="row quoted">quoted by generated content</div>
+  <div class="row labelled">a labelled paragraph</div>
+  <div class="row banner">banner between two generated bars</div>
+  <div class="row skipped">unsupported content values generate nothing</div>
+</body>
+</html>
