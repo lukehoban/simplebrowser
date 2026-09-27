@@ -466,7 +466,7 @@ func validNegationArguments(selectors []Selector) bool {
 		for _, part := range selector.Parts {
 			for _, pseudo := range part.PseudoClasses {
 				switch pseudo {
-				case "link", "any-link", "visited", "hover", "active", "focus", "last-child":
+				case "link", "any-link", "visited", "hover", "active", "focus", "first-child", "last-child":
 				default:
 					return false
 				}
@@ -917,6 +917,7 @@ const uaCSS = `
 html, body, div, p, pre, blockquote, ul, ol, li, table, tr, td, th,
 header, footer, section, article, main, h1, h2, h3, h4, h5, h6 { display: block; }
 head, meta, link, style, script, title { display: none; }
+[hidden] { display: none; }
 body { margin: 8px; }
 a { color: blue; text-decoration: underline; }
 b, strong, th, h1, h2, h3, h4, h5, h6 { font-weight: bold; }
