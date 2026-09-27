@@ -430,6 +430,7 @@ func specificity(s Selector) [3]int {
 			result[0]++
 		}
 		result[1] += len(p.Classes)
+		result[1] += len(p.Attributes)
 		for _, pseudo := range p.PseudoClasses {
 			if strings.HasPrefix(pseudo, ":") {
 				result[2]++ // pseudo-elements count like type selectors
@@ -486,6 +487,12 @@ func matchesPart(n *Node, p SelectorPart) bool {
 	}
 	for _, c := range p.Classes {
 		if !classes[c] {
+			return false
+		}
+	}
+	for _, selector := range p.Attributes {
+		attr, ok := n.Attribute(selector.Name)
+		if !ok || selector.HasValue && attr.Value != selector.Value {
 			return false
 		}
 	}

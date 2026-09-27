@@ -29,11 +29,21 @@ type SelectorPart struct {
 	Tag        string
 	ID         string
 	Classes    []string
+	Attributes []AttributeSelector
 	// PseudoClasses holds lower-cased pseudo-class names such as "link".
 	// Functional pseudo-classes keep their name with a trailing "(" (for
 	// example "not("); pseudo-elements are stored with a leading ":".
 	// Only supported names can match; see matchesPseudoClass.
 	PseudoClasses []string
+}
+
+// AttributeSelector is the deliberately bounded attribute-selector grammar
+// supported by the renderer: [name] and [name=value]. Other operators and
+// modifiers are rejected with the containing rule rather than approximated.
+type AttributeSelector struct {
+	Name     string
+	Value    string
+	HasValue bool
 }
 
 type Declaration struct {
@@ -216,9 +226,17 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 			} else if isLetter(p.s[p.i]) {
 				part.Tag = strings.ToLower(p.ident())
 			}
-			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':') {
+			for p.i < len(p.s) && (p.s[p.i] == '.' || p.s[p.i] == '#' || p.s[p.i] == ':' || p.s[p.i] == '[') {
 				kind := p.s[p.i]
 				p.i++
+				if kind == '[' {
+					attribute, ok := parseAttributeSelector(&p)
+					if !ok {
+						return nil, false
+					}
+					part.Attributes = append(part.Attributes, attribute)
+					continue
+				}
 				if kind == ':' {
 					pseudo, ok := parsePseudo(&p)
 					if !ok {
@@ -251,6 +269,69 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 		result = append(result, selector)
 	}
 	return result, len(result) > 0
+}
+
+func parseAttributeSelector(p *cssScanner) (AttributeSelector, bool) {
+	p.skip()
+	name := strings.ToLower(p.ident())
+	if name == "" {
+		return AttributeSelector{}, false
+	}
+	p.skip()
+	if p.i >= len(p.s) {
+		return AttributeSelector{}, false
+	}
+	if p.s[p.i] == ']' {
+		p.i++
+		return AttributeSelector{Name: name}, true
+	}
+	// Reject every operator other than exact equality. In particular, do not
+	// accidentally treat ~=, |=, ^=, $=, or *= as equality.
+	if p.s[p.i] != '=' {
+		return AttributeSelector{}, false
+	}
+	p.i++
+	p.skip()
+	if p.i >= len(p.s) {
+		return AttributeSelector{}, false
+	}
+	var value string
+	if p.s[p.i] == '"' || p.s[p.i] == '\'' {
+		quote := p.s[p.i]
+		p.i++
+		var b strings.Builder
+		closed := false
+		for p.i < len(p.s) {
+			if p.s[p.i] == quote {
+				p.i++
+				closed = true
+				break
+			}
+			if p.s[p.i] == '\\' {
+				p.i++
+				if p.i >= len(p.s) {
+					return AttributeSelector{}, false
+				}
+			}
+			b.WriteByte(p.s[p.i])
+			p.i++
+		}
+		if !closed {
+			return AttributeSelector{}, false
+		}
+		value = b.String()
+	} else {
+		value = p.ident()
+		if value == "" {
+			return AttributeSelector{}, false
+		}
+	}
+	p.skip()
+	if p.i >= len(p.s) || p.s[p.i] != ']' {
+		return AttributeSelector{}, false
+	}
+	p.i++
+	return AttributeSelector{Name: name, Value: value, HasValue: true}, true
 }
 
 // splitSelectorList splits a selector list on top-level commas, so commas
