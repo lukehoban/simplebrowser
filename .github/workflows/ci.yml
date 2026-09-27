@@ -51,6 +51,8 @@ jobs:
         run: |
           mkdir -p render-artifacts
           ./simplebrowser -o render-artifacts/hn-fixture.png testdata/hn/news.html
+      - name: Render Wikipedia Moon baseline (diagnostic, not compared)
+        run: ./simplebrowser -o render-artifacts/wikipedia-moon-baseline.png testdata/wikipedia-moon/moon.html
       - name: Upload render
         uses: actions/upload-artifact@v4
         with:

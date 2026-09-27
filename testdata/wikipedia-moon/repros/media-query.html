@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<!-- Conditional group rules from the Moon fixture's stylesheets. At the
+     800x600 screen viewport, box A must be green (min-width:640px applies),
+     box B must stay visible (print-only rule), box C must stay green
+     (max-width:639px must not apply). -->
+<style>
+  div { width: 300px; height: 40px; margin: 8px; background: red; color: white; font: 16px sans-serif; }
+  @media screen and (min-width:640px) { .a { background: green; } }
+  @media print { .noprint { color: black; } .b { display: none; } }
+  .b { background: green; }
+  .c { background: green; }
+  @media screen and (max-width:calc(640px - 1px)) { .c { background: red; } }
+</style>
+<div class="a">A: min-width:640px applies</div>
+<div class="b">B: print rule must not hide me</div>
+<div class="c">C: max-width:639px must not apply</div>

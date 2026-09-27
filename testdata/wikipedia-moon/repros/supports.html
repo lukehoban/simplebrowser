@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<!-- Vector icon fallback pattern: when mask-image is unsupported the
+     @supports not (...) branch paints the icon as a background image.
+     Both boxes should show exactly one outcome (green = rule chosen). -->
+<style>
+  div { width: 300px; height: 40px; margin: 8px; background: red; color: white; font: 16px sans-serif; }
+  @supports (display:block) { .yes { background: green; } }
+  @supports (not-a-property:1) { .no { background: red; } }
+  .no { background: green; }
+</style>
+<div class="yes">@supports (display:block) applies</div>
+<div class="no">@supports (unknown) must not apply</div>
