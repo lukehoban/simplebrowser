@@ -66,6 +66,54 @@ func TestCSSNestedMediaListsDistributeConditions(t *testing.T) {
 	}
 }
 
+func TestCSSMediaRangeComparisons(t *testing.T) {
+	cases := []struct {
+		query string
+		at    image.Point
+		want  bool
+	}{
+		{"(width<=800px)", image.Pt(799, 600), true},
+		{"(width<=800px)", image.Pt(800, 600), true},
+		{"(width<=800px)", image.Pt(801, 600), false},
+		{"(width >= 800px)", image.Pt(799, 600), false},
+		{"(width >= 800px)", image.Pt(800, 600), true},
+		{"(width >= 800px)", image.Pt(801, 600), true},
+		{"(height<=600px)", image.Pt(800, 599), true},
+		{"(height<=600px)", image.Pt(800, 600), true},
+		{"(height<=600px)", image.Pt(800, 601), false},
+		{"(height>=600px)", image.Pt(800, 599), false},
+		{"(height>=600px)", image.Pt(800, 600), true},
+		{"(height>=600px)", image.Pt(800, 601), true},
+		{"screen and (width<=1011.98px)", image.Pt(800, 600), true},
+		{"(width<=calc(800px + 1px))", image.Pt(801, 600), true},
+		{"(min-width:800px) and (height>=calc(600px - 1px))", image.Pt(800, 600), true},
+		{"(width>=801px), (max-width:799px)", image.Pt(800, 600), false},
+		{"(width>=801px), (min-width:800px)", image.Pt(800, 600), true},
+		{"(width<800px)", image.Pt(800, 600), false},
+		{"(width>800px)", image.Pt(800, 600), false},
+		{"(width==800px)", image.Pt(800, 600), false},
+		{"(width<<=800px)", image.Pt(800, 600), false},
+		{"(width<=)", image.Pt(800, 600), false},
+		{"(width<=800px 100px)", image.Pt(800, 600), false},
+		{"(width<=calc(800px +))", image.Pt(800, 600), false},
+		{"(width<=800px<=900px)", image.Pt(800, 600), false},
+		{"(depth<=800px)", image.Pt(800, 600), false},
+		{"(width<=800px:bogus)", image.Pt(800, 600), false},
+	}
+	for _, tc := range cases {
+		if got := mediaQueryMatches(tc.query, tc.at); got != tc.want {
+			t.Errorf("mediaQueryMatches(%q, %v) = %v, want %v", tc.query, tc.at, got, tc.want)
+		}
+	}
+	sheet := ParseCSS(`@media screen, print { @media (width<=800px) {
+		.closed { visibility: hidden }
+	} }`)
+	if len(sheet.Rules) != 1 || !mediaQueryMatches(sheet.Rules[0].Media, image.Pt(800, 600)) ||
+		mediaQueryMatches(sheet.Rules[0].Media, image.Pt(801, 600)) {
+		t.Fatalf("nested comma-list range not preserved: %#v", sheet.Rules)
+	}
+}
+
 func TestCSSSelectorsAndRecovery(t *testing.T) {
 	s := ParseCSS(`/* initial */ div.card#main.hot > a.link, * .item { color: #f60; broken; margin: 2px 0 ! important; }
 	[unsupported~=value] { color: red } h1, h2 { font-size: 1.5rem } p { color: blue; }`)

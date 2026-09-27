@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Media range comparison fixture</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #1f2328;
+      background: #ffffff;
+      font: 16px Arial, sans-serif;
+    }
+    .topbar {
+      height: 64px;
+      padding: 18px 24px;
+      color: #ffffff;
+      background: #25292e;
+    }
+    .brand { font-size: 21px; font-weight: bold; }
+    .viewport { float: right; color: #b7bdc4; }
+    .menu {
+      padding: 18px 28px;
+      background: #ffffff;
+      border-bottom: 1px solid #d1d9e0;
+    }
+    .menu-title {
+      margin: 0 0 13px;
+      color: #656d76;
+      font-size: 13px;
+      font-weight: normal;
+      text-transform: uppercase;
+    }
+    .menu-item {
+      padding: 12px 0;
+      border-bottom: 1px solid #d8dee4;
+      font-size: 19px;
+      font-weight: bold;
+    }
+    .repo { padding: 24px 28px; }
+    .repo h1 { margin: 0 0 9px; color: #0969da; font-size: 23px; }
+    .repo p { margin: 0 0 20px; color: #656d76; }
+    .tabs { padding-bottom: 13px; border-bottom: 1px solid #d1d9e0; }
+    .tab { margin-right: 25px; }
+    .selected { padding-bottom: 12px; border-bottom: 2px solid #fd8c73; font-weight: bold; }
+    .files { margin-top: 19px; border: 1px solid #d1d9e0; border-radius: 6px; }
+    .file { padding: 11px 14px; border-bottom: 1px solid #d8dee4; }
+
+    /* The live GitHub rule that motivated #334 uses this compact syntax. */
+    @media (width<=1011.98px) {
+      .menu { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">Repository browser</span>
+    <span class="viewport">fixed 800 × 600 viewport</span>
+  </header>
+  <nav class="menu">
+    <h2 class="menu-title">Expanded marketing menu</h2>
+    <div class="menu-item">Platform</div>
+    <div class="menu-item">Solutions</div>
+    <div class="menu-item">Resources</div>
+    <div class="menu-item">Open Source</div>
+    <div class="menu-item">Enterprise</div>
+    <div class="menu-item">Pricing</div>
+  </nav>
+  <main class="repo">
+    <h1>microsoft / vscode</h1>
+    <p>Public repository</p>
+    <div class="tabs">
+      <span class="tab selected">Code</span>
+      <span class="tab">Issues</span>
+      <span class="tab">Pull requests</span>
+      <span class="tab">Actions</span>
+    </div>
+    <div class="files">
+      <div class="file">Latest commit</div>
+      <div class="file">.github/</div>
+      <div class="file">src/</div>
+      <div class="file">README.md</div>
+    </div>
+  </main>
+</body>
+</html>

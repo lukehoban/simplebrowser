@@ -3,6 +3,7 @@ package browser
 import (
 	"image"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -534,8 +535,28 @@ func mediaQueryAlternativeMatches(query string, viewport image.Point) bool {
 		}
 		colon := strings.IndexByte(part, ':')
 		if colon < 0 {
-			matches = false
-			break
+			// Media Queries Level 4 range syntax permits no spaces around
+			// the operator, e.g. (width<=1011.98px).
+			operator := strings.IndexAny(part, "<>=")
+			if operator < 0 || operator+1 >= len(part) ||
+				(part[operator:operator+2] != "<=" && part[operator:operator+2] != ">=") {
+				matches = false
+				break
+			}
+			name := strings.TrimSpace(part[:operator])
+			value := strings.TrimSpace(part[operator+2:])
+			length, ok := mediaRangeLength(value)
+			dimension := viewport.X
+			if name == "height" {
+				dimension = viewport.Y
+			} else if name != "width" {
+				ok = false
+			}
+			if !ok || (part[operator:operator+2] == "<=" && float64(dimension) > length) ||
+				(part[operator:operator+2] == ">=" && float64(dimension) < length) {
+				matches = false
+			}
+			continue
 		}
 		name, value := strings.TrimSpace(part[:colon]), strings.TrimSpace(part[colon+1:])
 		switch name {
@@ -558,6 +579,18 @@ func mediaQueryAlternativeMatches(query string, viewport image.Point) bool {
 	}
 	return matches
 }
+
+// Validate the entire comparison operand before using mediaLength's px/calc
+// evaluator; that evaluator alone can accept adjacent lengths without an
+// operator, which must not accidentally activate a malformed media rule.
+func mediaRangeLength(value string) (float64, bool) {
+	if !mediaRangeValuePattern.MatchString(value) {
+		return 0, false
+	}
+	return mediaLength(value)
+}
+
+var mediaRangeValuePattern = regexp.MustCompile(`(?i)^(?:[0-9]*\.?[0-9]+px|calc\(\s*[0-9]*\.?[0-9]+px(?:\s*[+-]\s*[0-9]*\.?[0-9]+px)*\s*\))$`)
 
 func splitMediaAnd(s string) []string {
 	var result []string
