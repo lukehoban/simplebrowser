@@ -8,7 +8,8 @@ The project has a working fetch, parse, cascade, and layout pipeline covering
 block, inline, and table formatting. The CLI fetches HTTP(S) pages, builds a
 DOM, loads CSS, and computes deterministic box geometry and wrapped text runs,
 including the nested tables Hacker News uses for its page structure. Painting
-still emits a deterministic placeholder image.
+now rasterizes backgrounds, borders, and embedded-font text. Images and advanced
+CSS remain future work.
 
 ## Architecture
 
@@ -53,7 +54,7 @@ Go 1.24 or later is required.
 go run ./cmd/simplebrowser -o out.png https://example.com/
 ```
 
-The output is currently an 800×600 placeholder PNG while painting is developed.
+The output is currently an 800×600 PNG with viewport-clipped boxes and text.
 HTTP(S) resources are
 fetched with bounded HTTP/1.1 responses, redirects, and gzip support. Local
 paths and `file://` URLs read the supplied file.
@@ -63,8 +64,8 @@ paths and `file://` URLs read the supplied file.
 Every pull request and push to `main` renders the checked-in Hacker News
 snapshot. Open the latest [CI workflow run](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml)
 and download its `hn-render-*` artifact to inspect `hn-fixture.png`. The image
-is a placeholder while layout and painting are under development; keeping the
-artifact stable makes progress visible as those stages land.
+now includes painted backgrounds, borders, and text; keeping the artifact
+stable makes progress visible as rendering fidelity improves.
 
 Render the same network-free fixture locally with:
 
@@ -97,7 +98,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7) — implemented
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented; review pending
-- [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10)
+- [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
 - [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11)
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture and render artifact in CI; visual fidelity pending painting
 

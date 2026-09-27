@@ -4,9 +4,6 @@ package browser
 import (
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
-	"image/png"
 	"io"
 )
 
@@ -58,9 +55,6 @@ type Layout struct {
 }
 
 // Render runs source through each browser stage and writes a PNG to output.
-//
-// The stages currently preserve pipeline structure only. Follow-up roadmap
-// issues replace each stub with real browser behavior.
 func Render(source string, output io.Writer) error {
 	return RenderWithFetcher(source, output, nil)
 }
@@ -99,26 +93,4 @@ func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error 
 
 func layout(document StyledDocument) (Layout, error) {
 	return LayoutWithViewport(document, image.Rect(0, 0, placeholderWidth, placeholderHeight))
-}
-
-func paint(layout Layout, output io.Writer) error {
-	// Issue #10 will rasterize the layout tree. Until then, draw a stable
-	// placeholder that makes the CLI useful for testing the complete pipeline.
-	canvas := image.NewRGBA(layout.Viewport)
-	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{C: color.RGBA{R: 247, G: 249, B: 252, A: 255}}, image.Point{}, draw.Src)
-
-	bands := []color.RGBA{
-		{R: 72, G: 95, B: 199, A: 255},
-		{R: 96, G: 120, B: 220, A: 255},
-		{R: 122, G: 145, B: 235, A: 255},
-		{R: 151, G: 172, B: 245, A: 255},
-		{R: 185, G: 201, B: 250, A: 255},
-	}
-	for index, band := range bands {
-		x0 := 120 + index*110
-		rect := image.Rect(x0, 270, x0+80, 330)
-		draw.Draw(canvas, rect, &image.Uniform{C: band}, image.Point{}, draw.Src)
-	}
-
-	return png.Encode(output, canvas)
 }
