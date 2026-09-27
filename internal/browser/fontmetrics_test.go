@@ -15,6 +15,8 @@ func TestFontRatiosMatchLayoutFaces(t *testing.T) {
 		{"font-family": "sans-serif", "font-size": "100px"},
 		{"font-family": "monospace", "font-size": "100px"},
 		{"font-family": "monospace", "font-size": "100px", "font-weight": "bold", "font-style": "italic"},
+		{"font-family": "Verdana", "font-size": "100px"},
+		{"font-family": "Verdana", "font-size": "100px", "font-weight": "bold", "font-style": "italic"},
 	} {
 		face := faces.metrics(style).face
 		advance, ok := face.GlyphAdvance('0')
