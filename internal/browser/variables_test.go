@@ -142,3 +142,28 @@ func TestCustomPropertiesExpandShorthandsAfterCascade(t *testing.T) {
 		t.Fatalf("variable shorthand/invalid winner: %v", box)
 	}
 }
+
+func TestEmptyCustomPropertyOverridesFallbackButInvalidatesOrdinaryValue(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>:root { --empty: ; --: red }
+		#target { color:blue; color: var(--empty, red); width: var(--empty, 30px) }
+		#fallback { color: var(--missing, red) }</style>
+		<div id="target"></div><div id="fallback"></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled = computeStyles(styled, image.Pt(800, 600))
+	target := styledElementByID(styled.StyleRoot, "target").Style
+	fallback := styledElementByID(styled.StyleRoot, "fallback").Style
+	if target["--empty"] != "" || target["color"] != "black" || target["width"] != "" ||
+		fallback["color"] != "red" {
+		t.Fatalf("empty and missing variable semantics: target=%v fallback=%v", target, fallback)
+	}
+	if _, exists := target["--"]; exists {
+		t.Fatalf("invalid custom property name accepted: %v", target)
+	}
+}

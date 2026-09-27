@@ -81,7 +81,7 @@ func substituteVarsInner(text string, properties ComputedStyle, visiting map[str
 			nameEnd = comma
 		}
 		name := strings.TrimSpace(text[start:nameEnd])
-		if !strings.HasPrefix(name, "--") || !validProperty(name) {
+		if !strings.HasPrefix(name, "--") || len(name) <= 2 || !validProperty(name) {
 			return "", false, false
 		}
 		// A dependency cycle makes the entire custom property's computed
