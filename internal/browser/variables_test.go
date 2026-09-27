@@ -1,7 +1,13 @@
 package browser
 
 import (
+	"bytes"
 	"image"
+	"image/color"
+	"image/png"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -152,6 +158,7 @@ func TestEmptyCustomPropertyOverridesFallbackButInvalidatesOrdinaryValue(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	styled, err := style(doc, &Fetcher{})
 	if err != nil {
 		t.Fatal(err)
@@ -165,5 +172,85 @@ func TestEmptyCustomPropertyOverridesFallbackButInvalidatesOrdinaryValue(t *test
 	}
 	if _, exists := target["--"]; exists {
 		t.Fatalf("invalid custom property name accepted: %v", target)
+	}
+}
+
+func TestExternalCustomPropertyURLUsesStylesheetBase(t *testing.T) {
+	var mu sync.Mutex
+	requests := map[string]int{}
+	tile := encodedTestImage(t, "png", image.Rect(0, 0, 2, 2))
+	const html = `<link rel="stylesheet" href="/css/site.css"><body style="margin:0">
+		<div id="direct"></div><div id="nested"></div><div id="fallback"></div></body>`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests[r.URL.Path]++
+		mu.Unlock()
+		switch r.URL.Path {
+		case "/page.html":
+			_, _ = w.Write([]byte(html))
+		case "/css/site.css":
+			_, _ = w.Write([]byte(`:root { --image: url(tile.png); --nested: var(--image);
+				--fallback: var(--absent, url(tile.png)) }
+				#direct, #nested, #fallback { width: 2px; height: 2px;
+				background-repeat: no-repeat }
+				#direct { background-image: var(--image) }
+				#nested { background-image: var(--nested) }
+				#fallback { background-image: var(--fallback) }`))
+		case "/css/tile.png":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(tile)
+		default:
+			http.NotFound(w, r)
+		}
+
+	}))
+	defer server.Close()
+	source := server.URL + "/page.html"
+	doc, err := parse(Resource{URL: source, Body: []byte(html)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `url("` + server.URL + `/css/tile.png")`
+	for _, id := range []string{"direct", "nested", "fallback"} {
+		if got := styledElementByID(styled.StyleRoot, id).Style["background-image"]; got != want {
+			t.Errorf("%s background-image = %q, want %q", id, got, want)
+		}
+	}
+	var output bytes.Buffer
+	if err := RenderWithFetcher(source, &output, &Fetcher{}); err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := png.Decode(&output)
+	if err != nil {
+		t.Fatalf("rendered PNG: %v", err)
+	}
+	if got := color.RGBAModel.Convert(rendered.At(0, 0)); got != (color.RGBA{B: 180, A: 255}) {
+		t.Fatalf("rendered tile pixel = %v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests["/css/tile.png"] != 2 || requests["/tile.png"] != 0 {
+		t.Fatalf("stylesheet-relative image requests = %v", requests)
+	}
+}
+
+func TestInvalidSubstitutedColorWinnerDoesNotRevealEarlierDeclaration(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>:root { --bad: 20px }
+		#target { color: blue; color: var(--bad) }</style>
+		<div style="color:green"><span id="target">inherited</span></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := styledElementByID(styled.StyleRoot, "target").Style["color"]; got != "green" {
+		t.Fatalf("invalid substituted color = %q, want inherited green", got)
 	}
 }

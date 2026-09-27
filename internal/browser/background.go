@@ -138,6 +138,7 @@ func resolveBackgroundURL(value, base string) string {
 		if url == "" {
 			continue
 		}
+
 		// url.Parse rejects literal quotes; escape these as URL path characters
 		// after interpreting CSS escapes but before resolving the reference.
 		resolved, err := ResolveCSSURL(base, strings.ReplaceAll(url, `"`, "%22"))
@@ -147,6 +148,29 @@ func resolveBackgroundURL(value, base string) string {
 		layers[i] = layer[:start] + quotedBackgroundURL(resolved) + layer[end:]
 	}
 	return strings.Join(layers, ", ")
+}
+
+// URL tokens in a custom property can be embedded in var() fallbacks or in
+// multi-layer values. Resolve all of them at declaration time, rather than
+// using the document URL after substitution into background-image.
+func resolveCustomPropertyURLs(value, base string) string {
+	var out strings.Builder
+	for len(value) > 0 {
+		start, end, url := backgroundURLToken(value)
+		if url == "" || end == 0 {
+			out.WriteString(value)
+			break
+		}
+		out.WriteString(value[:start])
+		resolved, err := ResolveCSSURL(base, strings.ReplaceAll(url, `"`, "%22"))
+		if err != nil {
+			out.WriteString(value[start:end])
+		} else {
+			out.WriteString(quotedBackgroundURL(resolved))
+		}
+		value = value[end:]
+	}
+	return out.String()
 }
 
 func expandBackground(d Declaration) []Declaration {

@@ -26,6 +26,11 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 				d := &sheets[i].Rules[j].Declarations[k]
 				if d.Property == "background" || d.Property == "background-image" {
 					d.Value = resolveBackgroundURL(d.Value, base)
+				} else if strings.HasPrefix(d.Property, "--") {
+					// A custom property retains the URL's declaration base when
+					// substituted on another element or into a fallback. Resolve
+					// each url() before the token stream enters inheritance.
+					d.Value = resolveCustomPropertyURLs(d.Value, base)
 				}
 			}
 		}
@@ -210,6 +215,14 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 			if ok && strings.TrimSpace(resolved) != "" {
 				candidate.d.Value = strings.TrimSpace(resolved)
 				candidate.d.Values = parseValues(candidate.d.Value)
+				// Unlike a syntactically invalid declaration at parse/cascade
+				// time, a substituted winner that fails property validation
+				// remains the winner and becomes unset at computed-value time.
+				if candidate.d.Property == "color" && !strings.EqualFold(candidate.d.Value, "inherit") {
+					if _, valid := parseColor(strings.ToLower(candidate.d.Value)); !valid {
+						candidate.d.Value = invalidVariable
+					}
+				}
 			} else {
 				candidate.d.Value = invalidVariable
 			}
