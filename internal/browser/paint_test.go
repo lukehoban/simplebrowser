@@ -333,6 +333,24 @@ func TestPaintTextWeightColorSizeAndUnderline(t *testing.T) {
 	pixel(t, linked, run.Rect.Min.X+2, y, color.RGBA{0, 0, 255, 255})
 }
 
+func TestPaintUserAgentHeadingWeightAndAuthorOverride(t *testing.T) {
+	viewport := image.Rect(0, 0, 240, 60)
+	defaultHeading := painted(t, `<h2 style="margin:0;font-size:20px">Heading</h2>`, viewport)
+	explicitBold := painted(t, `<p style="margin:0;font-size:20px;font-weight:bold">Heading</p>`, viewport)
+	normalHeading := painted(t, `<h2 style="margin:0;font-size:20px;font-weight:normal">Heading</h2>`, viewport)
+	normalParagraph := painted(t, `<p style="margin:0;font-size:20px">Heading</p>`, viewport)
+
+	if !bytes.Equal(defaultHeading.Pix, explicitBold.Pix) {
+		t.Fatal("UA heading pixels differ from explicit bold control")
+	}
+	if !bytes.Equal(normalHeading.Pix, normalParagraph.Pix) {
+		t.Fatal("author-normal heading pixels differ from normal control")
+	}
+	if bytes.Equal(defaultHeading.Pix, normalHeading.Pix) {
+		t.Fatal("UA heading weight did not change painted pixels")
+	}
+}
+
 func TestPaintUnderlineExcludesTrailingWhitespace(t *testing.T) {
 	viewport := image.Rect(0, 0, 240, 60)
 	withSpace := painted(t, `<p style="margin:0"><a style="text-decoration:underline">first word   </a></p>`, viewport)
