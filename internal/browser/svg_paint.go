@@ -4,8 +4,10 @@ import (
 	"image"
 	"image/color"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Local SVG paint servers and group opacity.
@@ -30,6 +32,15 @@ const (
 	maxSVGLayerPixels    = 1 << 27 // total offscreen layer pixels per rasterize
 	maxSVGGradientPixels = 1 << 27 // total gradient source pixels per rasterize
 	maxSVGPatternPixels  = 1 << 24 // total cached pattern tile pixels per document
+	// Scaled tiles are rasterized lazily when a pattern is painted under a
+	// magnifying transform. The cache is bounded per tile (count and pixels)
+	// and per document, because objectBoundingBox patterns bind one tile per
+	// shape. Past any limit painting falls back to the largest cached tile,
+	// which keeps output deterministic.
+	maxSVGPatternScale           = 16 // largest device scale a tile is rasterized for
+	maxSVGPatternTiles           = 4  // cached scaled tiles per bound tile
+	maxSVGPatternScaledPixels    = 1 << 22
+	maxSVGPatternScaledDocPixels = 1 << 24
 )
 
 type svgStop struct {
@@ -72,6 +83,137 @@ type svgPattern struct {
 	content             *svgNode
 	expansion           *svgExpansion
 	node                *svgNode
+	// tiles retains the expanded content of tile so it can be re-rasterized
+	// at the device resolution a shape is actually painted at. It is nil for
+	// unbound objectBoundingBox patterns and disabled (empty) tiles.
+	tiles *svgPatternTiles
+}
+
+// svgPatternTiles is the lazily filled scaled-tile cache of one tile raster.
+// It is shared by pointer so bound pattern copies never copy its lock.
+type svgPatternTiles struct {
+	content *svgImage // expanded tile content in tile units
+	// unitW and unitH are the tile size in the units content was expanded
+	// in (the physical box size for objectBoundingBox tiles); the base
+	// raster is their ceiling.
+	unitW, unitH float64
+	budget       *svgPatternBudget
+	mu           sync.Mutex
+	scaled       map[[2]int]*image.RGBA
+	scaledPixels int64
+}
+
+// svgPatternBudget bounds scaled-tile pixels across one document.
+type svgPatternBudget struct {
+	mu     sync.Mutex
+	pixels int64
+}
+
+func (b *svgPatternBudget) reserve(n int64) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.pixels+n > maxSVGPatternScaledDocPixels {
+		return false
+	}
+	b.pixels += n
+	return true
+}
+
+func (b *svgPatternBudget) release(n int64) {
+	b.mu.Lock()
+	b.pixels -= n
+	b.mu.Unlock()
+}
+
+// tileFor returns the tile raster to sample for the pattern-local → device
+// transform m. Tiles are rasterized at the transform's scale (quantized to
+// halves and bounded), so magnified patterns stay smooth; the phase and
+// period of the tiling are unaffected because sampling uses tile fractions.
+func (p *svgPattern) tileFor(m svgAffine) *image.RGBA {
+	c := p.tiles
+	if c == nil || c.content == nil || p.tile == nil {
+		return p.tile
+	}
+	// Column norms bound how far m stretches the tile's axes; under rotation
+	// they still grow with the device scale. m is in pattern-local units
+	// (normalized for objectBoundingBox geometry), so convert to device
+	// pixels per tile unit before quantizing.
+	quant := func(unit, local, stretch float64) int {
+		scale := stretch * local / unit
+		if !(scale > 1) || math.IsInf(scale, 0) || math.IsNaN(scale) {
+			scale = 1
+		}
+		scale = math.Min(math.Ceil(scale*2)/2, maxSVGPatternScale)
+		return int(math.Ceil(unit * scale))
+	}
+	w := quant(c.unitW, p.width, math.Hypot(m.a, m.b))
+	h := quant(c.unitH, p.height, math.Hypot(m.c, m.d))
+	base := p.tile.Bounds()
+	if w <= base.Dx() && h <= base.Dy() {
+		return p.tile
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if w > maxSVGRasterSide || h > maxSVGRasterSide || int64(w)*int64(h) > maxSVGPatternScaledPixels {
+		return p.largestTileLocked()
+	}
+	key := [2]int{w, h}
+	if tile, ok := c.scaled[key]; ok {
+		if tile == nil {
+			return p.largestTileLocked()
+		}
+		return tile
+	}
+	area := int64(w) * int64(h)
+	if len(c.scaled) >= maxSVGPatternTiles || c.scaledPixels+area > maxSVGPatternScaledPixels {
+		return p.largestTileLocked()
+	}
+	if c.budget != nil && !c.budget.reserve(area) {
+		return p.largestTileLocked()
+	}
+	tile := c.content.rasterize(w, h)
+	if c.scaled == nil {
+		c.scaled = make(map[[2]int]*image.RGBA)
+	}
+	c.scaled[key] = tile // a nil entry records a rasterizer refusal
+	if tile == nil {
+		if c.budget != nil {
+			c.budget.release(area)
+		}
+		return p.largestTileLocked()
+	}
+	c.scaledPixels += area
+	return tile
+}
+
+// largestTileLocked picks the highest-resolution cached tile, preferring
+// deterministic output over a fresh rasterization past the budgets.
+func (p *svgPattern) largestTileLocked() *image.RGBA {
+	best, bestArea := p.tile, int64(p.tile.Bounds().Dx())*int64(p.tile.Bounds().Dy())
+	for _, key := range svgSortedTileKeys(p.tiles.scaled) {
+		tile := p.tiles.scaled[key]
+		if tile == nil {
+			continue
+		}
+		if area := int64(key[0]) * int64(key[1]); area > bestArea {
+			best, bestArea = tile, area
+		}
+	}
+	return best
+}
+
+func svgSortedTileKeys(m map[[2]int]*image.RGBA) [][2]int {
+	keys := make([][2]int, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i][0] != keys[j][0] {
+			return keys[i][0] < keys[j][0]
+		}
+		return keys[i][1] < keys[j][1]
+	})
+	return keys
 }
 
 // svgPaintValue is the computed value of fill or stroke.
@@ -371,7 +513,7 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 		expansion: s, node: node}
 	if !objectUnits && !objectContent {
 		// Preserve the shared user-space tile and its cycle guard.
-		p.tile = s.renderPatternTile(p, 0, 0, 1, 1)
+		p.tile, p.tiles = s.renderPatternTile(p, 0, 0, 1, 1)
 		if p.tile == nil {
 			return nil
 		}
@@ -382,18 +524,19 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 
 // renderPatternTile rasterizes in the pattern's coordinate space. The
 // content coordinate system is independent of the tile geometry units.
-func (s *svgExpansion) renderPatternTile(p *svgPattern, bx, by, bw, bh float64) *image.RGBA {
+// It also returns the expanded content for device-scale re-rasterization.
+func (s *svgExpansion) renderPatternTile(p *svgPattern, bx, by, bw, bh float64) (*image.RGBA, *svgPatternTiles) {
 	x, y, width, height := p.x, p.y, p.width, p.height
 	if p.objectUnits {
 		x, y, width, height = bx+x*bw, by+y*bh, width*bw, height*bh
 	}
 	if width <= 0 || height <= 0 || width > maxSVGRasterSide || height > maxSVGRasterSide {
-		return nil
+		return nil, nil
 	}
 	tw, th := int(math.Ceil(width)), int(math.Ceil(height))
 	area := int64(tw) * int64(th)
 	if area > maxDecodedImagePixels || s.patternPixels+area > maxSVGPatternPixels {
-		return nil
+		return nil, nil
 	}
 	oldImg := s.img
 	tile := &svgImage{width: width, height: height, userWidth: oldImg.userWidth,
@@ -427,13 +570,17 @@ func (s *svgExpansion) renderPatternTile(p *svgPattern, bx, by, bw, bh float64) 
 	err := s.walk(p.content, frame, true, 0)
 	s.img = oldImg
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	raster := tile.rasterize(tw, th)
-	if raster != nil {
-		s.patternPixels += area
+	if raster == nil {
+		return nil, nil
 	}
-	return raster
+	s.patternPixels += area
+	if s.patternBudget == nil {
+		s.patternBudget = &svgPatternBudget{}
+	}
+	return raster, &svgPatternTiles{content: tile, unitW: width, unitH: height, budget: s.patternBudget}
 }
 
 func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
@@ -514,7 +661,7 @@ func bindSVGPaint(server *svgPaintServer, segments []svgSegment) (*svgPaintServe
 				return nil, false
 			}
 			copy := *p
-			copy.tile = p.expansion.renderPatternTile(p, x0, y0, x1-x0, y1-y0)
+			copy.tile, copy.tiles = p.expansion.renderPatternTile(p, x0, y0, x1-x0, y1-y0)
 			p.expansion.patterns[p.node] = p
 			if copy.tile == nil {
 				bound.pattern, bound.gradient = nil, nil
@@ -717,6 +864,8 @@ func (p *svgPaintRaster) source(c color.NRGBA, server *svgPaintServer, toDevice 
 		}
 		p.gradientPixels += area
 		pattern := server.pattern
+		tile := pattern.tileFor(server.toLocal.then(toDevice))
+		tileW, tileH := tile.Bounds().Dx(), tile.Bounds().Dy()
 		src := image.NewRGBA(bounds)
 		scale := uint32(c.A)
 		mod := func(v, size float64) float64 {
@@ -730,9 +879,11 @@ func (p *svgPaintRaster) source(c color.NRGBA, server *svgPaintServer, toDevice 
 			i := src.PixOffset(bounds.Min.X, y)
 			for x := bounds.Min.X; x < bounds.Max.X; x++ {
 				px, py := inv.apply(float64(x)+0.5, float64(y)+0.5)
-				tx := int(mod(px-pattern.x, pattern.width) / pattern.width * float64(pattern.tile.Bounds().Dx()))
-				ty := int(mod(py-pattern.y, pattern.height) / pattern.height * float64(pattern.tile.Bounds().Dy()))
-				col := pattern.tile.RGBAAt(tx, ty)
+				tx := int(mod(px-pattern.x, pattern.width) / pattern.width * float64(tileW))
+				ty := int(mod(py-pattern.y, pattern.height) / pattern.height * float64(tileH))
+				// Guard the open end of the tile against rounding.
+				tx, ty = min(tx, tileW-1), min(ty, tileH-1)
+				col := tile.RGBAAt(tx, ty)
 				src.Pix[i+0] = uint8((uint32(col.R)*scale + 127) / 255)
 				src.Pix[i+1] = uint8((uint32(col.G)*scale + 127) / 255)
 				src.Pix[i+2] = uint8((uint32(col.B)*scale + 127) / 255)
