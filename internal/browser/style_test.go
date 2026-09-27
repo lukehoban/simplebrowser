@@ -190,7 +190,11 @@ func TestInvalidFontShorthandsAreIgnored(t *testing.T) {
 }
 
 func TestSystemFontShorthandCascadeAndResets(t *testing.T) {
-	for keyword, size := range systemFontSizes {
+	for _, tc := range []struct{ keyword, size string }{
+		{"caption", "14px"}, {"icon", "12px"}, {"menu", "14px"},
+		{"message-box", "14px"}, {"small-caption", "12px"}, {"status-bar", "12px"},
+	} {
+		keyword, size := tc.keyword, tc.size
 		t.Run(keyword, func(t *testing.T) {
 			doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 				<style>
@@ -224,6 +228,18 @@ func TestSystemFontShorthandCascadeAndResets(t *testing.T) {
 				}
 			}
 		})
+	}
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(
+		`<p id=upper style="font: MENU">menu</p>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := styledElementByID(styled.StyleRoot, "upper").Style["font-size"]; got != "14px" {
+		t.Errorf("case-insensitive menu size = %q, want 14px", got)
 	}
 }
 
