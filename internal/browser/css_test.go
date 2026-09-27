@@ -105,6 +105,28 @@ func TestFontShorthandExpansionParsing(t *testing.T) {
 	}
 }
 
+func TestBorderShorthandExpansionRetainsWidthKeywords(t *testing.T) {
+	for _, value := range []string{
+		`black solid thin`,
+		`medium solid black`,
+		`solid thick black`,
+	} {
+		declarations := ParseDeclarations(`border: ` + value + ` !important`)
+		if len(declarations) != 1 {
+			t.Fatalf("border %q declarations = %+v", value, declarations)
+		}
+		got := expandDeclaration(declarations[0])
+		if len(got) != 4 {
+			t.Fatalf("border %q expanded declarations = %+v", value, got)
+		}
+		for i, side := range []string{"top", "right", "bottom", "left"} {
+			if got[i].Property != "border-"+side || got[i].Value != value || !got[i].Important {
+				t.Errorf("border %q side %s = %+v", value, side, got[i])
+			}
+		}
+	}
+}
+
 func TestExtractStylesRelativeAndInline(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "css"), 0700); err != nil {

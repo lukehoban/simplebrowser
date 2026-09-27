@@ -167,7 +167,8 @@ func borderWidth(style ComputedStyle, side string) int {
 	}
 	if value == "" {
 		for _, part := range strings.Fields(shorthand) {
-			if classifyValue(part).Kind == "length" || classifyValue(part).Kind == "number" {
+			if isBorderWidthKeyword(part) ||
+				classifyValue(part).Kind == "length" || classifyValue(part).Kind == "number" {
 				value = part
 				break
 			}
@@ -176,13 +177,12 @@ func borderWidth(style ComputedStyle, side string) int {
 	if value == "" {
 		return 0
 	}
-	if value == "thin" {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "thin":
 		return 1
-	}
-	if value == "medium" {
+	case "medium":
 		return 3
-	}
-	if value == "thick" {
+	case "thick":
 		return 5
 	}
 	n := px(value, 0, 0)
@@ -190,6 +190,14 @@ func borderWidth(style ComputedStyle, side string) int {
 		return 0
 	}
 	return int(math.Min(4096, math.Round(n)))
+}
+
+func isBorderWidthKeyword(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "thin", "medium", "thick":
+		return true
+	}
+	return false
 }
 
 func borderColor(style ComputedStyle, side string) color.RGBA {
