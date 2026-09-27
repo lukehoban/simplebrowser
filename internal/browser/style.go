@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"image"
 	"math"
 	"strconv"
 	"strings"
@@ -27,7 +28,16 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 			}
 		}
 	}
-	ua := UserAgentStylesheet()
+	styled := computeStyles(StyledDocument{Document: document, UserAgent: UserAgentStylesheet(),
+		Stylesheets: sheets, InlineStyles: inline}, image.Pt(placeholderWidth, placeholderHeight))
+	styled.Images, styled.BackgroundImages = fetchImages(document, styled.StyleRoot, fetcher)
+	return styled, nil
+}
+
+// computeStyles rebuilds computed values from the loaded cascade without
+// fetching resources or mutating the original tree. A new viewport can change
+// inherited font sizes and hence em/rem/ex/ch throughout the document.
+func computeStyles(document StyledDocument, viewport image.Point) StyledDocument {
 	styles := make(map[*Node]ComputedStyle)
 	rootFontSize := 16.0
 	rootElementSeen := false
@@ -49,7 +59,8 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 			return result
 		}
 		isRootElement := !rootElementSeen
-		computed := cascade(n, parent, rootFontSize, isRootElement, ua, sheets, inline[n])
+		computed := cascade(n, parent, rootFontSize, isRootElement, document.UserAgent,
+			document.Stylesheets, document.InlineStyles[n], viewport)
 		if !rootElementSeen {
 			rootElementSeen = true
 			rootFontSize = computedFontSize(computed)
@@ -61,11 +72,10 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 		}
 		return result
 	}
-	root := makeTree(document.Root, nil)
-	images, backgrounds := fetchImages(document, root, fetcher)
-	return StyledDocument{Document: document, UserAgent: ua, Stylesheets: sheets,
-		InlineStyles: inline, StyleRoot: root, Styles: styles,
-		Images: images, BackgroundImages: backgrounds}, nil
+	document.StyleRoot = makeTree(document.Document.Root, nil)
+	document.Styles = styles
+	document.styleViewport = viewport
+	return document
 }
 
 type winningDeclaration struct {
@@ -76,7 +86,7 @@ type winningDeclaration struct {
 }
 
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
-	inline []Declaration) ComputedStyle {
+	inline []Declaration, viewport image.Point) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-weight": "normal",
 		"line-height": "normal", "text-align": "start"}
@@ -135,6 +145,9 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	if parent != nil {
 		parentFontSize = computedFontSize(parent)
 	}
+	// Resolve viewport units before font-size, so font-relative lengths and
+	// inherited values use the viewport-dependent computed font size.
+	resolveViewportRelativeValues(values, viewport)
 	// ex and ch in font-size use the parent's font, like em (CSS Values 4 §6.1).
 	values["font-size"] = formatPixels(resolveFontSize(values["font-size"], parentFontSize, rootFontSize, ratiosFor(parent)))
 	if isRootElement {
@@ -157,6 +170,32 @@ func computedFontSize(style ComputedStyle) float64 {
 
 func formatPixels(value float64) string {
 	return strconv.FormatFloat(value, 'f', -1, 64) + "px"
+}
+
+// Viewport-percentage lengths use the layout viewport, never a containing
+// block or the document's content height. Keep fractions until used-value
+// rounding in layout, just as for font-relative computed lengths.
+func resolveViewportRelativeValues(values ComputedStyle, viewport image.Point) {
+	for property, text := range values {
+		v := classifyValue(strings.TrimSpace(text))
+		if v.Kind != "length" {
+			continue
+		}
+		var basis int
+		switch v.Unit {
+		case "vw":
+			basis = viewport.X
+		case "vh":
+			basis = viewport.Y
+		case "vmin":
+			basis = min(viewport.X, viewport.Y)
+		case "vmax":
+			basis = max(viewport.X, viewport.Y)
+		default:
+			continue
+		}
+		values[property] = formatPixels(v.Number * float64(basis) / 100)
+	}
 }
 
 // resolveFontSize turns the specified font-size into the computed pixel value

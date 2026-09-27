@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+  <title>Viewport units at 800 x 600</title>
+  <style>
+    body { margin: 0; background: #f3f4f6; font: 16px sans-serif; color: #172554; }
+    h1 { margin: 24px; font-size: 24px; }
+    p { margin: 24px; }
+    .panel { width: 50vw; height: 20vh; margin: 3vmin; background: #bfdbfe; }
+    .label { font-size: 3vmax; padding: 2vmin; }
+    .bar { width: 75vw; height: 10vh; margin: 3vmin; background: #0f766e; }
+    .square { width: 15vmin; height: 15vmin; margin: 3vmin; background: #ea580c; }
+  </style>
+</head>
+<body>
+  <h1>CSS viewport units</h1>
+  <p>800 x 600 viewport: blue 400 x 120, green 600 x 60, orange 90 x 90.</p>
+  <div class="panel"><div class="label">3vmax type = 24px</div></div>
+  <div class="bar"></div>
+  <div class="square"></div>
+</body>
+</html>
