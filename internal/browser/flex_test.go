@@ -521,6 +521,20 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 48, 20), "a": image.Rect(0, 0, 20, 20), "b": image.Rect(28, 0, 48, 20)},
 		pixels: map[image.Point]color.RGBA{{5, 5}: red, {40, 5}: blue},
 	}, {
+		name:   "shrink-to-fit row uses an inflexible flex basis (#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:0 0 80px;width:20px;height:20px;background:red"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 80, 20), "a": image.Rect(0, 0, 80, 20), "n": image.Rect(80, 0, 90, 10)},
+		pixels: map[image.Point]color.RGBA{{75, 5}: red, {85, 5}: blue},
+	}, {
+		name:   "shrink-to-fit wrapping row uses inflexible flex bases (#291)",
+		source: `<div id="c" style="float:left;display:flex;flex-wrap:wrap;column-gap:8px"><div id="a" style="flex:0 0 50px;width:20px;height:20px;background:red"></div><div id="b" style="flex:0 0 30px;width:40px;padding-left:2px;height:20px;background:blue"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 90, 20), "a": image.Rect(0, 0, 50, 20), "b": image.Rect(58, 0, 90, 20)},
+		pixels: map[image.Point]color.RGBA{{45, 5}: red, {85, 5}: blue},
+	}, {
+		name:   "flexible basis keeps the content contribution (#291)",
+		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex:1;width:40px;height:10px"></div><div id="b" style="flex:0 1 80px;width:30px;height:10px"></div><div id="d" style="flex:1 0 5px;width:25px;height:10px"></div></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 95, 10)},
+	}, {
 		name:   "nowrap keeps shrinking on one line",
 		source: `<div style="display:flex;width:100px"><div id="a" style="width:60px;height:10px"></div><div id="b" style="width:60px;height:10px"></div></div>`,
 		want:   map[string]image.Rectangle{"a": image.Rect(0, 0, 50, 10), "b": image.Rect(50, 0, 100, 10)},

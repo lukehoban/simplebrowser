@@ -390,6 +390,9 @@ func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 	children, _ := flexChildren(n)
 	for _, child := range children {
 		childMin, childMax := intrinsicWidths(child, faces)
+		if !column {
+			childMin, childMax = flexClampContribution(child, childMin), flexClampContribution(child, childMax)
+		}
 		switch {
 		case column:
 			minWidth, maxWidth = max(minWidth, childMin), max(maxWidth, childMax)
@@ -409,6 +412,42 @@ func flexIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 		}
 	}
 	return minWidth, max(minWidth, maxWidth)
+}
+
+// flexClampContribution applies css-flexbox §9.9.3 to a row item's outer
+// intrinsic contribution: a definite flex base size caps it when the item
+// cannot grow and floors it when the item cannot shrink. Percentage bases are
+// indefinite while the container's own width is being measured.
+func flexClampContribution(child *StyledNode, contribution int) int {
+	if child.Node.Parent == nil || child.Node.Type != ElementNode {
+		return contribution
+	}
+	grow, shrink, basis, hasBasis := flexFactors(child.Style, 0)
+	if !hasBasis {
+		return contribution
+	}
+	// flexFactors resolved the basis from flex-basis or the flex shorthand's
+	// last component; a unitless single-value shorthand implies basis 0.
+	value := strings.TrimSpace(child.Style["flex-basis"])
+	if value == "" || strings.EqualFold(value, "auto") {
+		value = "0"
+		if fields := strings.Fields(child.Style["flex"]); len(fields) > 1 {
+			value = fields[len(fields)-1]
+		}
+	}
+	if kind := classifyValue(value).Kind; kind != "length" && kind != "number" {
+		return contribution
+	}
+	margin := boxEdges(child, "margin", 0)
+	inner := inlineInnerEdges(child, 0)
+	outer := int(math.Round(basis)) + margin[1] + margin[3] + inner[1] + inner[3]
+	if grow == 0 && contribution > outer {
+		contribution = outer
+	}
+	if shrink == 0 && contribution < outer {
+		contribution = outer
+	}
+	return contribution
 }
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
