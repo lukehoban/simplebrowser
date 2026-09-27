@@ -127,6 +127,7 @@ type svgNode struct {
 	name     string
 	attrs    map[string]string
 	cssNode  *Node
+	parent   *svgNode
 	style    string
 	href     string
 	valid    bool
@@ -134,6 +135,7 @@ type svgNode struct {
 }
 
 type svgFrame struct {
+	color          color.NRGBA
 	fill           color.NRGBA
 	hasFill        bool
 	fillGradient   *svgGradient
@@ -160,7 +162,7 @@ type svgFrame struct {
 }
 
 func svgDefaultFrame() svgFrame {
-	return svgFrame{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero",
+	return svgFrame{color: color.NRGBA{A: 255}, fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero",
 		fontSize: 16, fontRatios: ratiosFor(nil), opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
 		miterLimit: 4, transform: svgIdentity}
 }
@@ -228,6 +230,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			} else {
 				parent := stack[len(stack)-1]
 				parent.children = append(parent.children, node)
+				node.parent = parent
 				node.cssNode.Parent = parent.cssNode
 			}
 			if node.valid && node.attrs["id"] != "" {
@@ -255,7 +258,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 		return nil, errUnsupportedSVG
 	}
 	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool),
-		gradients: make(map[*svgNode]*svgGradient)}
+		gradients: make(map[*svgNode]*svgGradient), colors: make(map[*svgNode]color.NRGBA)}
 	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
 		return nil, err
 	}
@@ -283,8 +286,10 @@ type svgExpansion struct {
 	active map[*svgNode]bool
 	// gradients memoizes resolved paint servers by element.
 	gradients map[*svgNode]*svgGradient
-	elements  int
-	segments  int
+	// colors memoizes computed color values for non-rendered gradient trees.
+	colors   map[*svgNode]color.NRGBA
+	elements int
+	segments int
 }
 
 func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
@@ -301,6 +306,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	}
 	current := parent
 	a := s.cascadedAttributes(node)
+	current.color = svgColor(a["color"], parent.color)
 	for _, property := range []struct {
 		key string
 		dst *string
@@ -317,7 +323,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		"font-family": current.fontFamily, "font-style": current.fontStyle, "font-weight": current.fontWeight,
 	})
 	if value, ok := a["fill"]; ok {
-		p := parseSVGPaint(value, svgPaintValue{parent.fill, parent.fillGradient, parent.hasFill}, s.resolveGradient)
+		p := parseSVGPaint(value, svgPaintValue{parent.fill, parent.fillGradient, parent.hasFill}, current.color, s.resolveGradient)
 		current.fill, current.fillGradient, current.hasFill = p.color, p.gradient, p.ok
 	}
 	rootFontSize := s.img.rootFontSize
@@ -340,7 +346,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		current.fillRule = rule
 	}
 	if value, ok := a["stroke"]; ok {
-		p := parseSVGPaint(value, svgPaintValue{parent.stroke, parent.strokeGradient, parent.hasStroke}, s.resolveGradient)
+		p := parseSVGPaint(value, svgPaintValue{parent.stroke, parent.strokeGradient, parent.hasStroke}, current.color, s.resolveGradient)
 		current.stroke, current.strokeGradient, current.hasStroke = p.color, p.gradient, p.ok
 	}
 	if n, ok := svgUnitInterval(a["stroke-opacity"]); ok {
@@ -716,7 +722,8 @@ func svgAttributes(t xml.StartElement) map[string]string {
 // non-presentation geometry remains sourced from attributes (and inline
 // style) as before. External stylesheets and unsupported properties are ignored.
 var svgStyleProperties = map[string]bool{
-	"fill": true, "fill-rule": true, "fill-opacity": true,
+	"color": true,
+	"fill":  true, "fill-rule": true, "fill-opacity": true,
 	"stroke": true, "stroke-opacity": true, "stroke-width": true,
 	"stroke-linecap": true, "stroke-linejoin": true, "stroke-miterlimit": true,
 	"stroke-dasharray": true, "stroke-dashoffset": true, "font-size": true,
@@ -1080,7 +1087,22 @@ func svgFontSize(value string, parentSize, rootSize float64, parentRatios ...fon
 	return n, ok
 }
 
-func svgPaint(value string, inherited color.NRGBA, inheritedOK bool) (color.NRGBA, bool) {
+func svgColor(value string, inherited color.NRGBA) color.NRGBA {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "inherit", "currentcolor", "unset":
+		return inherited
+	case "initial":
+		return color.NRGBA{A: 255}
+	}
+	c, ok := parseColor(value)
+	if !ok {
+		return inherited
+	}
+	return color.NRGBA{R: c.R, G: c.G, B: c.B, A: c.A}
+}
+
+func svgPaint(value string, inherited color.NRGBA, inheritedOK bool, currentColor color.NRGBA) (color.NRGBA, bool) {
 	value = strings.ToLower(strings.TrimSpace(value))
 	switch value {
 	case "none":
@@ -1088,7 +1110,7 @@ func svgPaint(value string, inherited color.NRGBA, inheritedOK bool) (color.NRGB
 	case "inherit":
 		return inherited, inheritedOK
 	case "currentcolor":
-		return color.NRGBA{A: 255}, true
+		return currentColor, currentColor.A > 0
 	}
 	c, ok := parseColor(value)
 	if !ok {

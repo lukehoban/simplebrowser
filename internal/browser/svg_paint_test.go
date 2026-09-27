@@ -267,11 +267,51 @@ func TestParseSVGPaint(t *testing.T) {
 		{"url(#g", inherited},
 		{"inherit", inherited},
 		{"none", svgPaintValue{}},
+		{"currentColor", svgPaintValue{color: color.NRGBA{9, 8, 7, 255}, ok: true}},
 		{"red", svgPaintValue{color: color.NRGBA{255, 0, 0, 255}, ok: true}},
 	} {
-		if got := parseSVGPaint(tc.in, inherited, resolve); got != tc.want {
+		if got := parseSVGPaint(tc.in, inherited, color.NRGBA{9, 8, 7, 255}, resolve); got != tc.want {
 			t.Errorf("parseSVGPaint(%q) = %+v, want %+v", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestSVGCurrentColorPaints(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="60" height="20" color="red">
+		<style>.styled { color: #00ff00; fill: currentColor }</style>
+		<rect width="20" height="20" fill="currentColor"/>
+		<g color="blue"><rect x="20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="8"/></g>
+		<rect class="styled" x="40" width="20" height="20"/>
+	</svg>`)
+	for _, p := range []struct {
+		x    int
+		want color.RGBA
+		note string
+	}{
+		{5, color.RGBA{255, 0, 0, 255}, "root color inherited by fill"},
+		{21, color.RGBA{0, 0, 255, 255}, "group color inherited by stroke"},
+		{50, color.RGBA{0, 255, 0, 255}, "stylesheet color on the same element"},
+	} {
+		if got := img.RGBAAt(p.x, 10); !near(got, p.want, 1) {
+			t.Errorf("%s: pixel = %v, want %v", p.note, got, p.want)
+		}
+	}
+}
+
+func TestSVGCurrentColorGradientStops(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="20" height="20">
+		<style>#end { color: blue }</style>
+		<defs color="red"><linearGradient id="g">
+			<stop stop-color="currentColor"/>
+			<stop id="end" offset="1" stop-color="currentColor"/>
+		</linearGradient></defs>
+		<rect width="20" height="20" fill="url(#g)"/>
+	</svg>`)
+	if got := img.RGBAAt(0, 10); !near(got, color.RGBA{249, 0, 6, 255}, 2) {
+		t.Errorf("inherited start stop color = %v", got)
+	}
+	if got := img.RGBAAt(19, 10); !near(got, color.RGBA{6, 0, 249, 255}, 2) {
+		t.Errorf("stylesheet end stop color = %v", got)
 	}
 }
 
