@@ -27,6 +27,7 @@ reference.*
 - [Paint CSS background vote arrows (#32)](https://github.com/lukehoban/simplebrowser/issues/32).
 - [Render the SVG logo (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
 - [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
+- [Center the page table inside `<center>` (#37)](https://github.com/lukehoban/simplebrowser/issues/37).
 
 Every pull request and push to `main` renders the fixture and uploads the
 latest PNG as an `hn-render-*` artifact on the
