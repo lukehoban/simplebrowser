@@ -456,20 +456,55 @@ func flexMinMax(item flexItem, column bool, mainSize int) (minimum, maximum floa
 	}
 	if !column {
 		minimum = item.automaticMin
+		// The content-based automatic minimum is capped by both the
+		// specified-size suggestion and the author's maximum size suggestion.
+		// These sizes are represented as content-box lengths here, including
+		// when box-sizing makes their CSS values border-box lengths.
+		if specified, ok := flexContentSizeSuggestion(item.node, property, mainSize); ok {
+			minimum = math.Min(minimum, specified)
+		}
+		if maxValue, ok := flexContentSizeSuggestion(item.node, "max-"+property, mainSize); ok {
+			minimum = math.Min(minimum, maxValue)
+		}
 	}
 	maximum = math.Inf(1)
 	if v := strings.TrimSpace(item.node.Style["min-"+property]); v != "" && v != "auto" {
 		// An explicit min-width, including zero, replaces the automatic
 		// content-based minimum.
 		minimum = math.Max(0, px(v, float64(mainSize), 0))
+		if !column {
+			minimum = flexContentSizeValue(item.node, v, mainSize)
+		}
 	}
 	if v := strings.TrimSpace(item.node.Style["max-"+property]); v != "" && v != "none" {
 		maximum = math.Max(0, px(v, float64(mainSize), 0))
+		if !column {
+			maximum = flexContentSizeValue(item.node, v, mainSize)
+		}
 	}
 	if maximum < minimum {
 		maximum = minimum
 	}
 	return
+}
+
+// flexContentSizeSuggestion resolves a definite preferred/min/max size into
+// the content-box coordinate system used by flexItem.main and automaticMin.
+func flexContentSizeSuggestion(node *StyledNode, property string, mainSize int) (float64, bool) {
+	value := strings.TrimSpace(node.Style[property])
+	if value == "" || strings.EqualFold(value, "auto") || strings.EqualFold(value, "none") {
+		return 0, false
+	}
+	return flexContentSizeValue(node, value, mainSize), true
+}
+
+func flexContentSizeValue(node *StyledNode, value string, mainSize int) float64 {
+	size := math.Max(0, px(value, float64(mainSize), 0))
+	if strings.EqualFold(strings.TrimSpace(node.Style["box-sizing"]), "border-box") {
+		inner := inlineInnerEdges(node, mainSize)
+		size -= float64(inner[1] + inner[3])
+	}
+	return math.Max(0, size)
 }
 
 func flexItemIsScrollContainer(style ComputedStyle) bool {

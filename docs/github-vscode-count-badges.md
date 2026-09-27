@@ -10,8 +10,10 @@ item. The adjacent count badge was also allowed to shrink to a few pixels.
 The fix gives row flex items a content-based automatic minimum, except when
 the item itself is a scroll container. An explicit `min-width`, including
 `min-width:0`, replaces that automatic floor. This is a bounded min-content
-rule; the full specified/transferred-size clamping algorithm remains
-unsupported (see [flexbox support](flexbox.md)).
+rule: a definite specified `width` and `max-width` cap the automatic minimum,
+with border-box sizes converted to content-box lengths. Transferred-size
+suggestions and column-axis `min-height:auto` remain unsupported (see
+[flexbox support](flexbox.md)).
 
 ## Deterministic reproduction
 

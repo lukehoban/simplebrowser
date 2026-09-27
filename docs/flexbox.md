@@ -24,10 +24,13 @@ its second item must stay inside the 180px container.
   ([#247](https://github.com/lukehoban/simplebrowser/issues/247)).
 - Row flex items use a content-based minimum for `min-width:auto`, except
   scroll containers; an explicit `min-width` (including `0`) overrides it.
-  This prevents shrunken items from painting their min-content text over
-  neighboring controls, as in the [GitHub count-badge repro](github-vscode-count-badges.md)
-  ([#375](https://github.com/lukehoban/simplebrowser/issues/375)). The full
-  specification's content-size/transferred-size clamping is not implemented.
+  The minimum is capped by a definite `width` suggestion and `max-width`,
+  with border-box lengths converted to content-box sizes. This prevents
+  shrunken items from painting their min-content text over neighboring
+  controls, as in the [GitHub count-badge repro](github-vscode-count-badges.md)
+  ([#375](https://github.com/lukehoban/simplebrowser/issues/375)). Transferred
+  size suggestions for replaced elements and column-axis `min-height:auto`
+  remain unsupported.
 - `gap`, `row-gap`, `column-gap` between items and between lines.
 - `justify-content`: start/flex-start, end/flex-end, center, space-between,
   space-around, space-evenly (per line).
