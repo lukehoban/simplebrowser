@@ -269,7 +269,10 @@ func drawText(dst *image.RGBA, run TextRun, styles map[*Node]ComputedStyle, face
 	// unbreakable words cannot paint across neighboring boxes.
 	drawer := font.Drawer{Dst: dst.SubImage(clip).(draw.Image), Src: image.NewUniform(ink),
 		Face: m.face, Dot: fixed.Point26_6{X: run.PenX, Y: fixed.I(baseline)}}
-	drawer.DrawString(run.Text)
+	m.eachTextSegment(run.Text, func(face font.Face, text string) {
+		drawer.Face = face
+		drawer.DrawString(text)
+	})
 	if decorated(run, styles, "underline") {
 		fill(dst, image.Rect(run.Rect.Min.X, baseline+1, run.Rect.Max.X, baseline+2).Intersect(clip), ink)
 	}
