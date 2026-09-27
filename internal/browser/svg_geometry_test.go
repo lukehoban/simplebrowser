@@ -80,6 +80,53 @@ func TestSVGGeometryCascade(t *testing.T) {
 	}
 }
 
+// Issue #160 repro: the SVG 2 d property shapes an attribute-less path.
+func TestSVGStylesheetPathRepro(t *testing.T) {
+	img, err := decodeSVG([]byte(`<svg width="40" height="40"><style>path { d: path("M8 8H32V32H8Z"); fill: red }</style><path/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{{20, 20, geomRed}, {9, 9, geomRed}, {30, 30, geomRed}, {6, 20, geomClear}, {33, 20, geomClear}} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
+func TestSVGPathGeometryCascade(t *testing.T) {
+	for _, tc := range []struct {
+		name, style, path string
+		x, y              int
+		want              color.RGBA
+	}{
+		{"stylesheet beats attribute", `path { d: path("M20 0H30V10H20Z") }`, `<path d="M0 0H10V10H0Z"/>`, 25, 5, geomRed},
+		{"attribute position vacated", `path { d: path("M20 0H30V10H20Z") }`, `<path d="M0 0H10V10H0Z"/>`, 5, 5, geomClear},
+		{"inline beats stylesheet", `path { d: path("M0 0H10V10H0Z") }`, `<path style="d:path('M20 0H30V10H20Z')"/>`, 25, 5, geomRed},
+		{"important beats inline", `path { d: path("M0 0H10V10H0Z") !important }`, `<path style="d:path('M20 0H30V10H20Z')"/>`, 25, 5, geomClear},
+		{"specificity", `#a { d: path("M20 0H30V10H20Z") } path { d: path("M0 0H10V10H0Z") }`, `<path id="a"/>`, 25, 5, geomRed},
+		{"source order", `path { d: path("M0 0H10V10H0Z") } path { d: path("M20 0H30V10H20Z") }`, `<path/>`, 25, 5, geomRed},
+		{"none suppresses attribute", `path { d: none }`, `<path d="M0 0H10V10H0Z"/>`, 5, 5, geomClear},
+		{"initial suppresses attribute", `path { d: initial }`, `<path d="M0 0H10V10H0Z"/>`, 5, 5, geomClear},
+		{"invalid function falls back to attribute", `path { d: path(M20 0H30V10H20Z) }`, `<path d="M0 0H10V10H0Z"/>`, 5, 5, geomRed},
+		{"invalid trailing token falls back", `path { d: path("M20 0H30V10H20Z") red }`, `<path d="M0 0H10V10H0Z"/>`, 5, 5, geomRed},
+		{"invalid higher rule falls back to lower", `path { d: path("M0 0H10V10H0Z") } .c { d: bogus }`, `<path class="c"/>`, 5, 5, geomRed},
+		{"escaped path data", `path { d: path("M20 0H30V10H20\5a") }`, `<path/>`, 25, 5, geomRed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img, err := decodeSVG([]byte(`<svg width="40" height="40" fill="red"><style>` + tc.style + `</style>` + tc.path + `</svg>`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+				t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+			}
+		})
+	}
+}
+
 // Presentation properties keep their cascade alongside geometry.
 func TestSVGGeometryWithPaintCascade(t *testing.T) {
 	img, err := decodeSVG([]byte(`<svg width="40" height="20"><style>.b { fill: blue; x: 20px }</style><rect class="b" width="10" height="10" fill="red"/></svg>`))
@@ -116,12 +163,67 @@ func TestSVGGeometryDeclarationValidation(t *testing.T) {
 		{"height", "var(--h)", "var(--h)", false},
 		{"height", "inherit", "inherit", false},
 		{"height", "1e99px", "1e99px", false},
+		{"d", `path("M0 0H1V1Z")`, "M0 0H1V1Z", true},
+		{"d", `PATH( 'M0 0H1V1Z' )`, "M0 0H1V1Z", true},
+		{"d", "none", "", true},
+		{"d", "unset", "", true},
+		{"d", `path("M0 0H1V1\5a")`, "M0 0H1V1Z", true},
+		{"d", `path(M0 0H1V1Z)`, `path(M0 0H1V1Z)`, false},
+		{"d", `path("M0 0") junk`, `path("M0 0") junk`, false},
+		{"d", `path("M0 0)`, `path("M0 0)`, false},
 	} {
 		got, ok := svgGeometryDeclaration(tc.property, tc.value)
 		if ok != tc.ok || ok && got != tc.want {
 			t.Errorf("svgGeometryDeclaration(%q, %q) = %q, %v; want %q, %v", tc.property, tc.value, got, ok, tc.want, tc.ok)
 		}
 	}
+}
+
+func TestSVGStylesheetPathVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "style-path.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{28, 30, color.RGBA{211, 38, 74, 255}},
+		{80, 30, color.RGBA{34, 153, 85, 255}},
+		{132, 30, color.RGBA{}},
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	write := func(env string, src []byte) {
+		path := os.Getenv(env)
+		if path == "" {
+			return
+		}
+		render, err := decodeSVG(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, render.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write %s: %v, %v", env, encodeErr, closeErr)
+		}
+	}
+	// "Before" strips d declarations, matching the old renderer. The first
+	// two paths disappear and the third falls back to its d attribute.
+	before := regexp.MustCompile(`\bd:\s*(?:path\((?:"[^"]*"|'[^']*')\)|none)\s*;?`).ReplaceAll(data, nil)
+	write("SVG_PATH_BEFORE_VISUAL_PATH", before)
+	write("SVG_PATH_VISUAL_PATH", data)
 }
 
 func TestSVGStylesheetGeometryVisual(t *testing.T) {
