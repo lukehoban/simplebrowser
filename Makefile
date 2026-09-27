@@ -1,7 +1,13 @@
-.PHONY: screenshot
+.PHONY: screenshot image-boxes
 
 # Refresh the checked-in offline render after intentional painting changes.
 screenshot:
 	mkdir -p docs/screenshots
 	go run ./cmd/simplebrowser -o docs/screenshots/hn-fixture.png testdata/hn/news.html
 	chmod 644 docs/screenshots/hn-fixture.png
+
+# Refresh the image-box layout diagnostic (magenta = decoded, gray = placeholder).
+image-boxes:
+	mkdir -p docs/screenshots
+	go run ./cmd/simplebrowser -image-boxes -o docs/screenshots/hn-image-boxes.png testdata/hn/news.html
+	chmod 644 docs/screenshots/hn-image-boxes.png

@@ -22,6 +22,17 @@ type Box struct {
 	Content  image.Rectangle
 	Children []*Box
 	Text     []TextRun
+	Images   []ImageBox
+}
+
+// ImageBox exposes a decoded replaced image and its used rectangle to the
+// painting stage without requiring the painter to resolve resources again.
+// Image is nil when the resource failed to load or is an unsupported format
+// such as SVG; the rectangle is still reserved so painting can draw a
+// placeholder.
+type ImageBox struct {
+	Image image.Image
+	Rect  image.Rectangle
 }
 
 type TextRun struct {
@@ -51,6 +62,9 @@ type faceSet struct {
 	regular *opentype.Font
 	bold    *opentype.Font
 	faces   map[faceKey]font.Face
+	// images holds the render-scoped decoded resources keyed by DOM node, so
+	// layout never fetches during measurement.
+	images map[*Node]image.Image
 }
 
 type faceKey struct {
@@ -180,6 +194,7 @@ func LayoutWithViewport(document StyledDocument, viewport image.Rectangle) (Layo
 	}
 	faces := newFaceSet()
 	defer faces.close()
+	faces.images = document.Images
 	root := &Box{Node: document.Document.Root, Rect: viewport, Content: viewport}
 	if document.StyleRoot != nil {
 		root.Children, _ = layoutChildren(document.StyleRoot, viewport.Min.X, viewport.Min.Y, viewport.Dx(), faces)
@@ -203,6 +218,16 @@ func layoutChildren(parent *StyledNode, x, y, width int, faces *faceSet) ([]*Box
 	}
 	for _, child := range parent.Children {
 		if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
+			continue
+		}
+		if child.Node.Type == ElementNode && strings.EqualFold(child.Node.Name, "img") &&
+			displayBlock(child) {
+			// A block-level replaced element still needs an image box, and it
+			// has no children to lay out.
+			flush()
+			b, h := layoutReplacedBlock(child, x, cursor, width, faces)
+			boxes = append(boxes, b)
+			cursor += h
 			continue
 		}
 		if child.Node.Type == ElementNode && isTableNode(child) {
@@ -258,16 +283,39 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
 	return &Box{Node: n.Node, Rect: rect, Content: content, Children: children}, rect.Dy() + margin[0] + margin[2]
 }
 
+// layoutReplacedBlock lays out a block-level img, honouring margins, borders
+// and padding while sizing the replaced content from intrinsic or CSS
+// dimensions.
+func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+	margin := boxEdges(n, "margin", float64(width))
+	padding := boxEdges(n, "padding", float64(width))
+	border := boxEdges(n, "border-width", float64(width))
+	picture := faces.images[n.Node]
+	contentWidth, contentHeight := imageDimensions(n, picture, width)
+	contentX := x + margin[3] + border[3] + padding[3]
+	contentY := y + margin[0] + border[0] + padding[0]
+	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+contentHeight)
+	rect := image.Rect(x+margin[3], y+margin[0],
+		content.Max.X+padding[1]+border[1], content.Max.Y+padding[2]+border[2])
+	box := &Box{Node: n.Node, Rect: rect, Content: content,
+		Images: []ImageBox{{Image: picture, Rect: content}}}
+	return box, rect.Dy() + margin[0] + margin[2]
+}
+
 type inlinePart struct {
-	node  *Node
-	style ComputedStyle
-	text  string
-	br    bool
+	node    *Node
+	style   ComputedStyle
+	text    string
+	br      bool
+	image   image.Image
+	imageW  int
+	imageH  int
+	isImage bool
 }
 
 // Inline descendants are flattened in document order, without manufacturing
 // whitespace between element boundaries. Text ownership survives flattening.
-func inlineParts(nodes []*StyledNode) []inlinePart {
+func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 	var parts []inlinePart
 	var visit func(*StyledNode)
 	visit = func(n *StyledNode) {
@@ -277,6 +325,13 @@ func inlineParts(nodes []*StyledNode) []inlinePart {
 			}
 			if n.Node.Name == "br" {
 				parts = append(parts, inlinePart{node: n.Node, style: n.Style, br: true})
+				return
+			}
+			if strings.EqualFold(n.Node.Name, "img") {
+				picture := faces.images[n.Node]
+				w, h := imageDimensions(n, picture, width)
+				parts = append(parts, inlinePart{node: n.Node, style: n.Style,
+					image: picture, imageW: w, imageH: h, isImage: true})
 				return
 			}
 		}
@@ -307,6 +362,12 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	var space *inlinePart
 	forced := false
 	add := func(p inlinePart) {
+		if p.isImage {
+			line.parts = append(line.parts, p)
+			line.width += p.imageW
+			line.height = max(line.height, p.imageH)
+			return
+		}
 		m := faces.metrics(p.style)
 		line.parts = append(line.parts, p)
 		line.width += m.width(p.text)
@@ -338,7 +399,7 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 		space = nil
 		forced = false
 	}
-	for _, part := range inlineParts(nodes) {
+	for _, part := range inlineParts(nodes, faces, width) {
 		if part.br {
 			flushWord()
 			if line.height == 0 {
@@ -348,6 +409,25 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 			line = inlineLine{}
 			space = nil
 			forced = true
+			continue
+		}
+		if part.isImage {
+			flushWord()
+			gap := 0
+			if space != nil && len(line.parts) != 0 {
+				gap = faces.metrics(space.style).width(" ")
+			}
+			if len(line.parts) != 0 && line.width+gap+part.imageW > width {
+				lines = append(lines, line)
+				line = inlineLine{}
+				gap = 0
+			}
+			if gap > 0 && space != nil {
+				add(*space)
+			}
+			space = nil
+			add(part)
+			forced = false
 			continue
 		}
 		for _, r := range part.text {
@@ -381,6 +461,14 @@ func layoutInline(parent *Node, nodes []*StyledNode, x, y, width int, faces *fac
 	for _, l := range lines {
 		xpos := x
 		for _, p := range l.parts {
+			if p.isImage {
+				// Replaced boxes sit on the line top for now; baseline
+				// alignment arrives with image painting.
+				box.Images = append(box.Images, ImageBox{Image: p.image,
+					Rect: image.Rect(xpos, cursor, xpos+p.imageW, cursor+p.imageH)})
+				xpos += p.imageW
+				continue
+			}
 			w := faces.metrics(p.style).width(p.text)
 			if len(box.Text) != 0 {
 				last := &box.Text[len(box.Text)-1]

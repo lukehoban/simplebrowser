@@ -6,10 +6,11 @@ render [Hacker News](https://news.ycombinator.com/) recognizably.
 
 The project has a working fetch, parse, cascade, and layout pipeline covering
 block, inline, and table formatting. The CLI fetches HTTP(S) pages, builds a
-DOM, loads CSS, and computes deterministic box geometry and wrapped text runs,
-including the nested tables Hacker News uses for its page structure. Painting
-now rasterizes backgrounds, borders, and embedded-font text. Images and advanced
-CSS remain future work.
+DOM, loads CSS and GIF/PNG/JPEG images, and computes deterministic box geometry
+and wrapped text runs, including replaced image boxes and the nested tables
+Hacker News uses for its page structure. Painting now rasterizes backgrounds,
+borders, and embedded-font text. Drawing decoded images, SVG, and advanced CSS
+remain future work.
 
 ## Rendering progress
 
@@ -36,8 +37,9 @@ The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
 captured snapshot; rendering does not depend on live Hacker News availability.
 Links currently appear blue and underlined rather than matching HN's black
 titles and gray subtext; some underlines extend through trailing whitespace.
-The logo and vote arrows are missing pending [image support
-(#11)](https://github.com/lukehoban/simplebrowser/issues/11).
+Images are now fetched, decoded, and laid out, but the painter does not draw
+them yet, so the logo and vote arrows still appear as empty space pending
+[image support (#11)](https://github.com/lukehoban/simplebrowser/issues/11).
 
 ## Architecture
 
@@ -53,16 +55,25 @@ flowchart LR
 
 The pipeline lives in `internal/browser`. `Document.Root` is a fragment-friendly
 DOM with parent/child links, text, comments, doctypes, and ordered attributes.
-`Document.BaseURL` holds the effective fetched source (including redirects) for
-future relative resource resolution. This is a practical tolerant HTML subset,
+`Document.BaseURL` holds the effective fetched source (including redirects) and
+is the base for relative stylesheet and image resolution. This is a practical tolerant HTML subset,
 not a complete HTML5 parsing algorithm.
 
 `ExtractStyles` collects author stylesheets in DOM order (using `Document.BaseURL`
 for linked resources) and inline declarations by node. `UserAgentStylesheet`
 provides defaults separately. CSS parsing supports common selectors, values,
 and `!important`; computed styles retain CSS text for layout to convert. Layout
-exposes boxes and text runs through `Layout.Root`, with configurable viewport
-geometry and basic embedded Go font metrics.
+exposes boxes, text runs, and image boxes through `Layout.Root`, with
+configurable viewport geometry and basic embedded Go font metrics.
+
+`img` elements are fetched once per render (deduplicated by resolved URL) and
+decoded with the standard library's GIF, PNG, and JPEG decoders, subject to the
+fetcher's response-size limit and a decoded-pixel cap. Used dimensions come from
+CSS or HTML `width`/`height`, preserving the intrinsic aspect ratio when only
+one is given, and fall back to intrinsic size. Failed, oversized, and
+unsupported resources (including SVG) keep a sized placeholder box with no
+decoded image so layout stays stable; `Box.Images` carries the rectangles and
+decoded images to the painter.
 
 Table layout uses the separated-borders model: columns are sized from intrinsic
 min/max content widths plus explicit CSS and HTML widths (pixels pin a column,
@@ -87,6 +98,17 @@ HTTP(S) resources are
 fetched with bounded HTTP/1.1 responses, redirects, and gzip support. Local
 paths and `file://` URLs read the supplied file.
 
+Replaced-element layout can be inspected before the painter draws images:
+
+```sh
+make image-boxes
+```
+
+![Hacker News fixture with laid-out image boxes outlined; the 18x18 logo placeholder is outlined in gray at the top left](docs/screenshots/hn-image-boxes.png)
+
+*Gray outlines are placeholders (missing, broken, or SVG resources); magenta
+outlines are decoded GIF/PNG/JPEG images.*
+
 Run the project checks locally with:
 
 ```sh
@@ -109,7 +131,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8) — implemented
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented; review pending
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
-- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11)
+- [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11) — fetch, decode, and layout implemented; painting and SVG pending
 - [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture, checked-in screenshot, and render artifact in CI; visual fidelity in progress
 
 See the linked issues for current status and implementation scope.

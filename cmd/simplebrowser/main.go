@@ -21,6 +21,7 @@ func run(args []string, stderr io.Writer) error {
 	flags := flag.NewFlagSet("simplebrowser", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	outputPath := flags.String("o", "out.png", "output PNG path")
+	imageBoxes := flags.Bool("image-boxes", false, "outline laid-out image boxes (layout diagnostic)")
 	flags.Usage = func() {
 		fmt.Fprintf(flags.Output(), "Usage: simplebrowser [-o out.png] <url|file>\n")
 		flags.PrintDefaults()
@@ -34,10 +35,10 @@ func run(args []string, stderr io.Writer) error {
 		return fmt.Errorf("expected exactly one URL or file")
 	}
 
-	return renderFile(flags.Arg(0), *outputPath)
+	return renderFile(flags.Arg(0), *outputPath, *imageBoxes)
 }
 
-func renderFile(source, destination string) error {
+func renderFile(source, destination string, imageBoxes bool) error {
 	directory := filepath.Dir(destination)
 	temp, err := os.CreateTemp(directory, ".simplebrowser-*.png")
 	if err != nil {
@@ -46,7 +47,11 @@ func renderFile(source, destination string) error {
 	tempName := temp.Name()
 	defer os.Remove(tempName)
 
-	if err := browser.Render(source, temp); err != nil {
+	render := browser.Render
+	if imageBoxes {
+		render = browser.RenderImageBoxes
+	}
+	if err := render(source, temp); err != nil {
 		temp.Close()
 		return err
 	}

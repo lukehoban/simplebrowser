@@ -693,6 +693,9 @@ func translateBox(b *Box, dx, dy int) {
 	for i := range b.Text {
 		b.Text[i].Rect = b.Text[i].Rect.Add(offset)
 	}
+	for i := range b.Images {
+		b.Images[i].Rect = b.Images[i].Rect.Add(offset)
+	}
 	for _, child := range b.Children {
 		translateBox(child, dx, dy)
 	}
@@ -712,6 +715,10 @@ func intrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 	}
 	if n.Node.Type != ElementNode && n.Node.Type != DocumentNode {
 		return 0, 0
+	}
+	if n.Node.Type == ElementNode && strings.EqualFold(n.Node.Name, "img") {
+		width, _ := imageDimensions(n, faces.images[n.Node], 0)
+		return width, width
 	}
 	if isTableNode(n) && n.Node.Type == ElementNode {
 		return tableIntrinsic(n, faces)

@@ -15,7 +15,7 @@ import (
 
 // paint draws in tree order, so a descendant's background covers its parent's
 // background but never its own text. Each call owns its canvas and font faces.
-func paint(layout Layout, output io.Writer) error {
+func paint(layout Layout, output io.Writer, options renderOptions) error {
 	viewport := layout.Viewport
 	if viewport.Empty() {
 		viewport = image.Rect(0, 0, placeholderWidth, placeholderHeight)
@@ -43,6 +43,11 @@ func paint(layout Layout, output io.Writer) error {
 		for _, run := range box.Text {
 			drawText(canvas, run, layout.Document.Styles, faces)
 		}
+		if options.debugImageBoxes {
+			for _, picture := range box.Images {
+				drawImageBoxOutline(canvas, picture)
+			}
+		}
 		for _, child := range box.Children {
 			visit(child)
 		}
@@ -54,6 +59,26 @@ func paint(layout Layout, output io.Writer) error {
 		}
 	}
 	return png.Encode(output, canvas)
+}
+
+// drawImageBoxOutline marks a laid-out replaced box: magenta when the image
+// decoded, gray when it is a placeholder (missing, broken, or SVG).
+func drawImageBoxOutline(dst *image.RGBA, picture ImageBox) {
+	outline := color.RGBA{R: 160, G: 160, B: 160, A: 255}
+	if picture.Image != nil {
+		outline = color.RGBA{R: 230, G: 0, B: 200, A: 255}
+	}
+	rect := picture.Rect.Canon()
+	if rect.Dx() == 0 {
+		rect.Max.X = rect.Min.X + 1
+	}
+	if rect.Dy() == 0 {
+		rect.Max.Y = rect.Min.Y + 1
+	}
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+1), outline)
+	fill(dst, image.Rect(rect.Min.X, rect.Max.Y-1, rect.Max.X, rect.Max.Y), outline)
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Max.Y), outline)
+	fill(dst, image.Rect(rect.Max.X-1, rect.Min.Y, rect.Max.X, rect.Max.Y), outline)
 }
 
 func fill(dst *image.RGBA, rect image.Rectangle, c color.RGBA) {
