@@ -16,8 +16,8 @@ import (
 
 // A minimal SVG subset, enough for simple icons such as the Hacker News logo
 // and vote arrow: <svg> sizing/viewBox/preserveAspectRatio, <g>, <path>, and
-// <rect> with solid fills and transforms. Other elements are skipped, and
-// strokes are ignored. A document that cannot be parsed returns an error so
+// <rect> with solid fills, strokes and transforms. Other elements are skipped.
+// A document that cannot be parsed returns an error so
 // callers keep their existing placeholder or empty-background behavior.
 
 const (
@@ -62,6 +62,9 @@ type svgShape struct {
 	segments  []svgSegment
 	transform svgAffine
 	fill      color.NRGBA
+	stroke    color.NRGBA
+	width     float64
+	cap, join string
 }
 
 // svgImage is an image.Image rasterized at its intrinsic size. Painters that
@@ -97,10 +100,15 @@ func decodeSVG(data []byte) (*svgImage, error) {
 		fill      color.NRGBA
 		hasFill   bool
 		opacity   float64
+		stroke    color.NRGBA
+		hasStroke bool
+		strokeOpacity float64
+		width float64
+		cap, join string
 		transform svgAffine
 		skip      bool
 	}
-	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, opacity: 1, transform: svgIdentity}}
+	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", transform: svgIdentity}}
 	elements, segments := 0, 0
 	sawRoot := false
 	for {
@@ -146,13 +154,32 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
 				}
 				if value, ok := attrs["fill-opacity"]; ok {
-					if n, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil {
+					if n, valid := svgUnitInterval(value); valid {
 						// fill-opacity is inherited, not accumulated through
 						// ancestors: an explicit child value replaces the
 						// inherited value. Group opacity is separate compositing
 						// behavior and is not implemented by this renderer.
-						current.opacity = math.Max(0, math.Min(1, n))
+						current.opacity = n
 					}
+				}
+				if value, ok := attrs["stroke"]; ok {
+					current.stroke, current.hasStroke = svgPaint(value, parent.stroke, parent.hasStroke)
+				}
+				if value, ok := attrs["stroke-opacity"]; ok {
+					if n, valid := svgUnitInterval(value); valid {
+						current.strokeOpacity = n
+					}
+				}
+				if value, ok := attrs["stroke-width"]; ok {
+					if n, valid := svgLength(value); valid && n <= maxSVGStrokeWidth {
+						current.width = n
+					}
+				}
+				if value := attrs["stroke-linecap"]; value == "butt" || value == "square" || value == "round" {
+					current.cap = value
+				}
+				if value := attrs["stroke-linejoin"]; value == "miter" || value == "bevel" || value == "round" {
+					current.join = value
 				}
 				if value, ok := attrs["transform"]; ok {
 					transform, ok := parseSVGTransform(value)
@@ -164,7 +191,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					}
 				}
 			}
-			if !current.skip && current.hasFill {
+			if !current.skip && (current.hasFill || current.hasStroke) {
 				var shape []svgSegment
 				switch t.Name.Local {
 				case "path":
@@ -179,7 +206,18 @@ func decodeSVG(data []byte) (*svgImage, error) {
 				if len(shape) > 0 {
 					fill := current.fill
 					fill.A = uint8(math.Round(float64(fill.A) * current.opacity))
-					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill})
+					if !current.hasFill { fill = color.NRGBA{} }
+					stroke := current.stroke
+					stroke.A = uint8(math.Round(float64(stroke.A) * current.strokeOpacity))
+					if !current.hasStroke { stroke = color.NRGBA{} }
+					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, stroke: stroke, width: current.width, cap: current.cap, join: current.join})
+				}
+
+				const maxSVGStrokeWidth = 4096
+
+				func svgUnitInterval(s string) (float64, bool) {
+					n, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+					return math.Max(0, math.Min(1, n)), err == nil && !math.IsNaN(n)
 				}
 			}
 			stack = append(stack, current)
@@ -356,14 +394,15 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 	view := img.viewTransform(w, h)
 	r := vector.NewRasterizer(w, h)
 	for _, shape := range img.shapes {
-		r.Reset(w, h)
 		m := shape.transform.then(view)
 		pt := func(p [2]float64) (float32, float32) {
 			x, y := m.apply(p[0], p[1])
 			return float32(x), float32(y)
 		}
-		drawn := false
-		for _, seg := range shape.segments {
+		if shape.fill.A != 0 {
+			r.Reset(w, h)
+			drawn := false
+			for _, seg := range shape.segments {
 			switch seg.op {
 			case 'M':
 				x, y := pt(seg.pts[0])
@@ -389,12 +428,17 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			case 'Z':
 				r.ClosePath()
 			}
+			}
+			if drawn {
+				r.ClosePath()
+				r.Draw(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{})
+			}
 		}
-		if !drawn {
-			continue
+		if shape.stroke.A != 0 && shape.width > 0 {
+			r.Reset(w, h)
+			strokeSVGPath(r, shape, m)
+			r.Draw(dst, dst.Bounds(), image.NewUniform(shape.stroke), image.Point{})
 		}
-		r.ClosePath()
-		r.Draw(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{})
 	}
 	return dst
 }
