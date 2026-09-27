@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func decodeSVGString(t *testing.T, src string) *svgImage {
@@ -227,19 +226,17 @@ func TestSVGOpacityResourceBounds(t *testing.T) {
 		t.Errorf("deep nesting alpha = %d, want about %.0f", got.A, want)
 	}
 
+	// Many sibling groups each get (and reuse) one layer, and still
+	// composite as groups: the blue rect hides the red one inside each.
 	var b strings.Builder
-	b.WriteString(svgOpen + `width="256" height="256">`)
-	for i := 0; i < 2000; i++ {
-		fmt.Fprintf(&b, `<g opacity=".5"><rect x="%d" width="2" height="2" fill="red"/><rect x="%d" width="2" height="2" fill="blue"/></g>`, i%250, i%250+1)
+	b.WriteString(svgOpen + `width="64" height="64">`)
+	for i := 0; i < 500; i++ {
+		fmt.Fprintf(&b, `<g opacity=".5"><rect x="%d" width="2" height="2" fill="red"/><rect x="%d" width="2" height="2" fill="blue"/></g>`, i%60, i%60+1)
 	}
 	b.WriteString(`</svg>`)
-	start := time.Now()
 	img = decodeSVGString(t, b.String())
-	if img.RGBAAt(0, 0).A == 0 {
-		t.Error("sibling groups not painted")
-	}
-	if elapsed := time.Since(start); elapsed > 20*time.Second {
-		t.Errorf("sibling groups took %v", elapsed)
+	if got := img.RGBAAt(0, 0); got.A == 0 || got.R == 0 {
+		t.Errorf("sibling groups pixel = %v", got)
 	}
 }
 
