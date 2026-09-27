@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="60" viewBox="0 0 160 60">
+  <style>
+    path { d: path("M8 10H48V50H8Z"); fill: #d3264a }
+    .hidden { d: none; fill: #3366cc }
+  </style>
+  <path/>
+  <path style="d: path('M60 10H100V50H60Z'); fill: #229955"/>
+  <path class="hidden" d="M112 10H152V50H112Z"/>
+</svg>

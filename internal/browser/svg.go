@@ -734,9 +734,10 @@ var svgStyleProperties = map[string]bool{
 // svgGeometryProperties lists the SVG 2 geometry properties honored from
 // stylesheets and inline style, per element. They are not inherited, so they
 // only apply to the element types that read them; the matching attribute is a
-// presentation hint with the lowest priority. Other geometry (path d,
-// polyline points, line endpoints, use x/y) stays attribute-sourced.
+// presentation hint with the lowest priority. Polyline points, line endpoints
+// and use x/y stay attribute-sourced.
 var svgGeometryProperties = map[string]map[string]bool{
+	"path":    {"d": true},
 	"rect":    {"x": true, "y": true, "width": true, "height": true, "rx": true, "ry": true},
 	"circle":  {"cx": true, "cy": true, "r": true},
 	"ellipse": {"cx": true, "cy": true, "rx": true, "ry": true},
@@ -750,6 +751,9 @@ var svgGeometryProperties = map[string]map[string]bool{
 func svgGeometryDeclaration(property, value string) (string, bool) {
 	value = strings.TrimSpace(value)
 	lower := strings.ToLower(value)
+	if property == "d" {
+		return svgPathDeclaration(value)
+	}
 	autoAllowed := property == "width" || property == "height" || property == "rx" || property == "ry"
 	switch lower {
 	case "initial", "unset":
@@ -773,6 +777,88 @@ func svgGeometryDeclaration(property, value string) (string, bool) {
 		_, ok = check.length(value, svgHorizontal)
 	}
 	return value, ok
+}
+
+// svgPathDeclaration accepts SVG 2's deliberately narrow CSS syntax for d.
+// The path data must be a quoted CSS string; decoding it here leaves the
+// existing SVG path parser and its document-wide segment budget in charge of
+// geometry. Invalid declarations are ignored by the cascade rather than
+// masking a lower-priority rule or the d presentation attribute.
+func svgPathDeclaration(value string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "none", "initial", "unset":
+		return "", true
+	}
+	value = strings.TrimSpace(value)
+	if len(value) < len(`path("")`) || !strings.EqualFold(value[:5], "path(") {
+		return value, false
+	}
+	i := 5
+	for i < len(value) && cssSpace(value[i]) {
+		i++
+	}
+	if i >= len(value) || value[i] != '"' && value[i] != '\'' {
+		return value, false
+	}
+	quote := value[i]
+	i++
+	var path strings.Builder
+	closed := false
+	for i < len(value) {
+		switch value[i] {
+		case quote:
+			i++
+			closed = true
+		case '\n', '\r', '\f':
+			return value, false
+		case '\\':
+			if i+1 >= len(value) {
+				return value, false
+			}
+			// A backslash-newline is a CSS string continuation and contributes
+			// no path-data character.
+			if value[i+1] == '\n' || value[i+1] == '\f' {
+				i += 2
+				continue
+			}
+			if value[i+1] == '\r' {
+				i += 2
+				if i < len(value) && value[i] == '\n' {
+					i++
+				}
+				continue
+			}
+			r, end, ok := colorEscape(value, i)
+			if !ok {
+				return value, false
+			}
+			path.WriteRune(r)
+			i = end
+			continue
+		default:
+			path.WriteByte(value[i])
+			i++
+			continue
+		}
+		break
+	}
+	if !closed {
+		return value, false
+	}
+	for i < len(value) && cssSpace(value[i]) {
+		i++
+	}
+	if i >= len(value) || value[i] != ')' {
+		return value, false
+	}
+	i++
+	for i < len(value) && cssSpace(value[i]) {
+		i++
+	}
+	if i != len(value) {
+		return value, false
+	}
+	return path.String(), true
 }
 
 func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
