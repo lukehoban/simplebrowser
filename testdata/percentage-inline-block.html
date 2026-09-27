@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Percentage heights across atomic inline-blocks</title>
+<style>
+body { margin: 24px; font: 16px/20px sans-serif; color: #16324c; background: #f1f5f9 }
+h1 { font-size: 22px }
+.row { height: 160px; padding: 8px; background: white; border: 1px solid #ccd6e0 }
+.atomic { display: inline-block; width: 100px; height: 50%; padding: 5px; border: 2px solid #2177bf; background: #ddf0ff }
+.half { height: 50%; background: #9e9 }
+.positioned { position: relative }
+.abs { position: absolute; left: 75px; top: 0; width: 20px; height: 50%; background: #939 }
+.auto { height: auto; margin-top: 12px }
+.leaf { height: 20px }
+</style>
+<body>
+<h1>Percentage height + inline-block integration</h1>
+<p>160px parent: blue boxes have 80px content; green child is 40px.</p>
+<div class="row">before <span class="atomic"><div class="half"><div class="leaf">nested</div></div></span> <span class="atomic"></span> <span class="atomic positioned">first<br>last<div class="abs"></div></span> after</div>
+<p>Auto parent: percentage heights become auto (20px content).</p>
+<div class="row auto">before <span class="atomic"><div class="half"><div class="leaf">nested</div></div></span> after</div>
+</body>

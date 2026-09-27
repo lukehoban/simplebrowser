@@ -427,7 +427,8 @@ func LayoutWithViewport(document StyledDocument, viewport image.Rectangle) (Layo
 	root := &Box{Node: document.Document.Root, Rect: viewport, Content: viewport}
 	if document.StyleRoot != nil {
 		root.Children, _ = layoutChildren(document.StyleRoot, viewport.Min.X, viewport.Min.Y, viewport.Dx(), faces,
-			containingBlock{x: viewport.Min.X, y: viewport.Min.Y, width: viewport.Dx(), height: viewport.Dy(), viewport: viewport})
+			containingBlock{x: viewport.Min.X, y: viewport.Min.Y, width: viewport.Dx(), height: viewport.Dy(), viewport: viewport,
+				flowHeight: viewport.Dy(), flowHeightDefinite: true})
 	}
 	return Layout{Document: document, Viewport: viewport, Root: root}, nil
 }
@@ -574,7 +575,7 @@ func emptyAtomicInline(n *StyledNode) bool {
 
 // inlineBlockPart creates a shrink-to-fit block formatting context at the
 // origin. Explicit widths still resolve against the parent containing block.
-func inlineBlockPart(n *StyledNode, available int, faces *faceSet) inlinePart {
+func inlineBlockPart(n *StyledNode, available int, faces *faceSet, parentCB containingBlock) inlinePart {
 	margin := boxEdges(n, "margin", float64(available))
 	inner := inlineInnerEdges(n, available)
 	contentAvailable := max(0, available-margin[1]-margin[3]-inner[1]-inner[3])
@@ -586,7 +587,11 @@ func inlineBlockPart(n *StyledNode, available int, faces *faceSet) inlinePart {
 		style["width"] = strconv.Itoa(max(0, contentWidth)) + "px"
 		used = &StyledNode{Node: n.Node, Style: style, Children: n.Children}
 	}
-	cb := containingBlock{width: available, height: 0}
+	// Atomic content is laid out at the origin then translated onto its line.
+	// Its in-flow height basis still comes from the enclosing block container,
+	// not from the anonymous line box or the inline-block's own content.
+	cb := containingBlock{width: available,
+		flowHeight: parentCB.flowHeight, flowHeightDefinite: parentCB.flowHeightDefinite}
 	box, _ := layoutBlock(used, -margin[3], margin[0], available, faces, cb)
 	box.AtomicInline = true
 	// Anonymous line boxes reuse their parent's DOM node for diagnostics.
@@ -630,9 +635,9 @@ func lastTextBaseline(b *Box, faces *faceSet) (int, bool) {
 }
 
 // atomicInlineSize resolves the used content size of an atomic inline box.
-// An empty inline-block shrinks to fit, so an auto width or height is zero;
-// percentage heights have no definite basis here and also resolve to zero.
-func atomicInlineSize(n *StyledNode, width int) (int, int) {
+// An empty inline-block shrinks to fit, so an auto width or height is zero.
+// Percentage heights use the same containing-block basis as non-empty boxes.
+func atomicInlineSize(n *StyledNode, width int, cb containingBlock) (int, int) {
 	size := func(property string, basis int) int {
 		value := strings.TrimSpace(n.Style[property])
 		if value == "" || strings.EqualFold(value, "auto") {
@@ -644,7 +649,8 @@ func atomicInlineSize(n *StyledNode, width int) (int, int) {
 		}
 		return int(math.Round(v))
 	}
-	return size("width", width), size("height", 0)
+	height, _ := specifiedHeight(n, cb.flowHeight, cb.flowHeightDefinite)
+	return size("width", width), height
 }
 
 // collapsedMargin accumulates adjoining vertical margins. Per CSS 2.1 §8.3.1
@@ -701,10 +707,9 @@ func collapsesThroughTop(n *StyledNode, width int) bool {
 
 // collapsesThroughBottom reports whether a block's bottom margin adjoins its
 // last in-flow child's bottom margin.
-func collapsesThroughBottom(n *StyledNode, width int) bool {
-	h := strings.TrimSpace(n.Style["height"])
+func collapsesThroughBottom(n *StyledNode, width int, heightAuto bool) bool {
 	return !establishesContext(n) && borderWidth(n.Style, "bottom") == 0 &&
-		boxEdges(n, "padding", float64(width))[2] == 0 && (h == "" || strings.EqualFold(h, "auto"))
+		boxEdges(n, "padding", float64(width))[2] == 0 && heightAuto
 }
 
 // blockContentWidth mirrors layoutBlock's content width so that margin
@@ -751,6 +756,46 @@ type containingBlock struct {
 	viewport            image.Rectangle
 	inlinePenX          fixed.Int26_6
 	hasInlinePenX       bool
+	// flowHeight is the content height of the nearest block container, the
+	// basis for in-flow percentage heights (CSS 2.1 §10.5). It is only used
+	// when flowHeightDefinite is set; otherwise such percentages act as auto.
+	flowHeight         int
+	flowHeightDefinite bool
+}
+
+// specifiedHeight resolves a block's CSS height against a percentage basis.
+// It reports false when the height is auto, including a percentage whose
+// containing block height is not definite.
+func specifiedHeight(n *StyledNode, basis int, definite bool) (int, bool) {
+	h := strings.TrimSpace(n.Style["height"])
+	if h == "" || strings.EqualFold(h, "auto") {
+		return 0, false
+	}
+	v := classifyValue(h)
+	switch v.Kind {
+	case "percentage":
+		if !definite {
+			return 0, false
+		}
+	case "length", "number":
+	default:
+		return 0, false
+	}
+	used := px(h, float64(basis), math.NaN())
+	if math.IsNaN(used) || math.IsInf(used, 0) {
+		return 0, false
+	}
+	return int(math.Max(0, used)), true
+}
+
+// percentageHeightBasis returns the basis for n's percentage height: the
+// containing block's padding-box height for absolutely positioned boxes,
+// otherwise the parent's definite content height, if any.
+func percentageHeightBasis(n *StyledNode, cb containingBlock) (int, bool) {
+	if positioned(n) {
+		return cb.height, true
+	}
+	return cb.flowHeight, cb.flowHeightDefinite
 }
 
 func positioned(n *StyledNode) bool {
@@ -804,7 +849,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		if cb.hasInlinePenX {
 			inlineX = cb.inlinePenX
 		}
-		if b, h := layoutInlineAt(parent.Node, parent.Style, inline, x, cursor+pending.value(), width, inlineX, faces); b != nil {
+		if b, h := layoutInlineAt(parent.Node, parent.Style, inline, x, cursor+pending.value(), width, inlineX, faces, cb); b != nil {
 			cursor += pending.value()
 			pending = collapsedMargin{}
 			boxes = append(boxes, b)
@@ -886,7 +931,9 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	outerWidth := contentWidth + edges
 	contentX := x + margin[3] + border[3] + padding[3]
 	contentY := y + border[0] + padding[0]
-	collapseBottom := collapsesThroughBottom(n, width)
+	basis, basisDefinite := percentageHeightBasis(n, cb)
+	usedHeight, definite := specifiedHeight(n, basis, basisDefinite)
+	collapseBottom := collapsesThroughBottom(n, width, !definite)
 	childCB := cb
 	if strings.EqualFold(strings.TrimSpace(n.Style["position"]), "relative") || positioned(n) {
 		childCB = containingBlock{
@@ -896,17 +943,16 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 			height:   cb.height,
 			viewport: cb.viewport,
 		}
-		if h := strings.TrimSpace(n.Style["height"]); h != "" && !strings.EqualFold(h, "auto") {
-			childCB.height = int(math.Max(0, px(h, float64(width), float64(cb.height)))) +
-				padding[0] + padding[2]
+		if definite {
+			childCB.height = usedHeight + padding[0] + padding[2]
 		}
 	}
+	childCB.flowHeight, childCB.flowHeightDefinite = usedHeight, definite
 	children, childBottom, trailing := layoutFlow(n, contentX, contentY, contentWidth, faces,
 		collapsesThroughTop(n, width), collapseBottom, childCB)
-	childHeight := childBottom - contentY
-	height := childHeight
-	if h := n.Style["height"]; h != "" && h != "auto" {
-		height = int(math.Max(0, px(h, float64(childHeight), float64(height))))
+	height := childBottom - contentY
+	if definite {
+		height = usedHeight
 	}
 
 	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+height)
@@ -1129,7 +1175,7 @@ func (p inlinePart) outerHeight() int {
 
 // Inline descendants are flattened in document order, without manufacturing
 // whitespace between element boundaries. Text ownership survives flattening.
-func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
+func inlineParts(nodes []*StyledNode, faces *faceSet, width int, cb containingBlock) []inlinePart {
 	var parts []inlinePart
 	var visit func(*StyledNode, []*Node)
 	visit = func(n *StyledNode, backgrounds []*Node) {
@@ -1155,10 +1201,10 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int) []inlinePart {
 			}
 			if isAtomicInline(n) {
 				if !emptyAtomicInline(n) {
-					parts = append(parts, inlineBlockPart(n, width, faces))
+					parts = append(parts, inlineBlockPart(n, width, faces, cb))
 					return
 				}
-				w, h := atomicInlineSize(n, width)
+				w, h := atomicInlineSize(n, width, cb)
 				parts = append(parts, inlinePart{node: n.Node, style: n.Style,
 					imageW: w, imageH: h, imageEdges: inlineImageEdges(n, width),
 					innerEdges: inlineInnerEdges(n, width), isBox: true})
@@ -1229,10 +1275,10 @@ type inlineLine struct {
 }
 
 func layoutInline(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
-	return layoutInlineAt(parent, parentStyle, nodes, x, y, width, fixed.I(x), faces)
+	return layoutInlineAt(parent, parentStyle, nodes, x, y, width, fixed.I(x), faces, containingBlock{})
 }
 
-func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, startPenX fixed.Int26_6, faces *faceSet) (*Box, int) {
+func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode, x, y, width int, startPenX fixed.Int26_6, faces *faceSet, cb containingBlock) (*Box, int) {
 	width = max(0, width)
 	var lines []inlineLine
 	line := inlineLine{}
@@ -1313,7 +1359,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		space = nil
 		forced = false
 	}
-	for _, part := range inlineParts(nodes, faces, width) {
+	for _, part := range inlineParts(nodes, faces, width, cb) {
 		if part.br {
 			flushWord()
 			if len(line.parts) == 0 {
