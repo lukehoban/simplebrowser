@@ -11,6 +11,34 @@ including the nested tables Hacker News uses for its page structure. Painting
 now rasterizes backgrounds, borders, and embedded-font text. Images and advanced
 CSS remain future work.
 
+## Rendering progress
+
+![Current Hacker News fixture render: orange header, painted story text, and missing logo and vote arrows](docs/screenshots/hn-fixture.png)
+
+*Offline Hacker News snapshot rendered with the painter from
+[6c78247](https://github.com/lukehoban/simplebrowser/commit/6c782479b55259df391fbd0766ce684be6fd8380)
+(2026-09-26). The screenshot is a progress snapshot, not a pixel-accurate
+Hacker News reference.*
+
+Every pull request and push to `main` renders the fixture and uploads the
+latest PNG as an `hn-render-*` artifact on the
+[CI workflow](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
+CI compares the generated image against this checked-in screenshot. The
+comparison currently warns rather than fails: macOS and Linux rasterize a few
+font pixels differently even with the same embedded font. Refresh the snapshot
+after intentional rendering changes:
+
+```sh
+make screenshot
+```
+
+The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
+captured snapshot; rendering does not depend on live Hacker News availability.
+Links currently appear blue and underlined rather than matching HN's black
+titles and gray subtext; some underlines extend through trailing whitespace.
+The logo and vote arrows are missing pending [image support
+(#11)](https://github.com/lukehoban/simplebrowser/issues/11).
+
 ## Architecture
 
 ```mermaid
@@ -59,24 +87,6 @@ HTTP(S) resources are
 fetched with bounded HTTP/1.1 responses, redirects, and gzip support. Local
 paths and `file://` URLs read the supplied file.
 
-## Rendering progress
-
-Every pull request and push to `main` renders the checked-in Hacker News
-snapshot. Open the latest [CI workflow run](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml)
-and download its `hn-render-*` artifact to inspect `hn-fixture.png`. The image
-now includes painted backgrounds, borders, and text; keeping the artifact
-stable makes progress visible as rendering fidelity improves.
-
-Render the same network-free fixture locally with:
-
-```sh
-go run ./cmd/simplebrowser -o hn-fixture.png testdata/hn/news.html
-```
-
-The HTML, stylesheet, and small image assets in `testdata/hn` are a captured
-snapshot, so this command and the end-to-end test do not depend on live Hacker
-News availability or content.
-
 Run the project checks locally with:
 
 ```sh
@@ -100,6 +110,6 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9) — implemented; review pending
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10) — backgrounds, per-side borders, embedded-font text, and clipping implemented
 - [GIF, PNG, and JPEG images (#11)](https://github.com/lukehoban/simplebrowser/issues/11)
-- [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture and render artifact in CI; visual fidelity pending painting
+- [Hacker News rendering fidelity and visual CI (#12)](https://github.com/lukehoban/simplebrowser/issues/12) — offline fixture, checked-in screenshot, and render artifact in CI; visual fidelity in progress
 
 See the linked issues for current status and implementation scope.
