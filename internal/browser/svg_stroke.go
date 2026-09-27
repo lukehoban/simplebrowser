@@ -129,7 +129,7 @@ func strokeSVGSubpath(r *vector.Rasterizer, pts []svgPoint, closed bool, shape s
 			denom := 1 + before.x*after.x + before.y*after.y
 			if denom > 0 {
 				tip := a.add(b).mul(1 / denom)
-				if math.Hypot(tip.x, tip.y) <= 4*half {
+				if math.Hypot(tip.x, tip.y) <= shape.miterLimit*half {
 					svgStrokePolygon(r, m, v.add(a), v.add(tip), v.add(b))
 					continue
 				}

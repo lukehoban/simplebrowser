@@ -3,6 +3,7 @@ package browser
 import (
 	"image"
 	"image/color"
+	"image/png"
 	"math"
 	"os"
 	"path/filepath"
@@ -167,6 +168,113 @@ func TestSVGFillOpacityInheritanceAndOverride(t *testing.T) {
 				t.Errorf("pixel = %v, want premultiplied red with alpha %d", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSVGStrokePixels(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		x, y       int
+		want       color.RGBA
+	}{
+		{"stroke only", `<path fill="none" stroke="red" stroke-width="2" d="M1 5H9"/>`, 5, 5, color.RGBA{255, 0, 0, 255}},
+		{"butt cap", `<path fill="none" stroke="red" stroke-width="2" d="M2 5H8"/>`, 1, 5, color.RGBA{}},
+		{"square cap", `<path fill="none" stroke="red" stroke-width="2" stroke-linecap="square" d="M2 5H8"/>`, 1, 5, color.RGBA{255, 0, 0, 255}},
+		{"round cap", `<path fill="none" stroke="red" stroke-width="4" stroke-linecap="round" d="M3 5H7"/>`, 2, 5, color.RGBA{255, 0, 0, 255}},
+		{"inherited style override", `<g stroke="blue" stroke-width="4" stroke-opacity=".25"><path fill="none" style="stroke: red; stroke-opacity: .75; stroke-width: 2" d="M1 5H9"/></g>`, 5, 5, color.RGBA{191, 0, 0, 191}},
+		{"inherited opacity", `<g stroke="red" stroke-opacity=".25"><path fill="none" stroke-width="2" d="M1 5H9"/></g>`, 5, 5, color.RGBA{64, 0, 0, 64}},
+		{"no stroke", `<path fill="none" stroke="none" d="M1 5H9"/>`, 5, 5, color.RGBA{}},
+		{"zero width", `<path fill="none" stroke="red" stroke-width="0" d="M1 5H9"/>`, 5, 5, color.RGBA{}},
+		{"fill remains", `<rect x="1" y="1" width="8" height="8" fill="blue" stroke="red" stroke-width="2"/>`, 5, 5, color.RGBA{0, 0, 255, 255}},
+		{"rect outline", `<rect x="1" y="1" width="8" height="8" fill="none" stroke="red" stroke-width="2"/>`, 1, 5, color.RGBA{255, 0, 0, 255}},
+		{"transform scales stroke", `<g transform="scale(2)"><path fill="none" stroke="red" stroke-width="1" d="M1 2.5H4"/></g>`, 5, 5, color.RGBA{255, 0, 0, 255}},
+		{"curve stroke", `<path fill="none" stroke="red" stroke-width="2" d="M1 5Q5 5 9 5"/>`, 5, 5, color.RGBA{255, 0, 0, 255}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">` + tc.body + `</svg>`
+			img, err := decodeSVG([]byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+				t.Errorf("pixel (%d,%d) = %v; want %v", tc.x, tc.y, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSVGStrokeViewBox(t *testing.T) {
+	img, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 5 5"><path fill="none" stroke="red" stroke-width="1" d="M1 2.5H4"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(5, 5); got != (color.RGBA{255, 0, 0, 255}) {
+		t.Errorf("scaled stroke pixel = %v", got)
+	}
+}
+
+// The fixture is intentionally simple enough to review visually, and checks
+// that the before image remains fill-only while the after image adds strokes.
+func TestSVGStrokeVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "stroke-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := after.RGBAAt(30, 20); got.A == 0 {
+		t.Errorf("stroke-only line invisible: %v", got)
+	}
+	if dir := os.Getenv("SVG_VISUAL_DIR"); dir != "" {
+		before, err := decodeSVG([]byte(strings.ReplaceAll(string(data), "stroke=", "data-stroke=")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, img := range map[string]*svgImage{"svg-strokes-before.png": before, "svg-strokes-after.png": after} {
+			f, err := os.Create(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(f, img.RGBA)
+			closeErr := f.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("write %s: %v, %v", name, err, closeErr)
+			}
+		}
+	}
+}
+
+func TestSVGStrokeJoinsAndNoDoubleAlpha(t *testing.T) {
+	for _, join := range []string{"miter", "round", "bevel"} {
+		src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="none" stroke="red" stroke-opacity=".5" stroke-width="4" stroke-linejoin="` + join + `" d="M3 15L10 5L17 15"/></svg>`
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := img.RGBAAt(10, 6); got != (color.RGBA{128, 0, 0, 128}) {
+			t.Errorf("%s join overlapping strokes = %v, want one 50%% alpha paint", join, got)
+		}
+	}
+	// The miter has a longer apex than the bevel for an acute join.
+	render := func(join string) *svgImage {
+		img, err := decodeSVG([]byte(`<svg width="20" height="20"><path fill="none" stroke="red" stroke-width="4" stroke-linejoin="` + join + `" d="M3 15L10 5L17 15"/></svg>`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return img
+	}
+	miter, bevel := render("miter"), render("bevel")
+	if miter.RGBAAt(10, 2).A == 0 || bevel.RGBAAt(10, 2).A != 0 {
+		t.Errorf("miter/bevel apex pixels = %v/%v", miter.RGBAAt(10, 2), bevel.RGBAAt(10, 2))
+	}
+	limited, err := decodeSVG([]byte(`<svg width="20" height="20" stroke-miterlimit="1"><path fill="none" stroke="red" stroke-width="4" d="M3 15L10 5L17 15"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := limited.RGBAAt(10, 2).A; got != 0 {
+		t.Errorf("miter limit should bevel the apex, got alpha %d", got)
 	}
 }
 

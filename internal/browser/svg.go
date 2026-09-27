@@ -59,12 +59,13 @@ type svgSegment struct {
 }
 
 type svgShape struct {
-	segments  []svgSegment
-	transform svgAffine
-	fill      color.NRGBA
-	stroke    color.NRGBA
-	width     float64
-	cap, join string
+	segments   []svgSegment
+	transform  svgAffine
+	fill       color.NRGBA
+	stroke     color.NRGBA
+	width      float64
+	cap, join  string
+	miterLimit float64
 }
 
 // svgImage is an image.Image rasterized at its intrinsic size. Painters that
@@ -105,10 +106,11 @@ func decodeSVG(data []byte) (*svgImage, error) {
 		strokeOpacity float64
 		width         float64
 		cap, join     string
+		miterLimit    float64
 		transform     svgAffine
 		skip          bool
 	}
-	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", transform: svgIdentity}}
+	stack := []frame{{fill: color.NRGBA{A: 255}, hasFill: true, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter", miterLimit: 4, transform: svgIdentity}}
 	elements, segments := 0, 0
 	sawRoot := false
 	for {
@@ -181,6 +183,11 @@ func decodeSVG(data []byte) (*svgImage, error) {
 				if value := attrs["stroke-linejoin"]; value == "miter" || value == "bevel" || value == "round" {
 					current.join = value
 				}
+				if value, ok := attrs["stroke-miterlimit"]; ok {
+					if n, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err == nil && n >= 1 && n <= maxSVGStrokeWidth {
+						current.miterLimit = n
+					}
+				}
 				if value, ok := attrs["transform"]; ok {
 					transform, ok := parseSVGTransform(value)
 					if !ok {
@@ -214,7 +221,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					if !current.hasStroke {
 						stroke = color.NRGBA{}
 					}
-					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, stroke: stroke, width: current.width, cap: current.cap, join: current.join})
+					img.shapes = append(img.shapes, svgShape{segments: shape, transform: current.transform, fill: fill, stroke: stroke, width: current.width, cap: current.cap, join: current.join, miterLimit: current.miterLimit})
 				}
 
 			}
