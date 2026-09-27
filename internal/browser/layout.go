@@ -260,6 +260,10 @@ func px(value string, basis, fallback float64) float64 {
 			return v.Number * 16
 		case "rem":
 			return v.Number * 16
+		case "ex", "ch":
+			// Computed styles resolve these from font metrics; this is only
+			// the 0.5em fallback for unresolved values.
+			return v.Number * 8
 		case "pt":
 			return v.Number * 96 / 72
 		case "pc":

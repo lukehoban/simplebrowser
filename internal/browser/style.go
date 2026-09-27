@@ -127,7 +127,8 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	if parent != nil {
 		parentFontSize = computedFontSize(parent)
 	}
-	values["font-size"] = formatPixels(resolveFontSize(values["font-size"], parentFontSize, rootFontSize))
+	// ex and ch in font-size use the parent's font, like em (CSS Values 4 §6.1).
+	values["font-size"] = formatPixels(resolveFontSize(values["font-size"], parentFontSize, rootFontSize, ratiosFor(parent)))
 	if isRootElement {
 		rootFontSize = computedFontSize(values)
 	}
@@ -152,8 +153,9 @@ func formatPixels(value float64) string {
 
 // resolveFontSize turns the specified font-size into the computed pixel value
 // inherited by descendants. Relative font sizes use the parent's computed
-// size, except rem, which uses the document element's computed size.
-func resolveFontSize(value string, parentSize, rootSize float64) float64 {
+// size, except rem, which uses the document element's computed size. ex and ch
+// use parentRatios, the metrics of the parent's selected face.
+func resolveFontSize(value string, parentSize, rootSize float64, parentRatios fontRatios) float64 {
 	value = strings.ToLower(strings.TrimSpace(value))
 	var size float64
 	switch value {
@@ -188,6 +190,10 @@ func resolveFontSize(value string, parentSize, rootSize float64) float64 {
 				size = parentSize * v.Number
 			case "rem":
 				size = rootSize * v.Number
+			case "ex":
+				size = parentSize * parentRatios.ex * v.Number
+			case "ch":
+				size = parentSize * parentRatios.ch * v.Number
 			default:
 				size = px(value, parentSize, math.NaN())
 			}
@@ -200,10 +206,12 @@ func resolveFontSize(value string, parentSize, rootSize float64) float64 {
 }
 
 // CSS computed values resolve font-relative lengths against this element's
-// font size. Doing this once in style computation keeps every layout path
-// (blocks, tables, images, and borders) consistent.
+// font size (and, for ex/ch, this element's selected face). Doing this once
+// in style computation keeps every layout path (blocks, tables, images, and
+// borders) consistent.
 func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 	fontSize := computedFontSize(values)
+	ratios := ratiosFor(values)
 	for property, text := range values {
 		if property == "font-size" {
 			continue
@@ -215,6 +223,10 @@ func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 				values[property] = formatPixels(v.Number * fontSize)
 			case "rem":
 				values[property] = formatPixels(v.Number * rootSize)
+			case "ex":
+				values[property] = formatPixels(v.Number * fontSize * ratios.ex)
+			case "ch":
+				values[property] = formatPixels(v.Number * fontSize * ratios.ch)
 			}
 		}
 		if property == "line-height" && v.Kind == "percentage" {
