@@ -65,6 +65,8 @@ type InlineBackground struct {
 // or malformed SVG; the rectangle is still reserved so painting can draw a
 // placeholder.
 type ImageBox struct {
+	// Node is the replaced element; painting reads its visibility.
+	Node  *Node
 	Image image.Image
 	Rect  image.Rectangle
 }
@@ -1407,7 +1409,7 @@ func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, 
 	rect := image.Rect(x+margin[3], y+margin[0],
 		content.Max.X+padding[1]+border[1], content.Max.Y+padding[2]+border[2])
 	box := &Box{Node: n.Node, Rect: rect, Content: content,
-		Images: []ImageBox{{Image: picture, Rect: content}}}
+		Images: []ImageBox{{Node: n.Node, Image: picture, Rect: content}}}
 	return box, rect.Dy() + margin[0] + margin[2]
 }
 
@@ -1857,7 +1859,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 					box.Children = append(box.Children,
 						&Box{Node: p.node, Rect: border, Content: content, AtomicInline: true})
 				} else {
-					box.Images = append(box.Images, ImageBox{Image: p.image, Rect: content})
+					box.Images = append(box.Images, ImageBox{Node: p.node, Image: p.image, Rect: content})
 				}
 				xpos = penX.Round() + p.outerWidth()
 				penX = fixed.I(xpos)
