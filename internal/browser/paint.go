@@ -283,7 +283,8 @@ func drawText(dst *image.RGBA, run TextRun, styles map[*Node]ComputedStyle, face
 	if clip.Empty() {
 		return
 	}
-	baseline := run.Rect.Min.Y + (run.Rect.Dy()-m.lineHeight())/2 + m.face.Metrics().Ascent.Ceil()
+	ascent, _ := m.lineMetrics()
+	baseline := run.Rect.Min.Y + ascent
 	// SubImage constrains glyph masks to the run and the viewport; long
 	// unbreakable words cannot paint across neighboring boxes.
 	drawer := font.Drawer{Dst: dst.SubImage(clip).(draw.Image), Src: image.NewUniform(ink),

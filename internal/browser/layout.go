@@ -10,6 +10,12 @@ import (
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/gobold"
+	"golang.org/x/image/font/gofont/gobolditalic"
+	"golang.org/x/image/font/gofont/goitalic"
+	"golang.org/x/image/font/gofont/gomono"
+	"golang.org/x/image/font/gofont/gomonobold"
+	"golang.org/x/image/font/gofont/gomonobolditalic"
+	"golang.org/x/image/font/gofont/gomonoitalic"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
@@ -48,8 +54,9 @@ type TextRun struct {
 }
 
 type metrics struct {
-	face font.Face
-	size float64
+	face            font.Face
+	size            float64
+	lineHeightValue string
 }
 
 func (m metrics) width(s string) int {
@@ -63,7 +70,28 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 	return font.MeasureString(m.face, s)
 }
 
-func (m metrics) lineHeight() int { return int(math.Ceil(m.size * 1.2)) }
+func (m metrics) lineHeight() int {
+	value := strings.ToLower(strings.TrimSpace(m.lineHeightValue))
+	if value == "" || value == "normal" {
+		return int(math.Ceil(m.size * 1.2))
+	}
+	v := classifyValue(value)
+	var height float64
+	switch v.Kind {
+	case "number":
+		height = m.size * v.Number
+	case "percentage":
+		height = m.size * v.Number / 100
+	case "length":
+		height = px(value, m.size, m.size*1.2)
+	default:
+		height = m.size * 1.2
+	}
+	if height < 0 || height > 4096 || math.IsNaN(height) || math.IsInf(height, 0) {
+		height = m.size * 1.2
+	}
+	return int(math.Ceil(height))
+}
 
 // lineMetrics describes the portion of a text line box above and below its
 // baseline.  Keeping these separately lets text with different font sizes and
@@ -79,35 +107,52 @@ func (m metrics) lineMetrics() (ascent, descent int) {
 		ascent = int(math.Ceil(m.size * .8))
 		descent = int(math.Ceil(m.size * .2))
 	}
-	// Font metrics describe glyphs, while CSS's normal line-height has a
-	// little leading. Split that leading around the baseline.
-	if leading := height - ascent - descent; leading > 0 {
-		ascent += (leading + 1) / 2
-		descent += leading / 2
-	}
+	// CSS centers glyph metrics in the specified line-height. Leading may be
+	// negative when line-height is smaller than the font's em box.
+	leading := height - ascent - descent
+	ascent += leading / 2
+	descent += leading - leading/2
+	ascent = max(0, ascent)
+	descent = max(0, descent)
 	return ascent, descent
 }
 
 // Each layout owns its font faces. opentype faces cache glyph data internally
 // and must not be shared across concurrent renders.
 type faceSet struct {
-	regular *opentype.Font
-	bold    *opentype.Font
-	faces   map[faceKey]font.Face
+	sansRegular    *opentype.Font
+	sansBold       *opentype.Font
+	sansItalic     *opentype.Font
+	sansBoldItalic *opentype.Font
+	monoRegular    *opentype.Font
+	monoBold       *opentype.Font
+	monoItalic     *opentype.Font
+	monoBoldItalic *opentype.Font
+	faces          map[faceKey]font.Face
 	// images holds the render-scoped decoded resources keyed by DOM node, so
 	// layout never fetches during measurement.
 	images map[*Node]image.Image
 }
 
 type faceKey struct {
-	size float64
-	bold bool
+	size   float64
+	family string
+	bold   bool
+	italic bool
 }
 
 func newFaceSet() *faceSet {
-	regular, _ := opentype.Parse(goregular.TTF)
-	bold, _ := opentype.Parse(gobold.TTF)
-	return &faceSet{regular: regular, bold: bold, faces: make(map[faceKey]font.Face)}
+	parse := func(data []byte) *opentype.Font {
+		result, _ := opentype.Parse(data)
+		return result
+	}
+	return &faceSet{
+		sansRegular: parse(goregular.TTF), sansBold: parse(gobold.TTF),
+		sansItalic: parse(goitalic.TTF), sansBoldItalic: parse(gobolditalic.TTF),
+		monoRegular: parse(gomono.TTF), monoBold: parse(gomonobold.TTF),
+		monoItalic: parse(gomonoitalic.TTF), monoBoldItalic: parse(gomonobolditalic.TTF),
+		faces: make(map[faceKey]font.Face),
+	}
 }
 
 func (f *faceSet) close() {
@@ -120,19 +165,56 @@ func (f *faceSet) close() {
 
 func (f *faceSet) metrics(style ComputedStyle) metrics {
 	size := fontSize(style["font-size"])
-	key := faceKey{size: size, bold: isBold(style["font-weight"])}
+	key := faceKey{size: size, family: mappedFontFamily(style["font-family"]),
+		bold: isBold(style["font-weight"]), italic: strings.EqualFold(strings.TrimSpace(style["font-style"]), "italic") ||
+			strings.EqualFold(strings.TrimSpace(style["font-style"]), "oblique")}
 	face, ok := f.faces[key]
 	if !ok {
-		fontData := f.regular
-		if key.bold {
-			fontData = f.bold
+		fontData := f.sansRegular
+		if key.family == "mono" {
+			switch {
+			case key.bold && key.italic:
+				fontData = f.monoBoldItalic
+			case key.bold:
+				fontData = f.monoBold
+			case key.italic:
+				fontData = f.monoItalic
+			default:
+				fontData = f.monoRegular
+			}
+		} else {
+			switch {
+			case key.bold && key.italic:
+				fontData = f.sansBoldItalic
+			case key.bold:
+				fontData = f.sansBold
+			case key.italic:
+				fontData = f.sansItalic
+			}
 		}
 		if fontData != nil {
 			face, _ = opentype.NewFace(fontData, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingNone})
 			f.faces[key] = face
 		}
 	}
-	return metrics{face: face, size: size}
+	return metrics{face: face, size: size, lineHeightValue: style["line-height"]}
+}
+
+// mappedFontFamily picks the first supported family in a CSS family list.
+// x/image ships Go Sans and Go Mono but no serif face, so serif/Times
+// intentionally use the sans fallback.
+func mappedFontFamily(value string) string {
+	for _, family := range strings.Split(value, ",") {
+		family = strings.ToLower(strings.Trim(strings.TrimSpace(family), `"'`))
+		switch family {
+		case "courier", "courier new", "monospace":
+			return "mono"
+		case "verdana", "geneva", "arial", "helvetica", "sans-serif",
+			"times", "times new roman", "serif":
+			return "sans"
+		}
+	}
+	return "sans"
 }
 
 func fontSize(value string) float64 {
@@ -155,7 +237,7 @@ func fontSize(value string) float64 {
 	default:
 		size = px(value, 16, 16)
 	}
-	if size <= 0 || size > 512 || math.IsNaN(size) || math.IsInf(size, 0) {
+	if size < 0 || size > 512 || math.IsNaN(size) || math.IsInf(size, 0) {
 		return 16
 	}
 	return size

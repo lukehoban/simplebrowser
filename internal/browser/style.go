@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -28,6 +29,8 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 	}
 	ua := UserAgentStylesheet()
 	styles := make(map[*Node]ComputedStyle)
+	rootFontSize := 16.0
+	rootElementSeen := false
 	var makeTree func(*Node, ComputedStyle) *StyledNode
 	makeTree = func(n *Node, parent ComputedStyle) *StyledNode {
 		if n.Type != ElementNode {
@@ -37,7 +40,12 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 			}
 			return result
 		}
-		computed := cascade(n, parent, ua, sheets, inline[n])
+		isRootElement := !rootElementSeen
+		computed := cascade(n, parent, rootFontSize, isRootElement, ua, sheets, inline[n])
+		if !rootElementSeen {
+			rootElementSeen = true
+			rootFontSize = computedFontSize(computed)
+		}
 		styles[n] = computed
 		result := &StyledNode{Node: n, Style: computed}
 		for _, child := range n.Children {
@@ -59,12 +67,14 @@ type winningDeclaration struct {
 	spec              [3]int
 }
 
-func cascade(n *Node, parent ComputedStyle, ua Stylesheet, sheets []Stylesheet,
+func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
 	inline []Declaration) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
-		"font-size": "medium", "font-weight": "normal", "text-align": "start"}
+		"font-size": "16px", "font-style": "normal", "font-weight": "normal",
+		"line-height": "normal", "text-align": "start"}
 	// border-spacing is inherited (CSS 2.1 §17.6.1); the UA table rule sets 2px.
-	for _, p := range []string{"border-spacing", "color", "font-family", "font-size", "font-weight", "text-align"} {
+	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
+		"font-style", "font-weight", "line-height", "text-align"} {
 		if parent != nil {
 			values[p] = parent[p]
 		}
@@ -104,12 +114,113 @@ func cascade(n *Node, parent ComputedStyle, ua Stylesheet, sheets []Stylesheet,
 	}
 	for property, winner := range winners {
 		value := winner.d.Value
-		if strings.EqualFold(value, "inherit") && parent != nil {
-			value = parent[property]
+		if strings.EqualFold(value, "inherit") {
+			if parent != nil {
+				value = parent[property]
+			} else {
+				continue
+			}
 		}
 		values[property] = value
 	}
+	parentFontSize := 16.0
+	if parent != nil {
+		parentFontSize = computedFontSize(parent)
+	}
+	values["font-size"] = formatPixels(resolveFontSize(values["font-size"], parentFontSize, rootFontSize))
+	if isRootElement {
+		rootFontSize = computedFontSize(values)
+	}
+	resolveFontRelativeValues(values, rootFontSize)
 	return values
+}
+
+func computedFontSize(style ComputedStyle) float64 {
+	if style == nil {
+		return 16
+	}
+	v := classifyValue(style["font-size"])
+	if (v.Kind == "length" || v.Kind == "number") && v.Number >= 0 {
+		return v.Number
+	}
+	return 16
+}
+
+func formatPixels(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64) + "px"
+}
+
+// resolveFontSize turns the specified font-size into the computed pixel value
+// inherited by descendants. Relative font sizes use the parent's computed
+// size, except rem, which uses the document element's computed size.
+func resolveFontSize(value string, parentSize, rootSize float64) float64 {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var size float64
+	switch value {
+	case "xx-small":
+		size = 9.6
+	case "x-small":
+		size = 12
+	case "small":
+		size = 14.222222222222221
+	case "medium", "":
+		size = 16
+	case "large":
+		size = 19.2
+	case "x-large":
+		size = 24
+	case "xx-large":
+		size = 32
+	case "xxx-large":
+		size = 48
+	case "smaller":
+		size = parentSize * 5 / 6
+	case "larger":
+		size = parentSize * 6 / 5
+	default:
+		v := classifyValue(value)
+		switch v.Kind {
+		case "percentage":
+			size = parentSize * v.Number / 100
+		case "length", "number":
+			switch v.Unit {
+			case "em":
+				size = parentSize * v.Number
+			case "rem":
+				size = rootSize * v.Number
+			default:
+				size = px(value, parentSize, math.NaN())
+			}
+		}
+	}
+	if size < 0 || size > 512 || math.IsNaN(size) || math.IsInf(size, 0) {
+		return parentSize
+	}
+	return size
+}
+
+// CSS computed values resolve font-relative lengths against this element's
+// font size. Doing this once in style computation keeps every layout path
+// (blocks, tables, images, and borders) consistent.
+func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
+	fontSize := computedFontSize(values)
+	for property, text := range values {
+		if property == "font-size" {
+			continue
+		}
+		v := classifyValue(strings.TrimSpace(text))
+		if v.Kind == "length" {
+			switch v.Unit {
+			case "em":
+				values[property] = formatPixels(v.Number * fontSize)
+			case "rem":
+				values[property] = formatPixels(v.Number * rootSize)
+			}
+		}
+		if property == "line-height" && v.Kind == "percentage" {
+			values[property] = formatPixels(v.Number * fontSize / 100)
+		}
+	}
 }
 
 func beats(a, b winningDeclaration) bool {

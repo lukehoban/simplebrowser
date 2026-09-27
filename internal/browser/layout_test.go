@@ -178,12 +178,77 @@ func TestLayoutCollapsesWhitespaceAndHonorsDisplayNone(t *testing.T) {
 	}
 }
 
+func TestFontFamilyMapping(t *testing.T) {
+	for _, tc := range []struct {
+		value, want string
+	}{
+		{"Verdana, Geneva, sans-serif", "sans"},
+		{`"Missing Face", Courier, monospace`, "mono"},
+		{"Arial", "sans"},
+		{"Helvetica", "sans"},
+		{"Times New Roman, serif", "sans"}, // Go fonts have no serif face.
+		{"unknown", "sans"},
+	} {
+		if got := mappedFontFamily(tc.value); got != tc.want {
+			t.Errorf("mappedFontFamily(%q) = %q, want %q", tc.value, got, tc.want)
+		}
+	}
+
+	faces := newFaceSet()
+	defer faces.close()
+	sans := faces.metrics(ComputedStyle{"font-size": "16px", "font-family": "Verdana"})
+	mono := faces.metrics(ComputedStyle{"font-size": "16px", "font-family": "Courier"})
+	if sans.width("iiii") == mono.width("iiii") {
+		t.Fatal("Courier should use Go Mono rather than the sans face")
+	}
+}
+
+func TestLayoutLineHeightGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name, value string
+		want        int
+	}{
+		{"normal", "normal", 24},
+		{"unitless", "1.5", 30},
+		{"length", "32px", 32},
+		{"percentage", "150%", 30},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := styledForLayout(t, `<p style="margin:0;font-size:20px;line-height:`+tc.value+`">first<br>second</p>`)
+			got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 200))
+			if err != nil {
+				t.Fatal(err)
+			}
+			line := got.Root.Children[0].Children[0]
+			if line.Rect.Dy() != 2*tc.want {
+				t.Fatalf("two-line box height = %d, want %d; box=%v", line.Rect.Dy(), 2*tc.want, line.Rect)
+			}
+			if len(line.Text) != 2 || line.Text[1].Rect.Min.Y-line.Text[0].Rect.Min.Y != tc.want {
+				t.Fatalf("text baselines did not advance by %dpx: %+v", tc.want, line.Text)
+			}
+		})
+	}
+}
+
+func TestLayoutEmMarginUsesElementsOwnFontSize(t *testing.T) {
+	doc := styledForLayout(t, `<div style="font-size:10px;margin-left:2em;padding:0;width:30px;height:1px"></div>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	box := got.Root.Children[0]
+	if box.Rect.Min.X != 20 || box.Content.Dx() != 30 {
+		t.Fatalf("em margin/width geometry = rect %v content %v, want x=20 width=30", box.Rect, box.Content)
+	}
+}
+
 func TestLayoutSharedInlineFlowAndStyleIdentity(t *testing.T) {
 	doc := styledForLayout(t, `<p style="margin:0">Hello <b style="font-size:20px">world</b>!<span>Joined</span><span>Up</span><br>next<br><br>end</p>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 600, 200))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	p := got.Root.Children[0]
 	if len(p.Children) != 1 {
 		t.Fatalf("inline sibling boxes = %d, want one shared flow", len(p.Children))
