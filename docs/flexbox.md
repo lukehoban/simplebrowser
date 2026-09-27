@@ -7,10 +7,13 @@ views. It is not a complete CSS Flexbox implementation.
 
 ![Flex wrap repro before and after](screenshots/flex-wrap-before-after.png)
 
+![Current wrapping column with two auto-width items sharing 180px](screenshots/flex-wrap-auto-columns.png)
+
 The repro is [`testdata/flex/wrap.html`](../testdata/flex/wrap.html): a
 `flex-wrap:wrap` row (issue #272's two 60px items), a `wrap-reverse` row whose
 second line flexes to full width, and a wrapping column whose lines share the
-free width.
+free width. The final column has two auto-width items in separate 90px lines;
+its second item must stay inside the 180px container.
 
 ## Supported
 
