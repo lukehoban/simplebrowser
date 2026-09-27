@@ -40,6 +40,62 @@ func TestColorKeywordTokens(t *testing.T) {
 	}
 }
 
+func TestStandardNamedColors(t *testing.T) {
+	// CSS defines 148 named colors plus the special transparent keyword.
+	if got := len(namedColors); got != 149 {
+		t.Fatalf("named color count = %d, want 149", got)
+	}
+	tests := map[string]color.RGBA{
+		"aliceblue":     {240, 248, 255, 255},
+		"AQUA":          {0, 255, 255, 255},
+		`f\75 chsia`:    {255, 0, 255, 255},
+		"OlIvE":         {128, 128, 0, 255},
+		"rebeccapurple": {102, 51, 153, 255},
+		"darkorange":    {255, 140, 0, 255},
+		"lightseagreen": {32, 178, 170, 255},
+		"yellowgreen":   {154, 205, 50, 255},
+		"transparent":   {},
+	}
+	for input, want := range tests {
+		t.Run(input, func(t *testing.T) {
+			got, ok := parseColor(input)
+			if !ok || got != want {
+				t.Errorf("parseColor(%q) = %v, %v; want %v, true", input, got, ok, want)
+			}
+		})
+	}
+	for _, aliases := range [][2]string{
+		{"aqua", "cyan"},
+		{"fuchsia", "magenta"},
+		{"darkgray", "darkgrey"},
+		{"slategray", "slategrey"},
+	} {
+		left, leftOK := parseColor(aliases[0])
+		right, rightOK := parseColor(aliases[1])
+		if !leftOK || !rightOK || left != right {
+			t.Errorf("aliases %q and %q differ: %v/%v, %v/%v",
+				aliases[0], aliases[1], left, leftOK, right, rightOK)
+		}
+	}
+}
+
+func TestStandardNamedColorPixels(t *testing.T) {
+	img := painted(t, `<body style="margin:0">
+		<div style="width:20px;height:10px;background:AQUA"></div>
+		<div style="width:20px;height:10px;background:fuchsia"></div>
+		<div style="width:20px;height:10px;background:olive"></div>
+		<div style="width:20px;height:10px;background:rebeccapurple"></div>
+	</body>`, image.Rect(0, 0, 20, 40))
+	for y, want := range []color.RGBA{
+		{0, 255, 255, 255},
+		{255, 0, 255, 255},
+		{128, 128, 0, 255},
+		{102, 51, 153, 255},
+	} {
+		pixel(t, img, 10, y*10+5, want)
+	}
+}
+
 func TestInvalidColorDoesNotWinCascade(t *testing.T) {
 	for _, invalid := range []string{`'red'`, `"red"`, `#red`, `gree\`, `\0green`, `green red`} {
 		for _, important := range []string{"", " !important"} {
