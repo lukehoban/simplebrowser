@@ -35,6 +35,19 @@ type StyledDocument struct {
 	UserAgent    Stylesheet
 	Stylesheets  []Stylesheet
 	InlineStyles map[*Node][]Declaration
+	StyleRoot    *StyledNode
+	Styles       map[*Node]ComputedStyle
+}
+
+// ComputedStyle contains the values used by later layout and painting stages.
+// Values remain CSS text deliberately: layout owns unit conversion.
+type ComputedStyle map[string]string
+
+// StyledNode retains its source DOM node while adding its computed style.
+type StyledNode struct {
+	Node     *Node
+	Style    ComputedStyle
+	Children []*StyledNode
 }
 
 // Layout is the output of the layout stage.
@@ -81,15 +94,6 @@ func RenderWithFetcher(source string, output io.Writer, fetcher *Fetcher) error 
 		return fmt.Errorf("paint: %w", err)
 	}
 	return nil
-}
-
-func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
-	sheets, inline, err := ExtractStyles(document, fetcher)
-	if err != nil {
-		return StyledDocument{}, err
-	}
-	// Issue #7 will match selectors and compute the cascade.
-	return StyledDocument{Document: document, UserAgent: UserAgentStylesheet(), Stylesheets: sheets, InlineStyles: inline}, nil
 }
 
 func layout(document StyledDocument) (Layout, error) {

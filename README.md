@@ -4,10 +4,10 @@
 to turn a URL or HTML file into a PNG, with enough web-platform support to
 render [Hacker News](https://news.ycombinator.com/) recognizably.
 
-The project is at the **CSS parsing stage**. The CLI fetches HTTP(S) pages and
-local files, builds a DOM, and parses embedded, linked, and inline CSS.
-Painting still emits a deterministic placeholder image; selector matching,
-layout, and page rendering are not implemented yet.
+The project is at the **style computation stage**. The CLI fetches HTTP(S) pages,
+builds a DOM, loads CSS, and computes selector matches, the cascade, inheritance,
+and useful presentational HTML defaults. Painting still emits a deterministic
+placeholder image; layout and page rendering are not implemented yet.
 
 ## Architecture
 
@@ -30,7 +30,7 @@ not a complete HTML5 parsing algorithm.
 `ExtractStyles` collects author stylesheets in DOM order (using `Document.BaseURL`
 for linked resources) and inline declarations by node. `UserAgentStylesheet`
 provides defaults separately. CSS parsing supports common selectors, values,
-and `!important`, but does not yet apply styles to the DOM.
+and `!important`; computed styles retain CSS text for the layout stage to convert.
 
 ## Usage
 
@@ -62,7 +62,7 @@ Work is tracked under the [browser epic (#2)](https://github.com/lukehoban/simpl
 - [HTTP/1.1 networking over TCP/TLS (#4)](https://github.com/lukehoban/simplebrowser/issues/4) — implemented
 - [HTML tokenizer, parser, and DOM (#5)](https://github.com/lukehoban/simplebrowser/issues/5) — implemented; review pending
 - [CSS parser and user-agent stylesheet (#6)](https://github.com/lukehoban/simplebrowser/issues/6) — implemented; review pending
-- [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7)
+- [Selector matching, cascade, and inheritance (#7)](https://github.com/lukehoban/simplebrowser/issues/7) — implemented
 - [Block and inline layout (#8)](https://github.com/lukehoban/simplebrowser/issues/8)
 - [Table layout (#9)](https://github.com/lukehoban/simplebrowser/issues/9)
 - [PNG painting (#10)](https://github.com/lukehoban/simplebrowser/issues/10)
