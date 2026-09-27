@@ -33,8 +33,10 @@ func TestCompoundLengthsComputedAndGeometry(t *testing.T) {
 		if want := "10px " + formatPixels(ex); table["border-spacing"] != want {
 			t.Errorf("%v border-spacing = %q, want %q", tc.viewport, table["border-spacing"], want)
 		}
-		if grid := buildTableGrid(styledElementByID(got.Document.StyleRoot, "table")); grid.spacing != 10 {
-			t.Errorf("horizontal table spacing = %d, want 10", grid.spacing)
+		if grid := buildTableGrid(styledElementByID(got.Document.StyleRoot, "table")); grid.hspacing != 10 {
+			t.Errorf("horizontal table spacing = %d, want 10", grid.hspacing)
+		} else if want := int(math.Round(ex)); grid.vspacing != want {
+			t.Errorf("vertical table spacing = %d, want %d", grid.vspacing, want)
 		}
 		border := styledElementByID(got.Document.StyleRoot, "border").Style
 		if border["border-left"] != formatPixels(tc.width*.02)+" solid red" ||

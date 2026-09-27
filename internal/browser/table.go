@@ -17,7 +17,8 @@ import (
 // Deliberate simplifications, all of which degrade gracefully:
 //
 //   - `cellspacing` is mapped by the cascade onto the table's `border-spacing`
-//     and is applied around and between cells.
+//     and is applied around and between cells. Two-value `border-spacing`
+//     uses distinct horizontal (column) and vertical (row) gaps.
 //   - `cellpadding` is mapped onto the table's `padding-*`. Because the HTML
 //     attribute describes cell padding rather than table padding, table
 //     padding is used as the default padding of cells that do not declare
@@ -75,7 +76,8 @@ type tableGrid struct {
 	rows     []*tableRowBox
 	groups   []*tableGroupBox
 	columns  int
-	spacing  int
+	hspacing int    // horizontal border-spacing between/around columns
+	vspacing int    // vertical border-spacing between/around rows
 	collapse bool   // border-collapse: collapse
 	padding  [4]int // default cell padding contributed by cellpadding
 }
@@ -199,16 +201,21 @@ func spanAttribute(n *StyledNode, name string) int {
 // buildTableGrid collects rows and cells, repairing malformed markup with
 // anonymous rows and cells so that every table produces usable geometry.
 func buildTableGrid(table *StyledNode) *tableGrid {
-	// The first component is horizontal spacing; a second component specifies
-	// vertical spacing (tracked separately until the table grid supports it).
+	// The first component is horizontal spacing; an optional second component
+	// is vertical spacing, otherwise the first applies to both axes
+	// (CSS 2.1 §17.6.1).
 	spacing := strings.Fields(table.Style["border-spacing"])
 	grid := &tableGrid{}
 	if len(spacing) > 0 {
-		grid.spacing = int(math.Max(0, math.Round(px(spacing[0], 0, 0))))
+		grid.hspacing = int(math.Max(0, math.Round(px(spacing[0], 0, 0))))
+		grid.vspacing = grid.hspacing
+		if len(spacing) > 1 {
+			grid.vspacing = int(math.Max(0, math.Round(px(spacing[1], 0, 0))))
+		}
 	}
 	if strings.EqualFold(strings.TrimSpace(table.Style["border-collapse"]), "collapse") {
 		// In the collapsing border model border-spacing does not apply.
-		grid.collapse, grid.spacing = true, 0
+		grid.collapse, grid.hspacing, grid.vspacing = true, 0, 0
 	}
 	grid.padding = boxEdges(table, "padding", 0)
 
@@ -557,7 +564,7 @@ func (g *tableGrid) columnSizes() columnSizes {
 			if span <= 0 {
 				continue
 			}
-			inner := g.spacing * (span - 1)
+			inner := g.hspacing * (span - 1)
 			distribute(sizes.min[cell.col:end], cell.minWidth-inner)
 			distribute(sizes.max[cell.col:end], cell.maxWidth-inner)
 		}
@@ -711,19 +718,20 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	if value := specifiedWidth; value != "" && !strings.EqualFold(value, "auto") {
 		contentWidth = min(available, max(0, int(math.Round(px(value, float64(available), float64(available))))))
 	} else {
-		intrinsic := grid.spacing * (grid.columns + 1)
+		intrinsic := grid.hspacing * (grid.columns + 1)
 		for _, w := range sizes.max {
 			intrinsic += w
 		}
 		contentWidth = min(available, intrinsic)
 	}
 	contentWidth = max(contentWidth, tableCaptionMinWidth(n, faces))
-	// Border spacing never pushes the table past the space it was given, so
-	// very narrow viewports shrink the gaps before they clip content.
-	if grid.columns > 0 && grid.spacing*(grid.columns+1) > contentWidth {
-		grid.spacing = max(0, contentWidth/(grid.columns+1))
+	// Horizontal border spacing never pushes the table past the space it was
+	// given, so very narrow viewports shrink the column gaps before they clip
+	// content. Vertical spacing is unconstrained and kept as specified.
+	if grid.columns > 0 && grid.hspacing*(grid.columns+1) > contentWidth {
+		grid.hspacing = max(0, contentWidth/(grid.columns+1))
 	}
-	spacingTotal := grid.spacing * (grid.columns + 1)
+	spacingTotal := grid.hspacing * (grid.columns + 1)
 	columnWidths := resolveColumns(sizes, contentWidth-spacingTotal)
 
 	free := max(0, width-margin[1]-margin[3]-border[1]-border[3]-contentWidth)
@@ -741,10 +749,10 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	originY := y + margin[0] + border[0]
 
 	columnX := make([]int, grid.columns+1)
-	cursorX := originX + grid.spacing
+	cursorX := originX + grid.hspacing
 	for i := 0; i < grid.columns; i++ {
 		columnX[i] = cursorX
-		cursorX += columnWidths[i] + grid.spacing
+		cursorX += columnWidths[i] + grid.hspacing
 	}
 	columnX[grid.columns] = cursorX
 	tableWidth := max(0, cursorX-originX)
@@ -784,7 +792,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				cellWidth += columnWidths[i]
 			}
 			if span := end - cell.col; span > 1 {
-				cellWidth += grid.spacing * (span - 1)
+				cellWidth += grid.hspacing * (span - 1)
 			}
 			padding, cellBorder := grid.cellEdges(cell)
 			innerWidth := max(0, cellWidth-padding[1]-padding[3]-cellBorder[1]-cellBorder[3])
@@ -822,7 +830,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				continue
 			}
 			last := min(len(grid.rows)-1, cell.row+cell.rowspan-1)
-			have := grid.spacing * (last - cell.row)
+			have := grid.vspacing * (last - cell.row)
 			for i := cell.row; i <= last; i++ {
 				have += grid.rows[i].height
 			}
@@ -832,11 +840,11 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		}
 	}
 
-	cursorY := originY + grid.spacing
+	cursorY := originY + grid.vspacing
 	for i, row := range grid.rows {
 		cursorY += grid.collapsedGapBefore(i)
 		row.y = cursorY
-		cursorY += row.height + grid.spacing
+		cursorY += row.height + grid.vspacing
 	}
 	if grid.collapse && len(grid.rows) > 0 {
 		cursorY += groupBorder(grid.rows[len(grid.rows)-1].group, "bottom")
@@ -851,7 +859,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		rowHeight := row.height
 		for _, cell := range row.cells {
 			last := min(len(grid.rows)-1, cell.row+cell.rowspan-1)
-			spanHeight := grid.spacing * (last - cell.row)
+			spanHeight := grid.vspacing * (last - cell.row)
 			for i := cell.row; i <= last; i++ {
 				spanHeight += grid.rows[i].height
 			}
@@ -864,8 +872,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				cell.box.Content.Max.X, offsetY+max(0, cell.box.Content.Dy()))
 			rowBox.Children = append(rowBox.Children, cell.box)
 		}
-		rowBox.Rect = image.Rect(originX+grid.spacing, row.y,
-			max(originX+grid.spacing, columnX[grid.columns]-grid.spacing), row.y+max(0, rowHeight))
+		rowBox.Rect = image.Rect(originX+grid.hspacing, row.y,
+			max(originX+grid.hspacing, columnX[grid.columns]-grid.hspacing), row.y+max(0, rowHeight))
 		rowBox.Content = rowBox.Rect
 		row.box = rowBox
 		if row.group == nil {
@@ -1043,7 +1051,7 @@ func tableIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
 	grid := buildTableGrid(n)
 	grid.measureCells(faces)
 	sizes := grid.columnSizes()
-	spacing := grid.spacing * (grid.columns + 1)
+	spacing := grid.hspacing * (grid.columns + 1)
 	minWidth, maxWidth := spacing, spacing
 	for i := range sizes.min {
 		minWidth += sizes.min[i]
