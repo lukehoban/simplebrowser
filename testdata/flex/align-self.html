@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Flex align-self</title>
+  <style>
+    body { margin: 0; padding: 12px; font: 16px sans-serif; color: #222; }
+    h2 { margin: 0 0 6px; font-size: 16px; }
+    .example { display: flex; align-items: center; width: 320px; height: 56px; margin-bottom: 10px; background: #eeeeee; }
+    .item { width: 40px; height: 16px; }
+    .red { background: #e53935; }
+    .blue { background: #1e88e5; }
+    .green { background: #43a047; }
+    .yellow { background: #fdd835; }
+    .purple { background: #8e24aa; }
+    .orange { background: #fb8c00; }
+    .before { align-self: auto; }
+    .after .red { align-self: flex-start; }
+    .after .blue { align-self: flex-end; }
+    .after .green { align-self: center; }
+    .after .yellow { align-self: stretch; height: auto; }
+    .after .purple { align-self: self-start; }
+    .after .orange { align-self: self-end; }
+  </style>
+</head>
+<body>
+  <h2>Before: align-items:center</h2>
+  <div class="example before">
+    <div class="item red"></div><div class="item blue"></div>
+    <div class="item green"></div><div class="item yellow"></div>
+    <div class="item purple"></div><div class="item orange"></div>
+  </div>
+  <h2>After: per-item align-self overrides</h2>
+  <div class="example after">
+    <div class="item red"></div><div class="item blue"></div>
+    <div class="item green"></div><div class="item yellow"></div>
+    <div class="item purple"></div><div class="item orange"></div>
+  </div>
+</body>
+</html>
