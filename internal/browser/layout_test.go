@@ -59,8 +59,8 @@ func TestAbsolutelyPositionedBoxesDoNotContributeToFlowHeight(t *testing.T) {
 	if len(parent.Children) != 2 || parent.Children[1] != out {
 		t.Fatalf("positioned box should remain in the layout tree after in-flow siblings: %#v", parent.Children)
 	}
-	if out.Rect.Min.Y != flow.Rect.Min.Y || out.Rect.Dy() != 30 {
-		t.Fatalf("positioned geometry = %v, flow geometry = %v", out.Rect, flow.Rect)
+	if out.Rect.Min.Y != flow.Rect.Min.Y+20 || out.Rect.Dy() != 30 {
+		t.Fatalf("positioned geometry = %v, want fixed top margin below flow geometry %v", out.Rect, flow.Rect)
 	}
 }
 
@@ -142,6 +142,56 @@ func TestAbsolutePositionedSingleAutoVerticalMarginUsesRemainingSpace(t *testing
 	// 200 - top 20 - bottom 30 - fixed top margin 10 - height 60 = 80.
 	if target.Rect.Min.Y != parent.Content.Min.Y+30 || target.Rect.Max.Y != parent.Content.Max.Y-110 {
 		t.Fatalf("single auto margin constraint = child %v, parent %v; want top margin 10px and remaining bottom margin 80px", target.Rect, parent.Content)
+	}
+}
+
+func TestAbsolutelyPositionedFixedVerticalMargins(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><div id="parent" style="position:relative;margin:0;width:300px;height:300px;border:10px solid black">
+		<div id="static" style="position:absolute;margin-top:50px;width:20px;height:20px"></div>
+		<div id="top" style="position:absolute;left:30px;top:50px;margin-top:50px;width:20px;height:20px"></div>
+		<div id="over" style="position:absolute;left:60px;top:50px;bottom:50px;margin-top:50px;margin-bottom:50px;width:20px;height:150px"></div>
+		<div id="bottom" style="position:absolute;left:90px;bottom:25px;margin-bottom:15px;width:20px;height:20px"></div>
+	</div></body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 400, 400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "parent", "static", "top", "over", "bottom")
+	parent := boxes["parent"]
+	for id, want := range map[string]int{
+		"static": parent.Content.Min.Y + 50,
+		"top":    parent.Content.Min.Y + 100,
+		"over":   parent.Content.Min.Y + 100,
+	} {
+		if got := boxes[id].Rect.Min.Y; got != want {
+			t.Errorf("%s top = %d, want %d", id, got, want)
+		}
+	}
+	if got, want := boxes["bottom"].Rect.Max.Y, parent.Content.Max.Y-25-15; got != want {
+		t.Errorf("bottom-positioned border edge = %d, want %d after fixed bottom margin", got, want)
+	}
+}
+
+func TestAbsolutelyPositionedFixedHorizontalMargins(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><div id="parent" style="position:relative;margin:0;width:300px;height:100px">
+		<div id="left" style="position:absolute;left:25px;margin-left:15px;width:20px;height:20px"></div>
+		<div id="right" style="position:absolute;right:25px;margin-right:15px;width:20px;height:20px"></div>
+		<div id="over" style="position:absolute;left:25px;right:25px;margin-left:15px;margin-right:15px;width:20px;height:20px"></div>
+	</div></body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 400, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "parent", "left", "right", "over")
+	parent := boxes["parent"]
+	if got, want := boxes["left"].Rect.Min.X, parent.Content.Min.X+40; got != want {
+		t.Errorf("left-positioned border edge = %d, want %d", got, want)
+	}
+	if got, want := boxes["right"].Rect.Max.X, parent.Content.Max.X-40; got != want {
+		t.Errorf("right-positioned border edge = %d, want %d", got, want)
+	}
+	if got, want := boxes["over"].Rect.Min.X, parent.Content.Min.X+40; got != want {
+		t.Errorf("over-constrained left edge = %d, want %d (left wins)", got, want)
 	}
 }
 

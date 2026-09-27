@@ -82,6 +82,22 @@ func TestPaintAbsolutePositionedAutoVerticalMarginFixture(t *testing.T) {
 	pixel(t, img, 30, 192, gray)
 }
 
+func TestPaintAbsolutePositionedFixedVerticalMarginFixture(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/abspos-fixed-vertical-margins.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := painted(t, string(source), image.Rect(0, 0, 400, 400))
+	blue := color.RGBA{0, 0, 255, 255}
+	white := color.RGBA{255, 255, 255, 255}
+	// The containing block starts after its 10px border. top:50px plus
+	// margin-top:50px places both blue halves at y=110.
+	pixel(t, img, 50, 109, white)
+	pixel(t, img, 50, 110, blue)
+	pixel(t, img, 200, 259, blue)
+	pixel(t, img, 200, 260, white)
+}
+
 func TestPaintBackgroundsBordersAndOrder(t *testing.T) {
 	img := painted(t, `<div style="margin:0;width:50px;height:30px;background-color:#ff0000;border:3px solid #0000ff"><div style="margin:0;width:10px;height:8px;background-color:green"></div></div>`, image.Rect(0, 0, 80, 50))
 	pixel(t, img, 0, 0, color.RGBA{0, 0, 255, 255})
