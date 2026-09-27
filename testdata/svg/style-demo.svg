@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="60">
+  <style>
+    path { fill: #1188cc; }
+    .ring { fill: #d3264a; fill-rule: evenodd; }
+    #right { fill: #229955; }
+  </style>
+  <rect width="160" height="60" fill="white"/>
+  <path class="ring" fill="black" d="M10 10H60V50H10Z M22 20H48V40H22Z"/>
+  <path id="right" fill="black" d="M90 10H140V50H90Z M102 20H128V40H102Z" style="fill-rule: evenodd"/>
+</svg>
