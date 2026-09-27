@@ -99,6 +99,26 @@ func TestPaintFontShorthandMatchesLonghands(t *testing.T) {
 	}
 }
 
+func TestPaintSystemFontsMatchEmbeddedFace(t *testing.T) {
+	viewport := image.Rect(0, 0, 280, 80)
+	for keyword, size := range systemFontSizes {
+		t.Run(keyword, func(t *testing.T) {
+			render := func(css string) *image.RGBA {
+				return painted(t, `<p style="margin:0;`+css+`">System font sample</p>`, viewport)
+			}
+			system := render(`font: ` + keyword)
+			embedded := render(`font: normal normal ` + size + ` sans-serif`)
+			original := render(`font: italic bold 28px monospace`)
+			if !bytes.Equal(system.Pix, embedded.Pix) {
+				t.Fatal("system font pixels differ from matching embedded face")
+			}
+			if bytes.Equal(system.Pix, original.Pix) {
+				t.Fatal("system font did not change painted pixels")
+			}
+		})
+	}
+}
+
 func TestCanvasBackgroundUsesRootAndBodyPropagation(t *testing.T) {
 	viewport := image.Rect(0, 0, 800, 600)
 	tests := []struct {

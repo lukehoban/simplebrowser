@@ -141,7 +141,7 @@ func TestFontShorthandCascadeAndResets(t *testing.T) {
 		#invalid {
 			font-style: italic; font-weight: bold; font-size: 19px; line-height: 2; font-family: monospace;
 			font: italic 24px/ "Broken";
-			font: menu;
+			font: menu extra;
 		}
 		</style>
 		<p id=full>full</p><p id=reset>reset</p><p id=invalid>invalid</p>`)})
@@ -177,12 +177,51 @@ func TestInvalidFontShorthandsAreIgnored(t *testing.T) {
 	for _, value := range []string{
 		`italic 16px`, `16px/ serif`, `16px "unterminated`,
 		`italic italic 16px serif`, `16px serif,,sans-serif`,
-		`caption`, `wide 16px serif`, `16px "Quoted Family" extra`,
+		`caption extra`, `italic caption`, `caption/2`, `"menu"`,
+		`wide 16px serif`, `16px "Quoted Family" extra`,
 	} {
 		t.Run(value, func(t *testing.T) {
 			declaration := ParseDeclarations("font:" + value)[0]
 			if got := expandDeclaration(declaration); len(got) != 0 {
 				t.Fatalf("expandDeclaration(%q) = %+v, want ignored", value, got)
+			}
+		})
+	}
+}
+
+func TestSystemFontShorthandCascadeAndResets(t *testing.T) {
+	for keyword, size := range systemFontSizes {
+		t.Run(keyword, func(t *testing.T) {
+			doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+				<style>
+				#system { font: ` + keyword + ` !important; font-size: 30px;
+					font-family: monospace; font-weight: bold }
+				#override { font: ` + keyword + `; font-size: 18px }
+				#invalid { font: italic 20px monospace; font: ` + keyword + ` extra }
+				</style>
+				<div id=parent style="font:italic bold 28px/2 monospace">
+				<p id=system>system</p><p id=override>override</p>
+				<p id=invalid>invalid</p></div>`)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			styled, err := style(doc, &Fetcher{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, tc := range []struct {
+				id, wantSize, wantStyle, wantWeight, wantLine, wantFamily string
+			}{
+				{"system", size, "normal", "normal", "normal", "sans-serif"},
+				{"override", "18px", "normal", "normal", "normal", "sans-serif"},
+				{"invalid", "20px", "italic", "normal", "normal", "monospace"},
+			} {
+				got := styledElementByID(styled.StyleRoot, tc.id).Style
+				if got["font-size"] != tc.wantSize || got["font-style"] != tc.wantStyle ||
+					got["font-weight"] != tc.wantWeight || got["line-height"] != tc.wantLine ||
+					got["font-family"] != tc.wantFamily {
+					t.Errorf("%s computed font = %#v", tc.id, got)
+				}
 			}
 		})
 	}
