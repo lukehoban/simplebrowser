@@ -2,13 +2,16 @@ package browser
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"image"
 	"image/color"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -68,24 +71,109 @@ func TestDecodeImageFormatsAndBounds(t *testing.T) {
 }
 
 func TestDecodeDataImageURL(t *testing.T) {
-	data := encodedTestImage(t, "png", image.Rect(0, 0, 2, 3))
 	svg := `<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"/>`
-	esc := strings.NewReplacer("<", "%3C", ">", "%3E", " ", "%20", `"`, `%22`)
-	for _, tc := range []struct {
+	esc := strings.NewReplacer("%", "%25", "<", "%3C", ">", "%3E", " ", "%20", `"`, `%22`)
+	type dataURLCase struct {
 		name, url string
 		size      image.Point
-	}{{"png", "data:image/png;base64," + base64.StdEncoding.EncodeToString(data), image.Pt(2, 3)}, {"svg", "data:image/svg+xml;utf8," + esc.Replace(svg), image.Pt(3, 2)}} {
+	}
+	cases := []dataURLCase{{"percent-svg", "data:image/svg+xml;utf8," + esc.Replace(svg), image.Pt(3, 2)},
+		{"base64-svg", "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(svg)), image.Pt(3, 2)}}
+	for _, format := range []string{"png", "jpeg", "gif"} {
+		data := encodedTestImage(t, format, image.Rect(0, 0, 2, 3))
+		cases = append(cases, dataURLCase{format, "data:image/" + format + ";base64," +
+			base64.StdEncoding.EncodeToString(data), image.Pt(2, 3)})
+	}
+	// Escapes are permitted in the base64 text itself; decoding happens before
+	// the strict base64 decoder.
+	pngData := encodedTestImage(t, "png", image.Rect(0, 0, 2, 3))
+	b64 := base64.StdEncoding.EncodeToString(pngData)
+	cases = append(cases, dataURLCase{"escaped-base64", "DATA:image/png;BASE64," +
+		strings.TrimSuffix(b64, "=") + "%3D", image.Pt(2, 3)})
+	cases = append(cases, dataURLCase{"media-parameter-fragment",
+		"data:image/png;name=pixel;base64," + base64.StdEncoding.EncodeToString(pngData) + "#ignored",
+		image.Pt(2, 3)})
+	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			d, ok := decodeDataImageURL(tc.url)
 			if !ok || decodeImage(d) == nil || decodeImage(d).Bounds().Size() != tc.size {
-				t.Fatalf("decode failed")
+				t.Fatalf("decode failed (ok=%v, data=%d bytes)", ok, len(d))
 			}
 		})
 	}
-	for _, s := range []string{"data:image/png;base64,not-valid", "data:text/plain,x", "data:image/png,%zz"} {
+	for _, s := range []string{
+		"data:image/png;base64,not-valid",
+		"data:image/png;base64;name=pixel,AAAA", // base64 marker must be last
+		"data:image/png;base64,AAAA\n",
+		"data:image/png;broken parameter,x",
+		"data:text/plain,x",
+		"data:image/png,%zz",
+		"data:image/png,raw space",
+	} {
 		if _, ok := decodeDataImageURL(s); ok {
 			t.Errorf("accepted %q", s)
 		}
+	}
+	if _, ok := decodeDataImageURL("data:image/png," + strings.Repeat("x", maxDataImageBytes+1)); ok {
+		t.Fatal("accepted payload larger than decoded data limit")
+	}
+	if _, ok := decodeDataImageURL("data:image/png;base64," +
+		strings.Repeat("A", base64.StdEncoding.EncodedLen(maxDataImageBytes)+1)); ok {
+		t.Fatal("accepted base64 text larger than encoded data limit")
+	}
+	if _, ok := decodeDataImageURL("data:" + strings.Repeat("x", maxDataURLHeaderBytes+1) + ",x"); ok {
+		t.Fatal("accepted media type header larger than its limit")
+	}
+}
+
+func TestDataURLImagesAreOfflineForImgAndBackground(t *testing.T) {
+	pngData := base64.StdEncoding.EncodeToString(encodedTestImage(t, "png", image.Rect(0, 0, 2, 2)))
+	svgURL := "data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%2220%22%20height=%2220%22%3E%3Crect%20width=%2220%22%20height=%2220%22%20fill=%22%2300aa44%22/%3E%3C/svg%3E"
+	source := []byte(`<img src="data:image/png;base64,` + pngData + `">` +
+		`<div style="background-image:url('` + svgURL + `')"></div>` +
+		`<img src="data:image/png;base64,invalid">` +
+		`<div style="background-image:url('data:image/png;base64,invalid')"></div>`)
+	doc, err := parse(Resource{URL: "https://example.invalid/page", Body: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dials atomic.Int32
+	fetcher := &Fetcher{DialContext: func(context.Context, string, string) (net.Conn, error) {
+		dials.Add(1)
+		return nil, errors.New("unexpected network request")
+	}}
+	styled, err := style(doc, fetcher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imgs, backgrounds int
+	for node, decoded := range styled.Images {
+		imgs++
+		src, _ := node.Attribute("src")
+		if strings.Contains(src.Value, "invalid") {
+			if decoded != nil {
+				t.Errorf("malformed img data URL decoded: %v", decoded)
+			}
+		} else if decoded == nil {
+			t.Error("valid img data URL did not decode")
+		}
+	}
+	for node, layers := range styled.BackgroundImages {
+		backgrounds++
+		styleAttr, _ := node.Attribute("style")
+		if strings.Contains(styleAttr.Value, "invalid") {
+			if len(layers) != 1 || layers[0] != nil {
+				t.Errorf("malformed background data URL decoded: %v", layers)
+			}
+		} else if len(layers) != 1 || layers[0] == nil {
+			t.Errorf("valid background data URL did not decode: %v", layers)
+		}
+	}
+	if imgs != 2 || backgrounds != 2 {
+		t.Fatalf("loaded %d img and %d background resources, want 2 each", imgs, backgrounds)
+	}
+	if got := dials.Load(); got != 0 {
+		t.Fatalf("data URLs triggered %d network dials", got)
 	}
 }
 func TestFetchImageCacheAndInlineLayout(t *testing.T) {

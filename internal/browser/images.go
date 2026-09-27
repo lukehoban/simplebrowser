@@ -8,13 +8,14 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
-	"net/url"
+	"mime"
 	"strconv"
 	"strings"
 )
 
 const maxDecodedImagePixels int64 = 16 << 20
 const maxDataImageBytes = 16 << 20
+const maxDataURLHeaderBytes = 4 << 10
 
 // fetchImages loads visible img resources once per render. Individual failures
 // are deliberately non-fatal: layout still reserves the dimensions requested
@@ -28,8 +29,14 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*No
 	cache := make(map[string]image.Image)
 	visited := make(map[string]bool)
 	load := func(base, source string) image.Image {
-		if data, ok := decodeDataImageURL(strings.TrimSpace(source)); ok {
+		source = strings.TrimSpace(source)
+		if data, ok := decodeDataImageURL(source); ok {
 			return decodeImage(data)
+		}
+		// Never hand a malformed or unsupported data URL to the network
+		// fetcher as a fallback. Data URLs are local resources, even on error.
+		if hasDataURLScheme(source) {
+			return nil
 		}
 		target, err := ResolveCSSURL(base, source)
 		if err != nil {
@@ -81,50 +88,107 @@ func decodeDataImageURL(source string) ([]byte, bool) {
 	if len(source) > maxDataImageBytes*2 {
 		return nil, false
 	}
-	u, err := url.Parse(source)
-	if err != nil || !strings.EqualFold(u.Scheme, "data") {
+	if !hasDataURLScheme(source) {
 		return nil, false
 	}
-	comma := strings.IndexByte(u.Opaque, ',')
+	// A raw # starts the URL fragment, which is not part of the data payload.
+	if fragment := strings.IndexByte(source, '#'); fragment >= 0 {
+		source = source[:fragment]
+	}
+	comma := strings.IndexByte(source, ',')
 	if comma < 0 {
 		return nil, false
 	}
-	header, payload := u.Opaque[:comma], u.Opaque[comma+1:]
-	parts := strings.Split(header, ";")
-	mediaType := "text/plain"
-	if parts[0] != "" {
-		mediaType = strings.ToLower(parts[0])
+	header, payload := source[len("data:"):comma], source[comma+1:]
+	if len(header) > maxDataURLHeaderBytes {
+		return nil, false
 	}
-	switch mediaType {
+	base64Encoded := false
+	if separator := strings.LastIndexByte(header, ';'); separator >= 0 &&
+		strings.EqualFold(header[separator+1:], "base64") {
+		base64Encoded = true
+		header = header[:separator]
+	}
+
+	mediaType, _, err := mime.ParseMediaType(header)
+	if err != nil {
+		// Accept the historical data:image/svg+xml;utf8 spelling used by
+		// existing pages, while requiring ordinary parameters to be valid MIME.
+		if !strings.EqualFold(header, "image/svg+xml;utf8") {
+			return nil, false
+		}
+		mediaType = "image/svg+xml"
+	}
+	switch strings.ToLower(mediaType) {
 	case "image/svg+xml", "image/png", "image/jpeg", "image/gif":
 	default:
 		return nil, false
 	}
-	base64Encoded := false
-	for _, part := range parts[1:] {
-		if strings.EqualFold(part, "base64") {
-			if base64Encoded {
-				return nil, false
-			}
-			base64Encoded = true
-		}
-	}
 	if base64Encoded {
-		if len(payload) > (maxDataImageBytes+2)/3*4 || base64.StdEncoding.DecodedLen(len(payload)) > maxDataImageBytes {
+		encodedLimit := base64.StdEncoding.EncodedLen(maxDataImageBytes)
+		encoded, ok := percentDecodeBounded(payload, encodedLimit)
+		if !ok || len(encoded) > encodedLimit ||
+			base64.StdEncoding.DecodedLen(len(encoded)) > maxDataImageBytes {
 			return nil, false
 		}
-		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(payload)))
-		n, err := base64.StdEncoding.Decode(decoded, []byte(payload))
+		decoded := make([]byte, base64.StdEncoding.DecodedLen(len(encoded)))
+		n, err := base64.StdEncoding.Strict().Decode(decoded, encoded)
 		if err != nil {
 			return nil, false
 		}
 		return decoded[:n], true
 	}
-	decoded, err := url.PathUnescape(payload)
-	if err != nil || len(decoded) > maxDataImageBytes {
-		return nil, false
+	return percentDecodeBounded(payload, maxDataImageBytes)
+}
+
+func hasDataURLScheme(source string) bool {
+	return len(source) >= len("data:") && strings.EqualFold(source[:len("data:")], "data:")
+}
+
+// percentDecodeBounded validates escapes and computes the decoded length
+// before allocating the output buffer.
+func percentDecodeBounded(source string, limit int) ([]byte, bool) {
+	length := 0
+	for i := 0; i < len(source); i++ {
+		if source[i] == '%' {
+			if i+2 >= len(source) || fromHex(source[i+1]) < 0 || fromHex(source[i+2]) < 0 {
+				return nil, false
+			}
+			i += 2
+		} else if source[i] < 0x21 || source[i] > 0x7e {
+			// URL whitespace and non-ASCII bytes must be percent-encoded.
+			return nil, false
+		}
+		length++
+		if length > limit {
+			return nil, false
+		}
 	}
-	return []byte(decoded), true
+	decoded := make([]byte, length)
+	n := 0
+	for i := 0; i < len(source); i++ {
+		if source[i] == '%' {
+			decoded[n] = byte(fromHex(source[i+1])<<4 | fromHex(source[i+2]))
+			i += 2
+		} else {
+			decoded[n] = source[i]
+		}
+		n++
+	}
+	return decoded, true
+}
+
+func fromHex(b byte) int {
+	switch {
+	case b >= '0' && b <= '9':
+		return int(b - '0')
+	case b >= 'a' && b <= 'f':
+		return int(b-'a') + 10
+	case b >= 'A' && b <= 'F':
+		return int(b-'A') + 10
+	default:
+		return -1
+	}
 }
 
 func decodeImage(data []byte) image.Image {
