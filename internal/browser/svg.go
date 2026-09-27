@@ -654,8 +654,9 @@ func svgAttributes(t xml.StartElement) map[string]string {
 // CSS presentation properties are inherited from the parent frame in walk.
 // Presentation attributes are lowest-priority author hints; a matching rule
 // wins even over an id attribute, while !important beats normal inline style.
-// Non-presentation geometry remains sourced from attributes (and inline style)
-// as before; external stylesheets and unsupported CSS properties are ignored.
+// Geometry properties (svgGeometryProperties) join the same cascade; other
+// non-presentation geometry remains sourced from attributes (and inline
+// style) as before. External stylesheets and unsupported properties are ignored.
 var svgStyleProperties = map[string]bool{
 	"fill": true, "fill-rule": true, "fill-opacity": true,
 	"stroke": true, "stroke-opacity": true, "stroke-width": true,
@@ -665,6 +666,50 @@ var svgStyleProperties = map[string]bool{
 	"opacity": true, "stop-color": true, "stop-opacity": true,
 }
 
+// svgGeometryProperties lists the SVG 2 geometry properties honored from
+// stylesheets and inline style, per element. They are not inherited, so they
+// only apply to the element types that read them; the matching attribute is a
+// presentation hint with the lowest priority. Other geometry (path d,
+// polyline points, line endpoints, use x/y) stays attribute-sourced.
+var svgGeometryProperties = map[string]map[string]bool{
+	"rect":    {"x": true, "y": true, "width": true, "height": true, "rx": true, "ry": true},
+	"circle":  {"cx": true, "cy": true, "r": true},
+	"ellipse": {"cx": true, "cy": true, "rx": true, "ry": true},
+}
+
+// svgGeometryDeclaration validates a CSS geometry declaration and returns its
+// specified value. Invalid declarations are dropped, as a CSS parser would,
+// so a lower-priority declaration or the presentation attribute applies.
+// Unlike attributes, CSS requires units on non-zero lengths. initial/unset
+// resolve to the initial value; inherit, calc() and var() are unsupported.
+func svgGeometryDeclaration(property, value string) (string, bool) {
+	value = strings.TrimSpace(value)
+	lower := strings.ToLower(value)
+	autoAllowed := property == "width" || property == "height" || property == "rx" || property == "ry"
+	switch lower {
+	case "initial", "unset":
+		if autoAllowed {
+			return "auto", true
+		}
+		return "0", true
+	case "auto":
+		return "auto", autoAllowed
+	}
+	if n, err := strconv.ParseFloat(value, 64); err == nil {
+		return value, n == 0 // unitless zero only
+	}
+	// Syntax check only: resolution happens later against the real basis.
+	check := svgLengthBasis{horizontal: 1, vertical: 1, diagonal: 1, fontSize: 1, rootFontSize: 1, ratios: fontRatios{ex: 1, ch: 1}}
+	signed := property == "x" || property == "y" || property == "cx" || property == "cy"
+	var ok bool
+	if signed {
+		_, ok = check.coordinate(value, svgHorizontal)
+	} else {
+		_, ok = check.length(value, svgHorizontal)
+	}
+	return value, ok
+}
+
 func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 	attrs := make(map[string]string, len(node.attrs))
 	for k, v := range node.attrs {
@@ -672,8 +717,15 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 	}
 	winners := make(map[string]winningDeclaration)
 	order := 0
+	geometry := svgGeometryProperties[node.name]
 	add := func(d Declaration, spec [3]int, inline bool) {
-		if !svgStyleProperties[d.Property] {
+		if geometry[d.Property] {
+			value, ok := svgGeometryDeclaration(d.Property, d.Value)
+			if !ok {
+				return
+			}
+			d.Value = value
+		} else if !svgStyleProperties[d.Property] {
 			return
 		}
 		order++
@@ -699,7 +751,7 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 		// SVG's bounded XML tree can contain arbitrary compound selectors.
 		// Keep inline specificity above every stylesheet selector.
 		add(d, [3]int{maxSVGElements + 1, 0, 0}, true)
-		if !svgStyleProperties[d.Property] {
+		if !svgStyleProperties[d.Property] && !geometry[d.Property] {
 			attrs[d.Property] = d.Value // preserve existing inline geometry behavior
 		}
 	}
