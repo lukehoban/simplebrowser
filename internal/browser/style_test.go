@@ -88,6 +88,37 @@ func TestStylePresentationalAttributesAndDefaults(t *testing.T) {
 	}
 }
 
+func TestUserAgentHeadingWeightCascadeAndInheritance(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>
+			#author-normal { font-weight: normal; }
+			#parent { font-weight: normal; }
+		</style>
+		<h1 id=h1>one</h1><h2 id=h2>two</h2><h3 id=h3>three</h3>
+		<h4 id=h4>four</h4><h5 id=h5>five</h5><h6 id=h6>six</h6>
+		<h2 id=author-normal>normal</h2>
+		<div id=parent><h3 id=parent-heading>heading <span id=child>child</span></h3></div>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, id := range []string{"h1", "h2", "h3", "h4", "h5", "h6", "parent-heading", "child"} {
+		if got := styledElementByID(styled.StyleRoot, id).Style["font-weight"]; got != "bold" {
+			t.Errorf("%s font-weight = %q, want UA bold", id, got)
+		}
+	}
+	if got := styledElementByID(styled.StyleRoot, "author-normal").Style["font-weight"]; got != "normal" {
+		t.Errorf("author heading font-weight = %q, want normal", got)
+	}
+	if got := styledElementByID(styled.StyleRoot, "parent").Style["font-weight"]; got != "normal" {
+		t.Errorf("parent font-weight = %q, want normal", got)
+	}
+}
+
 func TestComputedBorderShorthandWidthKeywordsMatchLonghands(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 		<div id=thin style="border:black solid thin"></div>

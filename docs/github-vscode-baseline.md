@@ -128,7 +128,7 @@ visible; this remains a diagnostic, not parity evidence.
 
 CSS box `border-radius` now rounds backgrounds and borders (#316). The
 [before/after diagnostic](screenshots/github-vscode/border-radius-before-after.png)
-compares main a6d8a8c (top) with this renderer output (bottom) at 800×600.
+compares main ffdd556 (top) with this renderer output (bottom) at 800×600.
 The HN and Moon baselines do not change. Rounded overflow clipping of child
 content is tracked separately in #323.
 
