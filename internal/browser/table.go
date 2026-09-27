@@ -199,7 +199,13 @@ func spanAttribute(n *StyledNode, name string) int {
 // buildTableGrid collects rows and cells, repairing malformed markup with
 // anonymous rows and cells so that every table produces usable geometry.
 func buildTableGrid(table *StyledNode) *tableGrid {
-	grid := &tableGrid{spacing: int(math.Max(0, math.Round(px(table.Style["border-spacing"], 0, 0))))}
+	// The first component is horizontal spacing; a second component specifies
+	// vertical spacing (tracked separately until the table grid supports it).
+	spacing := strings.Fields(table.Style["border-spacing"])
+	grid := &tableGrid{}
+	if len(spacing) > 0 {
+		grid.spacing = int(math.Max(0, math.Round(px(spacing[0], 0, 0))))
+	}
 	if strings.EqualFold(strings.TrimSpace(table.Style["border-collapse"]), "collapse") {
 		// In the collapsing border model border-spacing does not apply.
 		grid.collapse, grid.spacing = true, 0

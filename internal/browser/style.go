@@ -177,24 +177,22 @@ func formatPixels(value float64) string {
 // rounding in layout, just as for font-relative computed lengths.
 func resolveViewportRelativeValues(values ComputedStyle, viewport image.Point) {
 	for property, text := range values {
-		v := classifyValue(strings.TrimSpace(text))
-		if v.Kind != "length" {
-			continue
-		}
-		var basis int
-		switch v.Unit {
-		case "vw":
-			basis = viewport.X
-		case "vh":
-			basis = viewport.Y
-		case "vmin":
-			basis = min(viewport.X, viewport.Y)
-		case "vmax":
-			basis = max(viewport.X, viewport.Y)
-		default:
-			continue
-		}
-		values[property] = formatPixels(v.Number * float64(basis) / 100)
+		values[property] = resolveLengthTokens(property, text, func(v CSSValue) (string, bool) {
+			var basis int
+			switch v.Unit {
+			case "vw":
+				basis = viewport.X
+			case "vh":
+				basis = viewport.Y
+			case "vmin":
+				basis = min(viewport.X, viewport.Y)
+			case "vmax":
+				basis = max(viewport.X, viewport.Y)
+			default:
+				return "", false
+			}
+			return formatPixels(v.Number * float64(basis) / 100), true
+		})
 	}
 }
 
@@ -263,23 +261,97 @@ func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 		if property == "font-size" {
 			continue
 		}
-		v := classifyValue(strings.TrimSpace(text))
-		if v.Kind == "length" {
+		values[property] = resolveLengthTokens(property, text, func(v CSSValue) (string, bool) {
 			switch v.Unit {
 			case "em":
-				values[property] = formatPixels(v.Number * fontSize)
+				return formatPixels(v.Number * fontSize), true
 			case "rem":
-				values[property] = formatPixels(v.Number * rootSize)
+				return formatPixels(v.Number * rootSize), true
 			case "ex":
-				values[property] = formatPixels(v.Number * fontSize * ratios.ex)
+				return formatPixels(v.Number * fontSize * ratios.ex), true
 			case "ch":
-				values[property] = formatPixels(v.Number * fontSize * ratios.ch)
+				return formatPixels(v.Number * fontSize * ratios.ch), true
+			}
+			if property == "line-height" && v.Kind == "percentage" {
+				return formatPixels(v.Number * fontSize / 100), true
+			}
+			return "", false
+		})
+	}
+}
+
+// Only properties whose compound grammar actually contains lengths are scanned.
+// Other properties retain their existing single-value behavior (notably URLs
+// and CSS functions, whose internals must not be rewritten as free lengths).
+func compoundLengthProperty(property string) bool {
+	switch property {
+	case "border-spacing", "background-position", "background-size", "border",
+		"border-top", "border-right", "border-bottom", "border-left":
+		return true
+	}
+	return false
+}
+
+// resolveLengthTokens preserves all separators and opaque quoted/function
+// tokens, replacing only complete top-level CSS length tokens. This also
+// handles comma-separated background layers and unexpanded border shorthands.
+func resolveLengthTokens(property, text string, resolve func(CSSValue) (string, bool)) string {
+	single := strings.TrimSpace(text)
+	if !compoundLengthProperty(property) {
+		v := classifyValue(single)
+		if replacement, ok := resolve(v); ok && (v.Kind == "length" || v.Kind == "percentage") {
+			return replacement
+		}
+		return text
+	}
+	var result strings.Builder
+	for i := 0; i < len(text); {
+		if cssSpace(text[i]) || text[i] == ',' || text[i] == '/' {
+			result.WriteByte(text[i])
+			i++
+			continue
+		}
+		start := i
+		depth := 0
+		var quote byte
+		for i < len(text) {
+			c := text[i]
+			if quote != 0 {
+				if c == '\\' && i+1 < len(text) {
+					i += 2
+					continue
+				}
+				if c == quote {
+					quote = 0
+				}
+			} else {
+				switch c {
+				case '\'', '"':
+					quote = c
+				case '(':
+					depth++
+				case ')':
+					if depth > 0 {
+						depth--
+					}
+				}
+				if depth == 0 && (cssSpace(c) || c == ',' || c == '/') {
+					break
+				}
+			}
+			i++
+		}
+		token := text[start:i]
+		v := classifyValue(token)
+		if v.Kind == "length" || v.Kind == "percentage" {
+			if replacement, ok := resolve(v); ok {
+				result.WriteString(replacement)
+				continue
 			}
 		}
-		if property == "line-height" && v.Kind == "percentage" {
-			values[property] = formatPixels(v.Number * fontSize / 100)
-		}
+		result.WriteString(token)
 	}
+	return result.String()
 }
 
 func beats(a, b winningDeclaration) bool {
