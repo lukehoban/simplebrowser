@@ -199,6 +199,82 @@ func TestEmptyInlineBlockWithoutDimensions(t *testing.T) {
 	}
 }
 
+// Non-empty inline-blocks have independent child layout even when their tag
+// normally generates a block. Their last line (not their bottom edge) supplies
+// the baseline to adjacent text.
+func TestNonEmptyInlineBlockGeometryAndBaseline(t *testing.T) {
+	const markup = `<body style="margin:0"><section style="width:300px;line-height:20px">` +
+		`before<div style="display:inline-block;width:120px;height:60px;padding:3px;` +
+		`border:2px solid blue;background:#eee"><span>first<br>last</span></div>after` +
+		`</section></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, markup), image.Rect(0, 0, 300, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	divs := collectBoxes(layout.Root, "div")
+	if len(divs) != 1 {
+		t.Fatalf("div boxes = %d, want 1", len(divs))
+	}
+	box := divs[0]
+	if box.Rect.Dx() != 130 || box.Rect.Dy() != 70 || box.Content.Dx() != 120 || box.Content.Dy() != 60 {
+		t.Fatalf("border/content boxes = %v / %v, want 130x70 / 120x60", box.Rect, box.Content)
+	}
+	if !box.AtomicInline {
+		t.Fatal("non-empty inline-block not in atomic paint layer")
+	}
+	var outer, inner []TextRun
+	for _, section := range collectBoxes(layout.Root, "section") {
+		for _, child := range section.Children {
+			outer = append(outer, child.Text...)
+		}
+	}
+	for _, child := range box.Children {
+		inner = append(inner, child.Text...)
+	}
+	if len(outer) != 2 || len(inner) != 2 || outer[0].Text != "before" ||
+		outer[1].Text != "after" || inner[0].Text != "first" || inner[1].Text != "last" {
+		t.Fatalf("outer runs %v, inner runs %v", outer, inner)
+	}
+	if outer[0].Rect.Min.Y != outer[1].Rect.Min.Y || outer[1].Rect.Min.X < box.Rect.Max.X {
+		t.Fatalf("adjacent text not on same line beside box: %v %v %v", outer[0].Rect, box.Rect, outer[1].Rect)
+	}
+	if outer[1].Rect.Min.Y != inner[1].Rect.Min.Y {
+		t.Errorf("last line baseline differs from adjacent text: %v / %v", inner[1].Rect, outer[1].Rect)
+	}
+}
+
+func TestNonEmptyInlineBlockShrinkWrapAndPaint(t *testing.T) {
+	const markup = `<body style="margin:0"><div style="width:100px;line-height:0">` +
+		`<span style="background:yellow;line-height:20px">x` +
+		`<span style="display:inline-block;background:grey;border:2px solid blue;` +
+		`padding:3px;margin:4px;line-height:20px">word</span>z</span>` +
+		`<div style="display:inline-block;width:70px;height:20px;background:grey">item</div>` +
+		`</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, markup), image.Rect(0, 0, 120, 160))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spans := collectBoxes(layout.Root, "span")
+	if len(spans) != 1 { // only the nested atomic span has a border box
+		t.Fatalf("span boxes = %d, want 1", len(spans))
+	}
+	box := spans[0]
+	if box.Content.Dx() < 25 || box.Content.Dx() > 45 ||
+		box.Rect.Dx() != box.Content.Dx()+10 || box.Rect.Dy() != box.Content.Dy()+10 {
+		t.Fatalf("shrink-to-fit content %v, border %v", box.Content, box.Rect)
+	}
+	divs := collectBoxes(layout.Root, "div")
+	if len(divs) != 2 || divs[1].Rect.Min.Y <= box.Rect.Min.Y {
+		t.Fatalf("70px inline-block should wrap as a unit: %v; previous %v", divs, box.Rect)
+	}
+	img := painted(t, markup, image.Rect(0, 0, 120, 160))
+	pixel(t, img, box.Rect.Min.X, box.Rect.Min.Y, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, box.Rect.Min.X+3, box.Rect.Min.Y+3, grey)
+	pixel(t, img, box.Content.Min.X, box.Content.Min.Y, grey) // no duplicate border over the text
+	// The yellow ancestor background crosses the box but cannot overpaint it.
+	pixel(t, img, box.Rect.Max.X-4, box.Rect.Min.Y+3, grey)
+}
+
 // WPT css/CSS2/tables/border-collapse-empty-row uses grey inline-block spans
 // as cell content with line-height: 0; the cells must be as tall as the span
 // plus their collapsed borders, and the grey must paint.
