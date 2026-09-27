@@ -3,8 +3,8 @@
 These are unmodified files from [web-platform-tests/wpt](https://github.com/web-platform-tests/wpt)
 at commit [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db),
 under the upstream [WPT 3-clause BSD license](https://github.com/web-platform-tests/wpt/blob/647d3bdf133159739b57cfb7afa0be3f5d76b9db/LICENSE.md).
-Each path here corresponds to `css/CSS2/<path>` upstream. The 39 blocking
-tests and 6 diagnostic coverage tests, their references, and required PNG
+Each path here corresponds to `css/CSS2/<path>` upstream. The 40 blocking
+tests and 5 diagnostic coverage tests, their references, and required PNG
 support assets are included. No local edits were made to these upstream fixtures.
 The harness renders the vendored files directly without adapting their
 contents. Local `.xht` files use the browser's focused XHTML mode, so XML
@@ -38,8 +38,9 @@ Tests and references are byte-for-byte upstream files, including the required
 
 The coverage-matrix tranche adds margin collapsing, float clearance,
 percentage and relative positioning, body background propagation, and line-box
-height cases. These WPT assertions are diagnostic, except `floats-clear/clear-001.xht`,
-which was promoted to the blocking set once clearance (#68) landed. Four repo-owned
+height cases. These WPT assertions are diagnostic, except `floats-clear/clear-001.xht`
+and `positioning/bottom-offset-percentage-001.xht`, which were promoted to the
+blocking set once clearance (#68) and percentage vertical offsets (#216) landed. Four repo-owned
 references under `testdata/wpt-local/` cover known gaps that do not have a
 compact suitable WPT; they are scored separately. Every report row states a
 material behavior that its fixture does not cover.

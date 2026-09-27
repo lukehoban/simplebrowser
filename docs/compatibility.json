@@ -2,15 +2,15 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "blocking_wpt": {
-    "total": 39,
-    "pass": 39,
+    "total": 40,
+    "pass": 40,
     "fail": 0,
     "error": 0
   },
   "diagnostic_wpt": {
-    "total": 6,
+    "total": 5,
     "pass": 3,
-    "fail": 3,
+    "fail": 2,
     "error": 0
   },
   "diagnostic_local": {
@@ -72,8 +72,8 @@
       "suite": "WPT",
       "area": "Positioning",
       "total": 8,
-      "pass": 6,
-      "fail": 2,
+      "pass": 7,
+      "fail": 1,
       "error": 0
     },
     {
@@ -548,6 +548,17 @@
       "different_pixels": 0
     },
     {
+      "test": "positioning/bottom-offset-percentage-001.xht",
+      "reference": "positioning/bottom-offset-percentage-001-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Positioning",
+      "diagnostic": false,
+      "not_covered": "Auto offsets, replaced elements, and indefinite (auto-height) containing blocks (#217).",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
       "test": "margin-padding-clear/margin-collapse-003.xht",
       "reference": "margin-padding-clear/margin-collapse-003-ref.xht",
       "relation": "match",
@@ -569,18 +580,6 @@
       "issue": "#76",
       "status": "fail",
       "different_pixels": 36864
-    },
-    {
-      "test": "positioning/bottom-offset-percentage-001.xht",
-      "reference": "positioning/bottom-offset-percentage-001-ref.xht",
-      "relation": "match",
-      "suite": "WPT",
-      "area": "Positioning",
-      "diagnostic": true,
-      "not_covered": "Auto offsets, replaced elements, and indefinite containing-block heights.",
-      "issue": "#216",
-      "status": "fail",
-      "different_pixels": 5000
     },
     {
       "test": "positioning/position-relative-004.xht",
