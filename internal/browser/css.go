@@ -546,7 +546,11 @@ func ParseDeclarations(input string) []Declaration {
 			continue
 		}
 		value, end := p.readUntil(";}")
-		name = strings.ToLower(strings.TrimSpace(stripComments(name)))
+		name = strings.TrimSpace(stripComments(name))
+		// Custom property names are case-sensitive; ordinary CSS names are not.
+		if !strings.HasPrefix(name, "--") {
+			name = strings.ToLower(name)
+		}
 		value = strings.TrimSpace(stripComments(value))
 		if name != "" && validProperty(name) && value != "" {
 			important := false
