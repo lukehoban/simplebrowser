@@ -47,7 +47,8 @@ func TestPseudoClassSpecificity(t *testing.T) {
 
 func TestPseudoClassMatching(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`<div class=titleline><a id=t href="x">T</a><span><a id=deep href=y>D</a></span></div>
-		<span class=subline><a id=s href=z>S</a><a id=nohref>N</a></span>`)})
+		<span class=subline><a id=s href=z>S</a><a id=nohref>N</a><a id=empty href="">E</a>
+		<area id=area href=x><area id=barearea></span><link id=stylesheet href=style.css>`)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,12 +72,18 @@ func TestPseudoClassMatching(t *testing.T) {
 		{"a:any-link", "s", true},
 		{":link", "s", true},
 		{"a:link", "nohref", false},
+		{"a:link", "empty", true},
+		{"area:link", "area", true},
+		{"area:any-link", "barearea", false},
+		{":any-link", "stylesheet", false},
 		{"span:link", "s", false},
 		{"a:visited", "t", false},
 		{"a:hover", "t", false},
 		{"a:active", "t", false},
 		{"a:focus", "t", false},
 		{"a:frobnicate", "t", false},
+		{"a:link:frobnicate", "t", false},
+		{"a:link:hover", "t", false},
 		{"a:not(.x)", "t", false},
 		{"a::before", "t", false},
 		{".titleline > a", "t", true},
