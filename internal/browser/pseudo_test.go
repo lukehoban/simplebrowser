@@ -311,6 +311,21 @@ func TestEmptyRowReferenceSelectors(t *testing.T) {
 		t.Fatal("pinned empty-row reference differs from explicit row classes")
 	}
 }
+
+func TestEmptyRowPinnedReftest(t *testing.T) {
+	var renders []*image.RGBA
+	for _, name := range []string{"border-collapse-empty-row.html", "border-collapse-empty-row-ref.html"} {
+		source, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt", "tables", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		renders = append(renders, painted(t, string(source), image.Rect(0, 0, 800, 600)))
+	}
+	if !bytes.Equal(renders[0].Pix, renders[1].Pix) {
+		t.Fatal("pinned empty-row WPT test/reference differ (requires #178 painting and #191 selectors)")
+	}
+}
+
 func TestLinkPseudoClassOverridesUserAgentLinkStyle(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`<style>
 		a:link { color: #000000; text-decoration: none }
