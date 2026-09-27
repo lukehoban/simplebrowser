@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="100" viewBox="0 0 240 100">
+  <rect width="240" height="100" fill="white"/>
+  <!-- Filled semicircle: the arc and closing edge were previously missing. -->
+  <path fill="#16a" d="M15 50L15 45A30 30 0 0 1 75 45L75 50Z"/>
+  <!-- Stroked, rotated ellipse with compact relative flags and continuation. -->
+  <path fill="none" stroke="#e51" stroke-width="4" d="M103 75L103 60a28 16 -35 0150 -20L163 65"/>
+  <!-- Large arc, negative sweep, and an explicit closing line. -->
+  <path fill="#cde" stroke="#645" stroke-width="3" d="M207 32A24 24 0 1 0 231 56Z"/>
+</svg>

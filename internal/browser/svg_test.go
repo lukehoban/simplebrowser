@@ -27,7 +27,11 @@ func segmentPoints(segs []svgSegment) string {
 }
 
 func trimFloat(f float64) string {
-	return strconv.FormatFloat(math.Round(f*1000)/1000, 'f', -1, 64)
+	f = math.Round(f*1000) / 1000
+	if f == 0 {
+		return "0" // ignore negative zero from trigonometric roundoff
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64)
 }
 
 func TestParseSVGPath(t *testing.T) {
@@ -46,9 +50,28 @@ func TestParseSVGPath(t *testing.T) {
 		// Curves, including the reflected S/T control points.
 		{"M0 0 C1 1 2 1 3 0 S5 -1 6 0", "M 0,0;C 1,1 2,1 3,0;C 4,-1 5,-1 6,0;"},
 		{"M0 0 q1 1 2 0 t2 0", "M 0,0;Q 1,1 2,0;Q 3,-1 4,0;"},
+		// Absolute and compact relative arcs, followed by further commands.
+		{"M0 0 L1 1 A1 1 0 0 1 2 2 L3 3", "M 0,0;L 1,1;C 1.552,1 2,1.448 2,2;L 3,3;"},
+		{"M0 0a1 1 0 011 1l1 1", "M 0,0;C 0.552,0 1,0.448 1,1;L 2,2;"},
+		{"M0 0A1 1 0 0 0 1 1", "M 0,0;C 0,0.552 0.448,1 1,1;"},
+		{"M0 0a1 1 0 011 1 1 1 0 011 1", "M 0,0;C 0.552,0 1,0.448 1,1;C 1.552,1 2,1.448 2,2;"},
+		{"M0 0A2 1 90 0 1 1 2", "M 0,0;C 0.552,0 1,0.895 1,2;"},
+		// Zero radius is a line; identical endpoints omit even a large arc.
+		{"M2 3a0 5 0 011 2a5 0 0 011 2l1 1", "M 2,3;L 3,5;L 4,7;L 5,8;"},
+		{"M2 3A4 5 0 1 1 2 3l1 2", "M 2,3;L 3,5;"},
+		{"M0 0A1 1 0 011 1z l2 2", "M 0,0;C 0.552,0 1,0.448 1,1;Z;L 2,2;"},
+		// Generated cubics must not supply a reflected control point to S/T.
+		{"M0 0A1 1 0 011 1S2 2 3 3", "M 0,0;C 0.552,0 1,0.448 1,1;C 1,1 2,2 3,3;"},
+		{"M0 0Q1 2 2 2A1 1 0 012 2T4 4", "M 0,0;Q 1,2 2,2;Q 2,2 4,4;"},
+		{"M0 0C1 2 2 3 3 3A1 1 0 013 3S4 4 5 5", "M 0,0;C 1,2 2,3 3,3;C 3,3 4,4 5,5;"},
 		// Errors render the path up to the error.
 		{"M0 0 L1 1 L2", "M 0,0;L 1,1;"},
-		{"M0 0 L1 1 A1 1 0 0 1 2 2 L3 3", "M 0,0;L 1,1;"},
+		{"M0 0 L1 1 A1 1 0 0 2 2 2 L3 3", "M 0,0;L 1,1;"},
+		{"M0 0A1 1 0 -1 0 2 2L3 3", "M 0,0;"},
+		{"M0 0A1 1 0 0 +1 2 2L3 3", "M 0,0;"},
+		{"M0 0A1 1 0 0.0 1 2 2L3 3", "M 0,0;"},
+		{"M0 0A1 1 0 0 1 2", "M 0,0;"},
+		{"M0 0R1 1L2 2", "M 0,0;"},
 		{"L1 1", ""},
 		{"", ""},
 	} {
@@ -59,6 +82,126 @@ func TestParseSVGPath(t *testing.T) {
 	}
 	if got := len(parseSVGPath("M0 0 1 1 2 2 3 3", 2)); got != 2 {
 		t.Errorf("segment limit not enforced: %d", got)
+	}
+}
+
+func TestSVGArcGeometry(t *testing.T) {
+	// A unit circle's four possible arcs between these endpoints have known
+	// centers, segment counts and tangent directions.
+	for _, tc := range []struct {
+		large, sweep bool
+		center       [2]float64
+		count        int
+	}{
+		{false, true, [2]float64{0, 0}, 1},
+		{false, false, [2]float64{1, 1}, 1},
+		{true, true, [2]float64{1, 1}, 3},
+		{true, false, [2]float64{0, 0}, 3},
+	} {
+		segs, ok := svgArc(1, 0, 1, 1, 0, tc.large, tc.sweep, 0, 1)
+		if !ok || len(segs) != tc.count {
+			t.Fatalf("large=%v sweep=%v: %d segments, valid=%v", tc.large, tc.sweep, len(segs), ok)
+		}
+		start := [2]float64{1, 0}
+		for _, seg := range segs {
+			end := seg.pts[2]
+			if math.Abs(math.Hypot(end[0]-tc.center[0], end[1]-tc.center[1])-1) > 1e-12 {
+				t.Errorf("endpoint %v not on circle centered at %v", end, tc.center)
+			}
+			rx, ry := start[0]-tc.center[0], start[1]-tc.center[1]
+			tx, ty := seg.pts[0][0]-start[0], seg.pts[0][1]-start[1]
+			if math.Abs(rx*tx+ry*ty) > 1e-12 || (rx*ty-ry*tx > 0) != tc.sweep {
+				t.Errorf("large=%v sweep=%v: incorrect start tangent %v", tc.large, tc.sweep, seg.pts[0])
+			}
+			start = end
+		}
+		if start != [2]float64{0, 1} {
+			t.Errorf("endpoint drift: %v", start)
+		}
+	}
+	// Arbitrary rotation must rotate the controls as well as the endpoints.
+	s, c := math.Sincos(math.Pi / 4)
+	segs, ok := svgArc(2*c, 2*s, 2, 1, 45, false, true, -s, c)
+	want := [3][2]float64{
+		{2*c - svgCircleConstant*s, 2*s + svgCircleConstant*c},
+		{2*svgCircleConstant*c - s, 2*svgCircleConstant*s + c},
+		{-s, c},
+	}
+	if !ok || len(segs) != 1 {
+		t.Fatalf("rotated quarter ellipse: %v, valid=%v", segs, ok)
+	}
+	for i, p := range segs[0].pts {
+		if math.Hypot(p[0]-want[i][0], p[1]-want[i][1]) > 1e-12 {
+			t.Errorf("rotated control %d = %v, want %v", i, p, want[i])
+		}
+	}
+	// Too-small radii scale to reach the endpoints; signs are discarded.
+	wantPath := segmentPoints(parseSVGPath("M-10 0A10 20 0 0 1 10 0", 100))
+	for _, d := range []string{"M-10 0A1 2 0 0 1 10 0", "M-10 0A-1 -2 0 0 1 10 0"} {
+		if got := segmentPoints(parseSVGPath(d, 100)); got != wantPath {
+			t.Errorf("radius correction for %q: %s, want %s", d, got, wantPath)
+		}
+	}
+}
+
+func TestSVGArcBounds(t *testing.T) {
+	d := "M1 0" + strings.Repeat("A1 1 0 1 1 0 1A1 1 0 1 1 1 0", 100)
+	for _, limit := range []int{0, 1, 2, 3, 4, 7, 100} {
+		if got := len(parseSVGPath(d, limit)); got != limit {
+			t.Errorf("arc segment budget %d: got %d", limit, got)
+		}
+	}
+	// Decode's aggregate budget includes every expanded cubic, not just each A.
+	d = "M1 0" + strings.Repeat("A1 1 0 1 1 0 1A1 1 0 1 1 1 0", maxSVGPathSegs/6+1)
+	if len(d)+100 >= maxSVGBytes {
+		t.Fatal("fixture must fit the byte budget to exercise the segment budget")
+	}
+	if _, err := decodeSVG([]byte(`<svg width="1" height="1"><path d="` + d + `"/></svg>`)); err == nil {
+		t.Error("expanded arcs exceeded document segment budget")
+	}
+	// Finite input can overflow intermediate arithmetic; stop safely.
+	for _, d := range []string{
+		"M0 0A1e-300 1e-300 0 0 1 1e300 1e300",
+		"M1e308 0a1 1 0 0 1 1e308 1",
+	} {
+		if got := parseSVGPath(d, 100); len(got) != 1 || got[0].op != 'M' {
+			t.Errorf("non-finite arc should leave only moveto, got %v", got)
+		}
+	}
+}
+
+func TestSVGArcPixels(t *testing.T) {
+	type pixel struct {
+		x, y int
+		want color.RGBA
+	}
+	for _, tc := range []struct {
+		name, path string
+		pixels     []pixel
+	}{
+		{"filled semicircle", `<path fill="red" d="M10 20A10 10 0 0 1 30 20Z"/>`, []pixel{
+			{20, 15, color.RGBA{255, 0, 0, 255}},
+			{20, 25, color.RGBA{}},
+			{5, 15, color.RGBA{}},
+		}},
+		{"stroked semicircle and continuation", `<path fill="none" stroke="blue" stroke-width="4" d="M10 20a10 10 0 0120 0L30 30"/>`, []pixel{
+			{20, 10, color.RGBA{0, 0, 255, 255}},
+			{20, 20, color.RGBA{}},
+			{30, 27, color.RGBA{0, 0, 255, 255}},
+			{20, 30, color.RGBA{}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img, err := decodeSVG([]byte(`<svg width="40" height="40">` + tc.path + `</svg>`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range tc.pixels {
+				if got := img.RGBAAt(p.x, p.y); got != p.want {
+					t.Errorf("pixel (%d,%d) = %v, want %v", p.x, p.y, got, p.want)
+				}
+			}
+		})
 	}
 }
 
@@ -242,6 +385,42 @@ func TestSVGStrokeVisual(t *testing.T) {
 			if err != nil || closeErr != nil {
 				t.Fatalf("write %s: %v, %v", name, err, closeErr)
 			}
+		}
+	}
+}
+
+// Set SVG_ARC_VISUAL_PATH to write this fixture's render. The before image was
+// captured at main 52f706f, before adding arc support; the after uses this parser.
+func TestSVGArcVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "arc-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{45, 30, color.RGBA{17, 102, 170, 255}},   // blue arc fill
+		{160, 60, color.RGBA{238, 85, 17, 255}},   // orange stroke after the arc
+		{205, 55, color.RGBA{204, 221, 238, 255}}, // large-arc fill
+	} {
+		if got := img.RGBAAt(p.x, p.y); got != p.want {
+			t.Errorf("arc fixture pixel (%d,%d) = %v, want %v", p.x, p.y, got, p.want)
+		}
+	}
+	if path := os.Getenv("SVG_ARC_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if err != nil || closeErr != nil {
+			t.Fatalf("write arc render: %v, %v", err, closeErr)
 		}
 	}
 }
