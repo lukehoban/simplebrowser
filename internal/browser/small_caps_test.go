@@ -123,6 +123,113 @@ func TestSmallCapsFullCaseMapping(t *testing.T) {
 	}
 }
 
+func TestSmallCapsLanguageTailoringInheritanceAndMetrics(t *testing.T) {
+	const html = `<div lang="tr-TR" style="font:small-caps 30px sans-serif">
+		<p id="inherited">istanbul</p>
+		<p id="root" lang="und">istanbul</p>
+		<p id="az" lang="az">istanbul</p>
+		<p id="lithuanian" lang="lt">i&#x307;</p>
+		<p id="greek" lang="el">Ωμέγα</p>
+		<p id="reset" lang="">istanbul</p>
+		<p id="invalid" lang="bad_tag!">istanbul</p>
+		<p id="ordinary" lang="tr" style="font:30px sans-serif">istanbul</p>
+	</div>`
+	doc := styledForLayout(t, html)
+	for id, want := range map[string]string{
+		"inherited":  "tr-TR",
+		"root":       "und",
+		"az":         "az",
+		"lithuanian": "lt",
+		"greek":      "el",
+		"reset":      "und",
+		"invalid":    "und",
+	} {
+		if got := styledElementByID(doc.StyleRoot, id).Style["lang"]; got != want {
+			t.Errorf("%s lang = %q, want %q", id, got, want)
+		}
+	}
+
+	l, err := LayoutWithViewport(doc, image.Rect(0, 0, 500, 300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantText := map[string]string{
+		"inherited":  "İSTANBUL",
+		"root":       "ISTANBUL",
+		"az":         "İSTANBUL",
+		"lithuanian": "I",
+		"greek":      "ΩΜΕΓΑ",
+		"reset":      "ISTANBUL",
+		"invalid":    "ISTANBUL",
+		"ordinary":   "istanbul",
+	}
+	var findRun func(*Box, string) *TextRun
+	findRun = func(box *Box, id string) *TextRun {
+		for i := range box.Text {
+			parent := box.Text[i].Node.Parent
+			for parent != nil && parent.Type == ElementNode {
+				if attr, ok := parent.Attribute("id"); ok && attr.Value == id {
+					return &box.Text[i]
+				}
+				parent = parent.Parent
+			}
+		}
+		for _, child := range box.Children {
+			if found := findRun(child, id); found != nil {
+				return found
+			}
+		}
+		return nil
+	}
+	for id, want := range wantText {
+		run := findRun(l.Root, id)
+		if run == nil {
+			t.Fatalf("layout has no text run for %s", id)
+		}
+		faces := newFaceSet()
+		m := faces.metrics(run.Style)
+		got := ""
+		var expectedAdvance fixed.Int26_6
+		m.eachTextSegment(run.Text, func(face font.Face, part string) {
+			got += part
+			expectedAdvance += font.MeasureString(face, part)
+		})
+		if width := m.advance(run.Text); width != expectedAdvance {
+			t.Errorf("%s advance = %v, want mapped segment advance %v", id, width, expectedAdvance)
+		}
+		faces.close()
+		if got != want {
+			t.Errorf("%s transformed text = %q, want %q", id, got, want)
+		}
+	}
+
+	// The Turkish mapping is used by both line measurement and painting. Its
+	// dot-above expansion must measure exactly like the emitted glyph sequence.
+	style := styledElementByID(doc.StyleRoot, "inherited").Style
+	faces := newFaceSet()
+	defer faces.close()
+	m := faces.metrics(style)
+	if got, want := m.advance("istanbul"), font.MeasureString(m.smallCapsFace, "İSTANBUL"); got != want {
+		t.Errorf("Turkish small-caps advance = %v, want %v", got, want)
+	}
+	actual := painted(t, `<p lang="tr" style="margin:0;font:small-caps 30px sans-serif">istanbul</p>`, image.Rect(0, 0, 300, 50))
+	reference := image.NewRGBA(actual.Bounds())
+	draw.Draw(reference, reference.Bounds(), image.NewUniform(color.White), image.Point{}, draw.Src)
+	ascent, _ := m.lineMetrics()
+	runDoc := styledForLayout(t, `<p lang="tr" style="margin:0;font:small-caps 30px sans-serif">istanbul</p>`)
+	runLayout, err := LayoutWithViewport(runDoc, actual.Bounds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := runLayout.Root.Children[0].Children[0].Text[0]
+	d := font.Drawer{Dst: reference, Src: image.NewUniform(color.Black), Face: m.smallCapsFace,
+		Dot: fixed.Point26_6{X: run.PenX, Y: fixed.I(run.Rect.Min.Y + ascent)}}
+	d.DrawString("İSTANBUL")
+	if !bytes.Equal(actual.Pix, reference.Pix) {
+		t.Fatal("Turkish small-caps pixels differ from İSTANBUL reference")
+	}
+}
+
 func TestSmallCapsSharpSWidthAndPixels(t *testing.T) {
 	const text = "straße"
 	const css = "margin:0;font:small-caps 30px sans-serif"
