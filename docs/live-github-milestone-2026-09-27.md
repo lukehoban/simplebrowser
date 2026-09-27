@@ -25,8 +25,8 @@ rows, but it is not yet a broadly useful or faithful first viewport.
 The refreshed live CLI image differs substantially from the same-time Chrome
 reference: the tabs sit around y=340–400 rather than y=130–174, and the
 branch/file area starts around y=450, with only the first two rows entering the
-600px viewport; Chrome shows the branch controls around y=200 and about six
-directory rows. Generated-content support now present on `main` does not erase
+600px viewport; Chrome shows the branch controls around y=200 and seven
+file-list rows. Generated-content support now present on `main` does not erase
 that bounded result: visible labels and count badges render, while the major
 vertical displacement remains. This is observed live-page vertical-flow/layout
 drift, not a diagnosis of its CSS cause or a claim that generated content caused
@@ -60,13 +60,13 @@ saved PNGs are 800×600 RGB images; their SHA-256 values are
 (`Chrome`).
 
 A separate in-memory read of the public HTML returned HTTP 200 and 383,917
-bytes. It referenced 41 stylesheet links (23 unique stylesheet URLs), 10
-external script URLs, 3 image `src` URLs and 14 deferred theme `data-href`
-links. These are document reference counts, not a claim that every resource
-loaded successfully; the CLI does not emit a per-request trace. The scripts
-are deliberately neither executed nor fetched by the renderer. The response
-was not saved, and no cookies, credentials or raw response content are included
-here.
+bytes. It referenced 41 stylesheet links in total: 27 active `href` links (23
+unique stylesheet URLs) and 14 deferred theme `data-href` links. It also
+referenced 10 external script URLs and 3 image `src` URLs. These are document
+reference counts, not a claim that every resource loaded successfully; the CLI
+does not emit a per-request trace. The scripts are deliberately neither
+executed nor fetched by the renderer. The response was not saved, and no
+cookies, credentials or raw response content are included here.
 
 <!-- repo-agent-task:simplebrowser-issue330-live-js-free-milestone-check-9976c151-v1 -->
 <!-- repo-agent-task:6694d5f38f0a7e19cc80f31a0c9ecc82 -->
