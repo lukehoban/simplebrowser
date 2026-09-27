@@ -408,7 +408,8 @@ func positionValue(v string) bool {
 		return false
 	}
 	for _, part := range parts {
-		if !keywordValidator("left", "right", "top", "bottom", "center")(part) && !lengthOrPercentage(part) {
+		if !keywordValidator("left", "right", "top", "bottom", "center")(part) &&
+			!lengthOrPercentage(part) && !backgroundMathComponent(classifyValue(part)) {
 			return false
 		}
 	}

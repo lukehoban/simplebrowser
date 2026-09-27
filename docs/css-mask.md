@@ -7,7 +7,7 @@ The renderer implements a bounded subset of [CSS Masking 1](https://drafts.fxtf.
 ## Supported
 
 - `mask-image`: comma-separated layers of `none`, `url()` and gradients. A `url()` can point to a fixture-relative or `data:` SVG, PNG, JPEG or GIF image. Each layer's alpha channel is the mask (`mask-mode: match-source` for images).
-- `mask-size`, `mask-position` and `mask-repeat` (`repeat`, `no-repeat`, `repeat-x`, `repeat-y`). These use the same used-value code as `background-*`. The mask positioning area is the border box.
+- `mask-size` (including aspect-ratio-preserving `contain`/`cover`), `mask-position` and `mask-repeat` (`repeat`, `no-repeat`, `repeat-x`, `repeat-y`). These use the same used-value code as `background-*`. The mask positioning area is the border box. Spaced `calc()` expressions are kept as individual size/position components and resolve percentages against the size or free positioning space respectively.
 - `mask-size` components may use nested `calc()`, `min()` and `max()`, which are evaluated at computed-value time. This covers Vector's `calc(max(calc(1rem + 4px), 10px))`. General `min()`/`max()` for other lengths is [#281](https://github.com/lukehoban/simplebrowser/issues/281).
 - The `mask` shorthand, limited to those image/position/size/repeat components. A color makes it invalid.
 - `-webkit-mask*` aliases. Prefixed and unprefixed declarations cascade as one property.

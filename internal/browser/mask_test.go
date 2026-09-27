@@ -64,6 +64,56 @@ func TestWebkitMaskLonghandsSizePositionRepeat(t *testing.T) {
 	pixel(t, img, 5, 5, maskWhite)
 }
 
+func TestMaskSizeContainCoverPreserveAspectRatio(t *testing.T) {
+	for _, tc := range []struct {
+		name, size  string
+		dark, white image.Point
+	}{
+		{"contain", "contain", image.Pt(19, 19), image.Pt(20, 10)},
+		{"cover", "cover", image.Pt(39, 19), image.Pt(40, 10)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := painted(t, `<body style="margin:0">
+				<div style="width:40px;height:20px;background:#202122;mask-image:`+solidSVG+`;
+					mask-size:`+tc.size+`;mask-repeat:no-repeat"></div></body>`, image.Rect(0, 0, 50, 30))
+			pixel(t, img, tc.dark.X, tc.dark.Y, maskDark)
+			pixel(t, img, tc.white.X, tc.white.Y, maskWhite)
+		})
+	}
+	// With an aspect ratio opposite the positioning area's, cover must
+	// overshoot horizontally; the left half stays opaque after centering.
+	img := painted(t, `<body style="margin:0">
+		<div style="width:40px;height:20px;background:#202122;mask-image:`+leftHalfSVG+`;
+			mask-size:cover;mask-position:center;mask-repeat:no-repeat"></div></body>`, image.Rect(0, 0, 50, 30))
+	pixel(t, img, 19, 10, maskDark)
+	pixel(t, img, 20, 10, maskWhite)
+}
+
+func TestMaskSpacedCalcSizeAndPosition(t *testing.T) {
+	for _, tc := range []struct {
+		name, style string
+	}{
+		{"longhands", `mask-size:calc(50% + 2px) 10px;mask-position:calc(50% + 2px) 0px;mask-repeat:no-repeat`},
+		{"shorthand", `mask:` + solidSVG + ` calc(50% + 2px) 0px / calc(50% + 2px) 10px no-repeat`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			style := tc.style
+			if tc.name == "longhands" {
+				style += ";mask-image:" + solidSVG
+			}
+			img := painted(t, `<body style="margin:0"><div style="width:40px;height:40px;
+				background:#202122;`+style+`"></div></body>`, image.Rect(0, 0, 50, 50))
+			// Size is 22x10; the horizontal free space is 18, so
+			// calc(50% + 2px) positions its left edge at x=11.
+			pixel(t, img, 10, 5, maskWhite)
+			pixel(t, img, 11, 0, maskDark)
+			pixel(t, img, 32, 9, maskDark)
+			pixel(t, img, 33, 5, maskWhite)
+			pixel(t, img, 20, 10, maskWhite)
+		})
+	}
+}
+
 func TestMaskRepeatTilesByDefault(t *testing.T) {
 	img := painted(t, `<body style="margin:0">
 		<div style="width:40px;height:20px;background:#202122;mask-image:`+leftHalfSVG+`"></div></body>`,

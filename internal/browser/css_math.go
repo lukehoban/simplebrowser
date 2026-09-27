@@ -303,7 +303,8 @@ func normalizeCalcValues(values ComputedStyle, viewportWidth, viewportHeight int
 		return cssMathValue{}, false
 	}
 	for property, text := range values {
-		if property == "mask-size" {
+		if property == "mask-size" || property == "mask-position" ||
+			property == "background-size" || property == "background-position" {
 			values[property] = normalizeMathComponents(text, convert)
 			continue
 		}
