@@ -540,6 +540,9 @@ type containingBlock struct {
 }
 
 func positioned(n *StyledNode) bool {
+	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
+		return false
+	}
 	switch strings.ToLower(strings.TrimSpace(n.Style["position"])) {
 	case "absolute", "fixed":
 		return true

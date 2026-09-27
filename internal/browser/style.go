@@ -44,9 +44,17 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 	var makeTree func(*Node, ComputedStyle) *StyledNode
 	makeTree = func(n *Node, parent ComputedStyle) *StyledNode {
 		if n.Type != ElementNode {
-			result := &StyledNode{Node: n, Style: parent}
+			// Text needs its parent's font and color, but position is not
+			// inherited. In particular, a text leaf is never itself an
+			// absolutely positioned box.
+			var textStyle ComputedStyle
+			if parent != nil {
+				textStyle = cloneStyle(parent)
+				delete(textStyle, "position")
+			}
+			result := &StyledNode{Node: n, Style: textStyle}
 			for _, child := range n.Children {
-				result.Children = append(result.Children, makeTree(child, parent))
+				result.Children = append(result.Children, makeTree(child, textStyle))
 			}
 			return result
 		}
