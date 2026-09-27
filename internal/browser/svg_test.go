@@ -312,6 +312,27 @@ func TestSVGShapeLengthsResolveAgainstViewportAndFont(t *testing.T) {
 			t.Errorf("resolve SVG length %q = %g, %v; want %g", tc.value, got, ok, tc.want)
 		}
 	}
+	if got, ok := svgFontSize("2rem", 10, 16); !ok || got != 32 {
+		t.Errorf("resolve SVG font-size rem = %g, %v; want 32, true", got, ok)
+	}
+	for _, tc := range []struct {
+		value string
+		want  float64
+	}{
+		{"1in", 96},
+		{"2.54cm", 96},
+		{"25.4mm", 96},
+		{"101.6Q", 96},
+		{"72pt", 96},
+		{"6pc", 96},
+	} {
+		if got, ok := svgLength(tc.value); !ok || math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("absolute SVG length %q = %g, %v; want %g", tc.value, got, ok, tc.want)
+		}
+	}
+	if _, ok := svgLength("1000000in"); ok {
+		t.Error("accepted an unbounded absolute SVG length")
+	}
 }
 
 // The paired fixture visual shows percentages, absolute units and inherited

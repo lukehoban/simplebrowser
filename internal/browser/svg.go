@@ -255,7 +255,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	if value, ok := a["fill"]; ok {
 		current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
 	}
-	if n, ok := svgFontSize(a["font-size"], parent.fontSize); ok {
+	if n, ok := svgFontSize(a["font-size"], parent.fontSize, s.img.rootFontSize); ok {
 		current.fontSize = n
 	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
@@ -580,7 +580,7 @@ func (img *svgImage) parseRoot(attrs map[string]string) error {
 	img.width, img.height = width, height
 	basisWidth, basisHeight := width, height
 	img.rootFontSize = 16
-	if n, ok := svgFontSize(attrs["font-size"], 16); ok {
+	if n, ok := svgFontSize(attrs["font-size"], 16, 16); ok {
 		img.rootFontSize = n
 	}
 	if img.hasViewBox {
@@ -649,7 +649,7 @@ func svgAbsoluteUnit(unit string) (float64, bool) {
 	case "q":
 		return 96 / 101.6, true
 	case "pt":
-		return 96 / 72, true
+		return 96.0 / 72.0, true
 	case "pc":
 		return 16, true
 	default:
@@ -719,7 +719,7 @@ func (b svgLengthBasis) coordinate(value string, axis svgAxis) (float64, bool) {
 	return n, ok
 }
 
-func svgFontSize(value string, parentSize float64) (float64, bool) {
+func svgFontSize(value string, parentSize, rootSize float64) (float64, bool) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0, false
@@ -730,6 +730,14 @@ func svgFontSize(value string, parentSize float64) (float64, bool) {
 			return 0, false
 		}
 		n = parentSize * n / 100
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "rem") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-3]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= rootSize
 		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
 	}
 	if strings.HasSuffix(strings.ToLower(value), "em") {
