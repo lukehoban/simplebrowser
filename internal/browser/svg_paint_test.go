@@ -105,7 +105,7 @@ func TestSVGGradientPixels(t *testing.T) {
 			`<rect width="20" height="20" fill="url(#missing) red"/>`, 10, 10, red},
 		{"missing reference without fallback", ``,
 			`<rect width="20" height="20" fill="url(#missing)"/>`, 10, 10, color.RGBA{}},
-		{"unsupported pattern uses fallback", `<pattern id="p" width="4" height="4"><rect width="2" height="2"/></pattern>`,
+		{"invalid pattern uses fallback", `<pattern id="p" width="invalid" height="4"><rect width="2" height="2"/></pattern>`,
 			`<rect width="20" height="20" fill="url(#p) blue"/>`, 10, 10, blue},
 		{"external reference is not fetched", ``,
 			`<rect width="20" height="20" fill="url(other.svg#g) red"/>`, 10, 10, red},
@@ -201,7 +201,7 @@ func TestSVGPatternFallbacksAndBounds(t *testing.T) {
 	}{
 		{"missing", ``, `url(#missing) red`, color.RGBA{255, 0, 0, 255}},
 		{"malformed zero tile", `<pattern id="p" width="0" height="4" patternUnits="userSpaceOnUse"/>`, `url(#p) blue`, color.RGBA{0, 0, 255, 255}},
-		{"unsupported object bounding box", `<pattern id="p" width=".5" height=".5"><rect width="1" height="1"/></pattern>`, `url(#p) blue`, color.RGBA{0, 0, 255, 255}},
+		{"object bounding box", `<pattern id="p" width=".5" height=".5"><rect width="1" height="1"/></pattern>`, `url(#p) blue`, color.RGBA{0, 0, 0, 255}},
 		{"oversized tile", `<pattern id="p" width="5000" height="5000" patternUnits="userSpaceOnUse"><rect width="1" height="1"/></pattern>`, `url(#p) blue`, color.RGBA{0, 0, 255, 255}},
 		{"self reference uses fallback", `<pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="url(#p) green"/></pattern>`, `url(#p)`, color.RGBA{0, 128, 0, 255}},
 		{"external href does not supply content", `<pattern id="p" href="other.svg#p" width="4" height="4" patternUnits="userSpaceOnUse"/>`, `url(#p)`, color.RGBA{}},
@@ -212,6 +212,111 @@ func TestSVGPatternFallbacksAndBounds(t *testing.T) {
 				t.Errorf("pixel = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSVGObjectBoundingBoxPattern(t *testing.T) {
+	red := color.RGBA{255, 0, 0, 255}
+	for _, tc := range []struct {
+		name, geometry, content string
+		points                  [][2]int
+		empty                   [][2]int
+	}{
+		{"default geometry, user-space content", "", `<rect width="4" height="4" fill="red"/>`,
+			[][2]int{{2, 2}, {10, 2}}, [][2]int{{6, 2}, {22, 2}, {26, 2}}},
+		{"bounding box content", `patternContentUnits="objectBoundingBox"`, `<rect width=".25" height=".5" fill="red"/>`,
+			[][2]int{{2, 2}, {10, 2}, {21, 2}}, [][2]int{{6, 2}, {22, 2}, {26, 2}}},
+		{"transformed tiles", `patternTransform="translate(0.25 0)" patternContentUnits="objectBoundingBox"`, `<rect width=".25" height=".5" fill="red"/>`,
+			[][2]int{{6, 2}, {14, 2}, {26, 2}}, [][2]int{{2, 2}, {10, 2}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := svgOpen + `width="32" height="16"><defs><pattern id="p" width=".5" height=".5" ` + tc.geometry + `>` +
+				tc.content + `</pattern></defs><rect width="16" height="8" fill="url(#p) blue"/>` +
+				`<rect x="20" width="8" height="8" fill="url(#p)"/></svg>`
+			img := decodeSVGString(t, src)
+			for _, xy := range tc.points {
+				if got := img.RGBAAt(xy[0], xy[1]); !near(got, red, 1) {
+					t.Errorf("painted %v = %v, want red", xy, got)
+				}
+			}
+			for _, xy := range tc.empty {
+				if got := img.RGBAAt(xy[0], xy[1]); got.A != 0 {
+					t.Errorf("gap %v = %v, want transparent", xy, got)
+				}
+			}
+		})
+	}
+}
+
+func TestSVGPatternIndependentContentUnitsAndBounds(t *testing.T) {
+	red := color.RGBA{255, 0, 0, 255}
+	img := decodeSVGString(t, svgOpen+`width="24" height="16"><defs>
+		<pattern id="p" patternUnits="userSpaceOnUse" patternContentUnits="objectBoundingBox" width="8" height="8">
+			<rect width=".25" height=".5" fill="red"/></pattern>
+		<pattern id="q" patternUnits="objectBoundingBox" width="50%" height="100%" patternContentUnits="objectBoundingBox" href="#p"/>
+	</defs><rect width="16" height="8" fill="url(#p)"/>
+	<rect x="16" width="8" height="8" fill="none" stroke="url(#q)" stroke-width="2"/>
+	<path d="M0 12H16" stroke="url(#q) blue" stroke-width="3"/></svg>`)
+	if got := img.RGBAAt(2, 2); !near(got, red, 1) {
+		t.Errorf("user-space geometry, bbox content = %v", got)
+	}
+	if got := img.RGBAAt(17, 0); !near(got, red, 1) {
+		t.Errorf("bbox pattern stroke = %v", got)
+	}
+	if got := img.RGBAAt(4, 12); got.A != 0 {
+		t.Errorf("degenerate line bounds = %v, want unpainted", got)
+	}
+}
+
+func TestSVGObjectPatternFallbackAndInvalidGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name, pattern, shape string
+		want                 color.RGBA
+	}{
+		{"huge box tile uses fallback", `<pattern id="p" width="500" height="1"><rect width="1" height="1"/></pattern>`,
+			`<rect width="16" height="8" fill="url(#p) blue"/>`, color.RGBA{0, 0, 255, 255}},
+		{"nonfinite tile uses fallback", `<pattern id="p" width="NaN" height=".5"/>`,
+			`<rect width="16" height="8" fill="url(#p) blue"/>`, color.RGBA{0, 0, 255, 255}},
+		{"negative tile uses fallback", `<pattern id="p" width="-.5" height=".5"/>`,
+			`<rect width="16" height="8" fill="url(#p) blue"/>`, color.RGBA{0, 0, 255, 255}},
+		{"invalid units uses fallback", `<pattern id="p" patternContentUnits="bad" width=".5" height=".5"/>`,
+			`<rect width="16" height="8" fill="url(#p) blue"/>`, color.RGBA{0, 0, 255, 255}},
+		{"degenerate box paints nothing", `<pattern id="p" width=".5" height=".5"><rect width="1" height="1" fill="red"/></pattern>`,
+			`<path d="M0 4H16" stroke="url(#p) blue" stroke-width="2"/>`, color.RGBA{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := decodeSVGString(t, svgOpen+`width="16" height="8"><defs>`+tc.pattern+`</defs>`+tc.shape+`</svg>`)
+			x, y := 4, 4
+			if tc.name != "degenerate box paints nothing" {
+				y = 2
+			}
+			if got := img.RGBAAt(x, y); !near(got, tc.want, 1) {
+				t.Errorf("pixel = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSVGObjectPatternHrefCSSAndShapeTransform(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="32" height="12">
+	<style>#derived { width: 50%; height: 100% } .mark { fill: #00ff00 }</style>
+	<defs>
+	  <pattern id="base" width="0" height="0" patternUnits="objectBoundingBox">
+	    <rect class="mark" width=".25" height="1"/>
+	  </pattern>
+	  <pattern id="derived" href="#base" patternContentUnits="objectBoundingBox"/>
+	</defs>
+	<g transform="translate(4 0)">
+	  <rect width="16" height="8" fill="url(#derived) blue"/>
+	</g></svg>`)
+	green := color.RGBA{0, 255, 0, 255}
+	for _, xy := range [][2]int{{5, 2}, {13, 2}} {
+		if got := img.RGBAAt(xy[0], xy[1]); !near(got, green, 1) {
+			t.Errorf("transformed inherited CSS pattern at %v = %v", xy, got)
+		}
+	}
+	if got := img.RGBAAt(9, 2); got.A != 0 {
+		t.Errorf("transformed tile gap = %v", got)
 	}
 }
 

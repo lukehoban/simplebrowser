@@ -49,18 +49,24 @@ type svgGradient struct {
 
 // svgPaintServer is a server bound to one shape: toLocal maps paint-server
 // space into the shape's local coordinates (the server transform, then the
-// bounding box for objectBoundingBox gradient units). Patterns currently
-// support userSpaceOnUse tiles.
+// bounding box for objectBoundingBox units).
 type svgPaintServer struct {
-	gradient *svgGradient
-	pattern  *svgPattern
-	toLocal  svgAffine
+	gradient                 *svgGradient
+	pattern                  *svgPattern
+	toLocal                  svgAffine
+	fallback                 color.NRGBA // solid fallback for a tile rejected at bind time
+	fallbackOK, fallbackOnly bool
 }
 
 type svgPattern struct {
 	x, y, width, height float64
 	transform           svgAffine
 	tile                *image.RGBA
+	objectUnits         bool
+	objectContent       bool
+	content             *svgNode
+	expansion           *svgExpansion
+	node                *svgNode
 }
 
 // svgPaintValue is the computed value of fill or stroke.
@@ -89,6 +95,17 @@ func parseSVGPaint(value string, inherited svgPaintValue, currentColor color.NRG
 				if g := server.gradient; g != nil && len(g.stops) == 1 {
 					c := g.stops[0].color
 					return svgPaintValue{color: c, ok: c.A > 0}
+				}
+				// A shape-dependent tile may exceed the raster budget even
+				// though its relative geometry is valid. Retain a solid URL
+				// fallback for that case; never let it replace a valid tile.
+				if server.pattern != nil && fallback != "" && !strings.HasPrefix(strings.ToLower(fallback), "url(") {
+					copy := *server
+					value := parseSVGPaint(fallback, inherited, currentColor, nil)
+					if value.server == nil {
+						copy.fallback, copy.fallbackOK = value.color, value.ok
+						server = &copy
+					}
 				}
 				return svgPaintValue{color: color.NRGBA{A: 255}, server: server, ok: true}
 			}
@@ -235,7 +252,7 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 	return g
 }
 
-// resolvePattern builds a bounded raster tile for a user-space pattern.
+// resolvePattern resolves pattern attributes and builds user-space tiles.
 // A nil cache entry is installed before expansion so self-references and
 // mutually recursive pattern paints use the URL fallback instead of recursing.
 func (s *svgExpansion) resolvePattern(id string) *svgPattern {
@@ -270,35 +287,29 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 		}
 		return "", false
 	}
-	// objectBoundingBox geometry/content needs shape-specific binding and is
-	// deliberately left to the focused follow-up. Do not mistake it for a
-	// missing reference: parseSVGPaint will apply the declared fallback.
 	units, _ := attr("patternUnits")
-	if strings.TrimSpace(units) != "userSpaceOnUse" {
+	if units = strings.TrimSpace(units); units != "" && units != "userSpaceOnUse" && units != "objectBoundingBox" {
 		return nil
 	}
-	if units, ok := attr("patternContentUnits"); ok && strings.TrimSpace(units) != "userSpaceOnUse" {
+	contentUnits, _ := attr("patternContentUnits")
+	if contentUnits = strings.TrimSpace(contentUnits); contentUnits != "" && contentUnits != "userSpaceOnUse" && contentUnits != "objectBoundingBox" {
 		return nil
 	}
+	objectUnits := units != "userSpaceOnUse"
+	objectContent := contentUnits == "objectBoundingBox"
 	vw, vh := s.img.userWidth, s.img.userHeight
 	length := func(name string, basis float64) (float64, bool) {
 		v, present := attr(name)
 		if !present {
 			v = "0"
 		}
-		return svgGradientLength(v, basis, true)
+		return svgGradientLength(v, basis, !objectUnits)
 	}
 	x, okX := length("x", vw)
 	y, okY := length("y", vh)
 	width, okW := length("width", vw)
 	height, okH := length("height", vh)
 	if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
-		return nil
-	}
-	tw, th := int(math.Ceil(width)), int(math.Ceil(height))
-	area := int64(tw) * int64(th)
-	if tw <= 0 || th <= 0 || tw > maxSVGRasterSide || th > maxSVGRasterSide ||
-		area > maxDecodedImagePixels || s.patternPixels+area > maxSVGPatternPixels {
 		return nil
 	}
 	transform := svgIdentity
@@ -314,30 +325,58 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 			break
 		}
 	}
-
-	oldImg := s.img
-	tile := &svgImage{
-		width: width, height: height, userWidth: vw, userHeight: vh,
-		dashBasis: oldImg.dashBasis, rootFontSize: oldImg.rootFontSize,
-		align: "none",
+	p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform,
+		objectUnits: objectUnits, objectContent: objectContent, content: content, expansion: s, node: node}
+	if !objectUnits && !objectContent {
+		// Preserve the shared user-space tile and its cycle guard.
+		p.tile = s.renderPatternTile(p, 0, 0, 1, 1)
+		if p.tile == nil {
+			return nil
+		}
 	}
+	s.patterns[node] = p
+	return p
+}
+
+// renderPatternTile rasterizes in the pattern's coordinate space. The
+// content coordinate system is independent of the tile geometry units.
+func (s *svgExpansion) renderPatternTile(p *svgPattern, bx, by, bw, bh float64) *image.RGBA {
+	x, y, width, height := p.x, p.y, p.width, p.height
+	if p.objectUnits {
+		x, y, width, height = bx+x*bw, by+y*bh, width*bw, height*bh
+	}
+	if width <= 0 || height <= 0 || width > maxSVGRasterSide || height > maxSVGRasterSide {
+		return nil
+	}
+	tw, th := int(math.Ceil(width)), int(math.Ceil(height))
+	area := int64(tw) * int64(th)
+	if area > maxDecodedImagePixels || s.patternPixels+area > maxSVGPatternPixels {
+		return nil
+	}
+	oldImg := s.img
+	tile := &svgImage{width: width, height: height, userWidth: oldImg.userWidth,
+		userHeight: oldImg.userHeight, dashBasis: oldImg.dashBasis,
+		rootFontSize: oldImg.rootFontSize, align: "none"}
 	s.img = tile
 	frame := svgDefaultFrame()
-	frame.userWidth, frame.userHeight, frame.dashBasis = vw, vh, oldImg.dashBasis
+	frame.userWidth, frame.userHeight, frame.dashBasis = oldImg.userWidth, oldImg.userHeight, oldImg.dashBasis
 	frame.transform = svgAffine{a: 1, d: 1, e: -x, f: -y}
-	err := s.walk(content, frame, true, 0)
+	if p.objectContent {
+		frame.userWidth, frame.userHeight, frame.dashBasis = 1, 1, 1
+		frame.transform = svgAffine{a: bw, d: bh, e: bx - x, f: by - y}
+	}
+	// While rasterizing, self/mutual references resolve to the URL fallback.
+	s.patterns[p.node] = nil
+	err := s.walk(p.content, frame, true, 0)
 	s.img = oldImg
 	if err != nil {
 		return nil
 	}
 	raster := tile.rasterize(tw, th)
-	if raster == nil {
-		return nil
+	if raster != nil {
+		s.patternPixels += area
 	}
-	s.patternPixels += area
-	p := &svgPattern{x: x, y: y, width: width, height: height, transform: transform, tile: raster}
-	s.patterns[node] = p
-	return p
+	return raster
 }
 
 func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
@@ -411,6 +450,29 @@ func bindSVGPaint(server *svgPaintServer, segments []svgSegment) (*svgPaintServe
 	}
 	bound := *server
 	if server.pattern != nil {
+		p := server.pattern
+		if p.objectUnits || p.objectContent {
+			x0, y0, x1, y1, ok := svgSegmentsBounds(segments)
+			if !ok || x1 <= x0 || y1 <= y0 {
+				return nil, false
+			}
+			copy := *p
+			copy.tile = p.expansion.renderPatternTile(p, x0, y0, x1-x0, y1-y0)
+			p.expansion.patterns[p.node] = p
+			if copy.tile == nil {
+				bound.pattern, bound.gradient = nil, nil
+				bound.fallbackOnly = true
+				return &bound, true
+			}
+			bound.pattern = &copy
+			if p.objectUnits {
+				// Sampling uses normalized tile geometry, while the tile
+				// pixels were rasterized using the physical box dimensions.
+				bound.toLocal = p.transform.then(svgAffine{a: x1 - x0, d: y1 - y0, e: x0, f: y0})
+			} else {
+				bound.toLocal = p.transform
+			}
+		}
 		return &bound, true
 	}
 	g := server.gradient
