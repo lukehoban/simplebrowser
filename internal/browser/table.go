@@ -713,7 +713,7 @@ func singleTextAdvance(n *StyledNode, faces *faceSet) (fixed.Int26_6, bool) {
 	if !visit(n) || text == nil {
 		return 0, false
 	}
-	fields := strings.FieldsFunc(text.Node.Data, func(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' })
+	fields := collapsibleFields(text.Node.Data)
 	if len(fields) == 0 {
 		return 0, true
 	}
@@ -1430,7 +1430,7 @@ func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 
 func textIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
 	m := faces.metrics(n.Style)
-	fields := strings.FieldsFunc(n.Node.Data, func(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' })
+	fields := collapsibleFields(n.Node.Data)
 	if len(fields) == 0 {
 		return 0, 0
 	}
