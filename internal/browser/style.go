@@ -5,6 +5,8 @@ import (
 	"math"
 	"strconv"
 	"strings"
+
+	"golang.org/x/text/language"
 )
 
 // style computes the cascade and inheritance without making layout decisions.
@@ -89,13 +91,20 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	inline []Declaration, viewport image.Point) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-variant": "normal", "font-weight": "normal",
-		"line-height": "normal", "text-align": "start"}
+		"lang": language.Und.String(), "line-height": "normal", "text-align": "start"}
 	// border-spacing is inherited (CSS 2.1 §17.6.1); the UA table rule sets 2px.
 	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
-		"font-style", "font-variant", "font-weight", "line-height", "text-align"} {
+		"font-style", "font-variant", "font-weight", "lang", "line-height", "text-align"} {
 		if parent != nil {
 			values[p] = parent[p]
 		}
+	}
+	// The document language is metadata inherited from HTML, not a CSS
+	// declaration. Invalid or empty tags explicitly reset it to Unicode root.
+	if attr, ok := n.Attribute("lang"); ok {
+		values["lang"] = normalizedLanguage(attr.Value)
+	} else if attr, ok := n.Attribute("xml:lang"); ok {
+		values["lang"] = normalizedLanguage(attr.Value)
 	}
 	winners := map[string]winningDeclaration{}
 	order := 0
@@ -107,6 +116,10 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 				if _, ok := parseColor(strings.ToLower(expanded.Value)); !ok {
 					continue
 				}
+			}
+			// The element language is HTML/XML metadata, not a CSS property.
+			if expanded.Property == "lang" {
+				continue
 			}
 			if expanded.Property == "font-variant" {
 				switch strings.ToLower(strings.TrimSpace(expanded.Value)) {
@@ -169,6 +182,18 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	resolveFontRelativeValues(values, rootFontSize)
 	return values
+}
+
+func normalizedLanguage(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return language.Und.String()
+	}
+	tag, err := language.Parse(value)
+	if err != nil {
+		return language.Und.String()
+	}
+	return tag.String()
 }
 
 func computedFontSize(style ComputedStyle) float64 {
