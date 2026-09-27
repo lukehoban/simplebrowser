@@ -49,8 +49,8 @@ func TestDeterministicMarkdown(t *testing.T) {
 }
 
 func TestPinnedSecondTrancheAndGraph(t *testing.T) {
-	if len(tests) != 49 {
-		t.Fatalf("expected 38 blocking + 11 diagnostic tests, got %d", len(tests))
+	if len(tests) != 50 {
+		t.Fatalf("expected 39 blocking + 11 diagnostic tests, got %d", len(tests))
 	}
 	seen := make(map[string]bool)
 	for _, test := range tests {

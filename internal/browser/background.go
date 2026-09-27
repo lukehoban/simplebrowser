@@ -138,6 +138,7 @@ func resolveBackgroundURL(value, base string) string {
 		if url == "" {
 			continue
 		}
+
 		// url.Parse rejects literal quotes; escape these as URL path characters
 		// after interpreting CSS escapes but before resolving the reference.
 		resolved, err := ResolveCSSURL(base, strings.ReplaceAll(url, `"`, "%22"))
@@ -147,6 +148,29 @@ func resolveBackgroundURL(value, base string) string {
 		layers[i] = layer[:start] + quotedBackgroundURL(resolved) + layer[end:]
 	}
 	return strings.Join(layers, ", ")
+}
+
+// URL tokens in a custom property can be embedded in var() fallbacks or in
+// multi-layer values. Resolve all of them at declaration time, rather than
+// using the document URL after substitution into background-image.
+func resolveCustomPropertyURLs(value, base string) string {
+	var out strings.Builder
+	for len(value) > 0 {
+		start, end, url := backgroundURLToken(value)
+		if url == "" || end == 0 {
+			out.WriteString(value)
+			break
+		}
+		out.WriteString(value[:start])
+		resolved, err := ResolveCSSURL(base, strings.ReplaceAll(url, `"`, "%22"))
+		if err != nil {
+			out.WriteString(value[start:end])
+		} else {
+			out.WriteString(quotedBackgroundURL(resolved))
+		}
+		value = value[end:]
+	}
+	return out.String()
 }
 
 func expandBackground(d Declaration) []Declaration {
@@ -208,6 +232,64 @@ func expandBackground(d Declaration) []Declaration {
 		result = append(result, Declaration{Property: name, Value: value, Important: d.Important})
 	}
 	return result
+}
+
+// validBackground rejects unrecognized tokens instead of letting the
+// shorthand expander silently discard them. This matters after var()
+// substitution: an invalid shorthand must invalidate all of its longhands.
+func validBackground(value string) bool {
+	layers := backgroundLayers(value)
+	for layerIndex, layer := range layers {
+		if strings.TrimSpace(layer) == "" {
+			return false
+		}
+		seenImage, seenRepeat, seenColor, afterSlash := false, false, false, false
+		positionCount, sizeCount := 0, 0
+		for _, token := range parseValues(layer) {
+			word := strings.ToLower(token.Text)
+			switch {
+			case token.Text == "/":
+				if afterSlash || positionCount == 0 {
+					return false
+				}
+				afterSlash = true
+			case token.Kind == "url" || token.Kind == "function" && gradientFunction(token.Text) != "" ||
+				word == "none":
+				if afterSlash || seenImage {
+					return false
+				}
+				seenImage = true
+			case token.Kind == "color":
+				if afterSlash || seenColor || layerIndex != len(layers)-1 {
+					return false
+				}
+				seenColor = true
+			case word == "repeat" || word == "no-repeat" || word == "repeat-x" || word == "repeat-y":
+				if afterSlash || seenRepeat {
+					return false
+				}
+				seenRepeat = true
+			case afterSlash && (token.Kind == "length" || token.Kind == "percentage" || word == "auto" ||
+				sizeCount == 0 && (word == "cover" || word == "contain")):
+				sizeCount++
+				if sizeCount > 2 {
+					return false
+				}
+			case !afterSlash && (word == "left" || word == "right" || word == "top" ||
+				word == "bottom" || word == "center" || token.Kind == "length" || token.Kind == "percentage"):
+				positionCount++
+				if positionCount > 2 {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		if afterSlash && sizeCount == 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func backgroundLayerStyle(style ComputedStyle, index int) ComputedStyle {

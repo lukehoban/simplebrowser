@@ -546,9 +546,14 @@ func ParseDeclarations(input string) []Declaration {
 			continue
 		}
 		value, end := p.readUntil(";}")
-		name = strings.ToLower(strings.TrimSpace(stripComments(name)))
+		name = strings.TrimSpace(stripComments(name))
+		// Custom property names are case-sensitive; ordinary CSS names are not.
+		if !strings.HasPrefix(name, "--") {
+			name = strings.ToLower(name)
+		}
 		value = strings.TrimSpace(stripComments(value))
-		if name != "" && validProperty(name) && value != "" {
+		custom := strings.HasPrefix(name, "--") && len(name) > 2
+		if name != "" && validProperty(name) && (!strings.HasPrefix(name, "--") || custom) && (value != "" || custom) {
 			important := false
 			// !important is only meaningful at the end, outside strings/functions.
 			v := cssScanner{s: value}
@@ -563,7 +568,7 @@ func ParseDeclarations(input string) []Declaration {
 				value = strings.TrimSpace(value[:lastBang])
 				important = true
 			}
-			if value != "" {
+			if value != "" || custom {
 				result = append(result, Declaration{Property: name, Value: value, Values: parseValues(value), Important: important})
 			}
 		}

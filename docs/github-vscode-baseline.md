@@ -119,18 +119,20 @@ and `--...`/`var(...)` declarations to provide a stable local approximation
 of those mechanisms; it is not GitHub's original CSS.
 
 The baseline PNG shows that the current renderer lays the fixture's flex
-containers out as ordinary block flow and does not resolve its custom
-properties. Thus the compact navigation/actions/columns do not retain their
-authored horizontal arrangement or theme colors. The table and text are
-visible; this is a diagnostic of the renderer, not parity evidence. No flex,
-grid, or custom-property work is assumed complete based on other display
-values or SVG-specific parsing.
+containers out as ordinary block flow, although it now resolves its inherited
+custom-property theme colors. Thus the compact navigation/actions/columns do
+not retain their authored horizontal arrangement. The table and text are
+visible; this is a diagnostic of the renderer, not parity evidence. No flex
+or grid work is assumed complete based on other display values or SVG-specific
+parsing. [The focused `var()` repro after rendering](screenshots/github-vscode/custom-property-after.png)
+shows the resolved blue text; compare the
+[prior red baseline](screenshots/github-vscode/custom-property-baseline.png).
 
 Confirmed follow-ups are tracked separately and have isolated repros and
 current-render visuals:
 
-- [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246),
-  distinct from the SVG-only limitation in #161.
+- [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246)
+  are implemented here, distinct from the SVG-only limitation in #161.
 - [#247 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/247).
 - [#265 Refresh separate Moon comparison/documentation after media changes](https://github.com/lukehoban/simplebrowser/issues/265)
   is tracked outside this GitHub stand-in visual.
