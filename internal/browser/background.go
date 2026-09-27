@@ -234,6 +234,64 @@ func expandBackground(d Declaration) []Declaration {
 	return result
 }
 
+// validBackground rejects unrecognized tokens instead of letting the
+// shorthand expander silently discard them. This matters after var()
+// substitution: an invalid shorthand must invalidate all of its longhands.
+func validBackground(value string) bool {
+	layers := backgroundLayers(value)
+	for layerIndex, layer := range layers {
+		if strings.TrimSpace(layer) == "" {
+			return false
+		}
+		seenImage, seenRepeat, seenColor, afterSlash := false, false, false, false
+		positionCount, sizeCount := 0, 0
+		for _, token := range parseValues(layer) {
+			word := strings.ToLower(token.Text)
+			switch {
+			case token.Text == "/":
+				if afterSlash || positionCount == 0 {
+					return false
+				}
+				afterSlash = true
+			case token.Kind == "url" || token.Kind == "function" && gradientFunction(token.Text) != "" ||
+				word == "none":
+				if afterSlash || seenImage {
+					return false
+				}
+				seenImage = true
+			case token.Kind == "color":
+				if afterSlash || seenColor || layerIndex != len(layers)-1 {
+					return false
+				}
+				seenColor = true
+			case word == "repeat" || word == "no-repeat" || word == "repeat-x" || word == "repeat-y":
+				if afterSlash || seenRepeat {
+					return false
+				}
+				seenRepeat = true
+			case afterSlash && (token.Kind == "length" || token.Kind == "percentage" || word == "auto" ||
+				sizeCount == 0 && (word == "cover" || word == "contain")):
+				sizeCount++
+				if sizeCount > 2 {
+					return false
+				}
+			case !afterSlash && (word == "left" || word == "right" || word == "top" ||
+				word == "bottom" || word == "center" || token.Kind == "length" || token.Kind == "percentage"):
+				positionCount++
+				if positionCount > 2 {
+					return false
+				}
+			default:
+				return false
+			}
+		}
+		if afterSlash && sizeCount == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func backgroundLayerStyle(style ComputedStyle, index int) ComputedStyle {
 	layer := cloneStyle(style)
 	for _, property := range []string{"background-size", "background-repeat", "background-position"} {

@@ -86,10 +86,11 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 }
 
 type winningDeclaration struct {
-	d                 Declaration
-	important, inline bool
-	origin, order     int
-	spec              [3]int
+	d                         Declaration
+	important, inline         bool
+	validateAfterSubstitution bool
+	origin, order             int
+	spec                      [3]int
 }
 
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
@@ -121,12 +122,32 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	var candidates []winningDeclaration
 	add := func(d Declaration, spec [3]int, origin int, isInline bool) {
 		order++
-		candidates = append(candidates, winningDeclaration{d, d.Important, isInline, origin, order, spec})
+		candidates = append(candidates, winningDeclaration{
+			d: d, important: d.Important, inline: isInline, origin: origin, order: order, spec: spec,
+		})
 	}
 	consider := func(candidate winningDeclaration) {
-		for _, expanded := range expandDeclaration(candidate.d) {
+		if candidate.validateAfterSubstitution && candidate.d.Property == "background" &&
+			candidate.d.Value != invalidVariable && !validBackground(candidate.d.Value) {
+			candidate.d.Value = invalidVariable
+		}
+		expandedDeclarations := expandDeclaration(candidate.d)
+		// A substituted invalid font shorthand is still the cascade winner.
+		// expandFont rejects malformed shorthands by returning no longhands;
+		// represent that winner as invalid for every longhand instead.
+		if candidate.validateAfterSubstitution && candidate.d.Property == "font" &&
+			len(expandedDeclarations) == 0 {
+			expandedDeclarations = invalidLonghands(candidate.d,
+				"font-size", "font-family", "font-style", "font-variant", "font-weight", "line-height")
+		}
+		for _, expanded := range expandedDeclarations {
 			invalid := expanded.Value == invalidVariable
-			if expanded.Property == "color" && !strings.EqualFold(expanded.Value, "inherit") {
+			if candidate.validateAfterSubstitution && !invalid &&
+				!validSubstitutedDeclaration(expanded.Property, expanded.Value) {
+				expanded.Value = invalidVariable
+				invalid = true
+			}
+			if !candidate.validateAfterSubstitution && expanded.Property == "color" && !strings.EqualFold(expanded.Value, "inherit") {
 				// Invalid color tokens must not win the cascade and then paint
 				// black; leave the lower-priority declaration or inherited value.
 				if _, ok := parseColor(strings.ToLower(expanded.Value)); !ok && !invalid {
@@ -137,7 +158,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 			if expanded.Property == "lang" {
 				continue
 			}
-			if expanded.Property == "font-variant" && !invalid {
+			if !candidate.validateAfterSubstitution && expanded.Property == "font-variant" && !invalid {
 				switch strings.ToLower(strings.TrimSpace(expanded.Value)) {
 				case "normal", "small-caps", "inherit":
 				default:
@@ -211,18 +232,11 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 			continue
 		}
 		if containsVarFunction(candidate.d.Value) {
+			candidate.validateAfterSubstitution = true
 			resolved, ok := substituteVars(candidate.d.Value, values, nil)
 			if ok && strings.TrimSpace(resolved) != "" {
 				candidate.d.Value = strings.TrimSpace(resolved)
 				candidate.d.Values = parseValues(candidate.d.Value)
-				// Unlike a syntactically invalid declaration at parse/cascade
-				// time, a substituted winner that fails property validation
-				// remains the winner and becomes unset at computed-value time.
-				if candidate.d.Property == "color" && !strings.EqualFold(candidate.d.Value, "inherit") {
-					if _, valid := parseColor(strings.ToLower(candidate.d.Value)); !valid {
-						candidate.d.Value = invalidVariable
-					}
-				}
 			} else {
 				candidate.d.Value = invalidVariable
 			}
@@ -259,6 +273,20 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	resolveFontRelativeValues(values, rootFontSize)
 	return values
+}
+
+// validSubstitutedDeclaration applies the same grammar used by @supports to
+// values whose var() references have been resolved. Unsupported properties
+// remain outside this renderer's validation surface, as they do in @supports.
+func validSubstitutedDeclaration(property, value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "inherit", "initial", "unset":
+		return true
+	}
+	if validate, ok := supportValidators[property]; ok {
+		return validate(strings.TrimSpace(value))
+	}
+	return true
 }
 
 // mediaQueryMatches deliberately implements the fixed rendering environment:

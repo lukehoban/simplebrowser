@@ -74,6 +74,64 @@ func TestCustomPropertyFallbackCyclesAndComputedInvalid(t *testing.T) {
 	}
 }
 
+func TestInvalidSubstitutedValuesWinCascadeAcrossValidatedProperties(t *testing.T) {
+	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
+		<style>
+		  :root { --bad: bogus }
+		  #color { color: blue; color: var(--bad) }
+		  #size { font-size: 30px; font-size: var(--bad) }
+		  #variant { font-variant: normal; font-variant: var(--bad) }
+		  #variant-initial { font-variant: small-caps; font-variant: var(--bad) }
+		  #weight { font-weight: normal; font-weight: var(--bad) }
+		  #font { font: small-caps 20px sans-serif; font: var(--bad) }
+		  #width { width: 10px; width: var(--bad) }
+		  #margin { margin: 3px; margin: var(--bad) }
+		  #display { display: block; display: var(--bad) }
+		  #background { background-color: red; background-color: var(--bad) }
+		  #background-shorthand { background-color: red; background: var(--bad) }
+		  #image { background-image: url(tile.png); background-image: var(--bad) }
+		</style>
+		<div style="color: green; font-size: 24px; font-variant: small-caps; font-weight: bold">
+		  <span id="color"></span><span id="size"></span><span id="variant"></span>
+		  <span id="weight"></span><span id="font"></span><span id="width"></span><span id="margin"></span>
+		  <span id="display"></span><span id="background"></span>
+		  <span id="background-shorthand"></span><span id="image"></span>
+		</div><span id="variant-initial"></span>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled = computeStyles(styled, image.Pt(800, 600))
+	tests := []struct {
+		id, property, want string
+	}{
+		{"color", "color", "green"},
+		{"size", "font-size", "24px"},
+		{"variant", "font-variant", "small-caps"},
+		{"variant-initial", "font-variant", "normal"},
+		{"weight", "font-weight", "bold"},
+		{"font", "font-variant", "small-caps"},
+		{"font", "font-size", "24px"},
+		{"width", "width", ""},
+		{"margin", "margin-top", ""},
+		{"display", "display", "inline"},
+		{"background", "background-color", ""},
+		{"background-shorthand", "background-color", ""},
+		{"image", "background-image", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id+"/"+tc.property, func(t *testing.T) {
+			got := styledElementByID(styled.StyleRoot, tc.id).Style[tc.property]
+			if got != tc.want {
+				t.Errorf("%s.%s = %q, want %q", tc.id, tc.property, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCustomPropertyCycleCannotUseFallbackInsideCycle(t *testing.T) {
 	doc, err := parse(Resource{URL: "index.html", Body: []byte(`
 		<style>:root { --a: var(--b, red); --b: var(--a, blue) }
