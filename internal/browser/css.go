@@ -213,8 +213,18 @@ func parseCSSRules(input, media string, sheet *Stylesheet) {
 			parseCSSRules(body, condition, sheet)
 			continue
 		}
+		// @supports is static for this engine, so it is decided here: a
+		// true block contributes its rules (keeping any enclosing @media
+		// condition); a false or malformed one is dropped.
+		if lower := strings.ToLower(prelude); strings.HasPrefix(lower, "@supports") &&
+			(len(prelude) == len("@supports") || cssSpace(prelude[len("@supports")]) || prelude[len("@supports")] == '(') {
+			if supportsConditionMatches(prelude[len("@supports"):]) {
+				parseCSSRules(body, media, sheet)
+			}
+			continue
+		}
 		// Other at-rules are intentionally left for their own, narrower
-		// implementations (notably @supports, tracked by #251).
+		// implementations.
 		if strings.HasPrefix(prelude, "@") {
 			continue
 		}
