@@ -55,6 +55,59 @@ func TestPaintPerSideBordersAndTransparentBackground(t *testing.T) {
 	pixel(t, img, 5, 3, color.RGBA{0, 128, 0, 255})
 }
 
+func TestCanvasBackgroundUsesRootAndBodyPropagation(t *testing.T) {
+	viewport := image.Rect(0, 0, 800, 600)
+	tests := []struct {
+		name   string
+		markup string
+		points []struct {
+			x, y int
+			want color.RGBA
+		}
+	}{
+		{
+			name:   "root background covers canvas",
+			markup: `<html style="background:green"><body><div style="height:20px"></div></body></html>`,
+			points: []struct {
+				x, y int
+				want color.RGBA
+			}{{0, 0, color.RGBA{0, 128, 0, 255}}, {799, 599, color.RGBA{0, 128, 0, 255}}},
+		},
+		{
+			name:   "body background propagates through transparent root",
+			markup: `<html style="background:transparent"><body style="background:green"><div style="height:20px"></div></body></html>`,
+			points: []struct {
+				x, y int
+				want color.RGBA
+			}{{0, 0, color.RGBA{0, 128, 0, 255}}, {799, 599, color.RGBA{0, 128, 0, 255}}},
+		},
+		{
+			name:   "default canvas remains white",
+			markup: `<html><body><div style="height:20px"></div></body></html>`,
+			points: []struct {
+				x, y int
+				want color.RGBA
+			}{{0, 0, color.RGBA{255, 255, 255, 255}}, {799, 599, color.RGBA{255, 255, 255, 255}}},
+		},
+		{
+			name:   "root color overrides body propagation",
+			markup: `<html style="background:blue"><body style="background:green"><div style="height:20px"></div></body></html>`,
+			points: []struct {
+				x, y int
+				want color.RGBA
+			}{{0, 0, color.RGBA{0, 0, 255, 255}}, {10, 10, color.RGBA{0, 128, 0, 255}}, {799, 599, color.RGBA{0, 0, 255, 255}}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			img := painted(t, tc.markup, viewport)
+			for _, point := range tc.points {
+				pixel(t, img, point.x, point.y, point.want)
+			}
+		})
+	}
+}
+
 func TestPaintTextWeightColorSizeAndUnderline(t *testing.T) {
 	viewport := image.Rect(0, 0, 200, 100)
 	plain := painted(t, `<p style="margin:0;color:red;font-size:20px">Hello</p>`, viewport)
