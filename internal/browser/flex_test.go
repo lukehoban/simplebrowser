@@ -47,6 +47,87 @@ func TestFlexImageUsesReplacedLayoutAndPaint(t *testing.T) {
 	pixel(t, rendered.(*image.RGBA), 2, 2, color.RGBA{255, 0, 0, 255})
 }
 
+func TestFlexAnonymousTextItemsRowAndColumn(t *testing.T) {
+	const source = `<body style="margin:0;font:20px monospace">
+<div id="row" style="display:flex;width:200px;align-items:flex-start">Hello <span id="world">world</span> again</div>
+<div id="column" style="display:flex;flex-direction:column;width:100px;align-items:flex-start">Up <span id="middle">middle</span> Down</div>
+</body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 220, 150))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "row", "world", "column", "middle")
+	row, column := boxes["row"], boxes["column"]
+	if len(row.Children) != 3 || len(column.Children) != 3 {
+		t.Fatalf("text-element-text should create three items: row=%d column=%d", len(row.Children), len(column.Children))
+	}
+	for _, container := range []*Box{row, column} {
+		for _, index := range []int{0, 2} {
+			item := container.Children[index]
+			if !item.Anonymous || len(item.Children) != 1 || len(item.Children[0].Text) == 0 {
+				t.Fatalf("missing anonymous text item at %d: %+v", index, item)
+			}
+		}
+	}
+	if row.Children[0].Rect.Max.X != boxes["world"].Rect.Min.X ||
+		boxes["world"].Rect.Max.X != row.Children[2].Rect.Min.X {
+		t.Fatalf("row adjacency: %v %v %v", row.Children[0].Rect, boxes["world"].Rect, row.Children[2].Rect)
+	}
+	if column.Children[0].Rect.Max.Y != boxes["middle"].Rect.Min.Y ||
+		boxes["middle"].Rect.Max.Y != column.Children[2].Rect.Min.Y {
+		t.Fatalf("column adjacency: %v %v %v", column.Children[0].Rect, boxes["middle"].Rect, column.Children[2].Rect)
+	}
+	img := painted(t, source, image.Rect(0, 0, 220, 150))
+	for _, item := range []*Box{row.Children[0], row.Children[2], column.Children[0], column.Children[2]} {
+		found := false
+		for y := item.Rect.Min.Y; y < item.Rect.Max.Y && !found; y++ {
+			for x := item.Rect.Min.X; x < item.Rect.Max.X; x++ {
+				r, g, b, _ := img.At(x, y).RGBA()
+				if r < 0x8000 && g < 0x8000 && b < 0x8000 {
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no text pixels in anonymous item %v", item.Rect)
+		}
+	}
+}
+
+func TestFlexWhitespaceAndBlockFlowText(t *testing.T) {
+	const source = `<body style="margin:0"><div id="row" style="display:flex;width:200px">
+  <span id="first" style="width:20px;height:10px;background:red"></span>
+  <span id="last" style="width:20px;height:10px;background:blue"></span>
+  </div><div id="flow">plain text</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 220, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "row", "first", "last", "flow")
+	if len(boxes["row"].Children) != 2 || boxes["last"].Rect.Min.X != boxes["first"].Rect.Max.X {
+		t.Fatalf("whitespace generated an item: %+v", boxes["row"].Children)
+	}
+	if len(boxes["flow"].Text) == 0 && (len(boxes["flow"].Children) == 0 || len(boxes["flow"].Children[0].Text) == 0) {
+		t.Fatalf("block flow text changed: %+v", boxes["flow"].Children)
+	}
+}
+
+func TestFlexContiguousTextAcrossCommentIsOneItem(t *testing.T) {
+	const source = `<body style="margin:0"><div id="row" style="display:flex;width:200px;color:red">Hello<!-- split --> world<span id="end" style="width:20px;height:12px"></span></div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 220, 50))
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := boxesByID(layout.Root, "row")["row"]
+	if len(row.Children) != 2 || !row.Children[0].Anonymous || row.Children[0].Rect.Max.X != row.Children[1].Rect.Min.X {
+		t.Fatalf("contiguous text should be one item before span: %+v", row.Children)
+	}
+	if len(row.Children[0].Children) != 1 || len(row.Children[0].Children[0].Text) != 2 {
+		t.Fatalf("split text not retained in one anonymous line: %+v", row.Children[0].Children)
+	}
+}
+
 func TestFlexBoundsBasisAndReversePixels(t *testing.T) {
 	const source = `<body style="margin:0">
 	<div style="display:flex;width:100px"><div id="min" style="width:80px;min-width:80px;height:10px;background:red"></div><div id="shrunk" style="width:80px;height:10px;background:blue"></div></div>
