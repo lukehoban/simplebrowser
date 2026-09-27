@@ -1,0 +1,17 @@
+<!doctype html>
+<style>
+  body { margin: 16px; font: 20px sans-serif; }
+  .card {
+    width: 320px;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 4px solid #c62828;
+    background: #ffcdd2;
+  }
+  .card[title] { border-color: #1565c0; }
+  .card[data-state=ready] { background: #a5d6a7; }
+  .card:not([data-state]) { background: #fff59d; }
+</style>
+<div class=card title="presence match" data-state=ready>presence + equality</div>
+<div class=card data-state=waiting>equality does not match</div>
+<div class=card title="negation match">attribute selector inside :not()</div>
