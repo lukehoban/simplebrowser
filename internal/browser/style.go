@@ -110,6 +110,13 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	order := 0
 	add := func(d Declaration, spec [3]int, origin int, isInline bool) {
 		for _, expanded := range expandDeclaration(d) {
+			if expanded.Property == "color" && !strings.EqualFold(expanded.Value, "inherit") {
+				// Invalid color tokens must not win the cascade and then paint
+				// black; leave the lower-priority declaration or inherited value.
+				if _, ok := parseColor(strings.ToLower(expanded.Value)); !ok {
+					continue
+				}
+			}
 			// The element language is HTML/XML metadata, not a CSS property.
 			if expanded.Property == "lang" {
 				continue

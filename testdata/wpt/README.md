@@ -5,7 +5,9 @@ at commit [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-pl
 under the upstream [WPT 3-clause BSD license](https://github.com/web-platform-tests/wpt/blob/647d3bdf133159739b57cfb7afa0be3f5d76b9db/LICENSE.md).
 Each path here corresponds to `css/CSS2/<path>` upstream. Only the 13
 manifest-listed tests, their references, and three PNG support assets are
-included. No local edits were made to these upstream fixtures.
+included, plus `colors/colors-007.xht` and its reference for a focused renderer
+regression (#181); benchmark expansion is tracked in #159.
+No local edits were made to these upstream fixtures.
 The harness renders the vendored files directly without adapting their
 contents. Local `.xht` files use the browser's focused XHTML mode, so XML
 `<![CDATA[` / `]]>` wrappers around CSS are interpreted while the fixtures
