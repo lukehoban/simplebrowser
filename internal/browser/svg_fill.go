@@ -6,14 +6,13 @@ import (
 	"sort"
 )
 
-// golang.org/x/image/vector fills with the non-zero winding rule only, so
-// even-odd fills are rasterized here with a small scanline filler: the path is
-// flattened to polygons in device space, then each pixel row is sampled on
+// golang.org/x/image/vector fills with the non-zero winding rule only. Simple
+// even-odd paths, where both rules are equivalent, use that rasterizer too.
+// Complex even-odd paths are rasterized here: each pixel row is sampled on
 // svgFillSubSamples sub-scanlines whose parity spans are accumulated with
-// analytic horizontal coverage. That gives antialiasing comparable to the
-// vector rasterizer without needing a second dependency.
+// analytic horizontal coverage.
 
-const svgFillSubSamples = 5
+const svgFillSubSamples = 16
 
 type svgEdge struct {
 	x0, y0, x1, y1 float64 // y0 < y1
@@ -21,19 +20,28 @@ type svgEdge struct {
 	slope float64
 }
 
-// flattenSVGShape converts a shape's segments into closed polygons in device
-// space using m. Open subpaths are implicitly closed, as they are when filled.
-func flattenSVGShape(shape svgShape, m svgAffine) [][]svgPoint {
-	var polys [][]svgPoint
+type svgSubpath struct {
+	points []svgPoint
+	closed bool
+}
+
+// flattenSVGShape is the bounded curve-flattening path shared by fills and
+// strokes. Points are transformed by m; callers decide whether open subpaths
+// are implicitly closed (fills) or left open (strokes).
+func flattenSVGShape(shape svgShape, m svgAffine) []svgSubpath {
+	var paths []svgSubpath
 	var cur []svgPoint
 	used := 0
 	pt := func(p [2]float64) svgPoint {
 		x, y := m.apply(p[0], p[1])
 		return svgPoint{x, y}
 	}
-	flush := func() {
+	flush := func(closed bool) {
 		if len(cur) > 2 {
-			polys = append(polys, cur)
+			paths = append(paths, svgSubpath{points: cur, closed: closed})
+		} else if len(cur) > 1 {
+			// A two-point subpath cannot be filled, but can still be stroked.
+			paths = append(paths, svgSubpath{points: cur, closed: closed})
 		}
 		cur = nil
 	}
@@ -43,7 +51,7 @@ func flattenSVGShape(shape svgShape, m svgAffine) [][]svgPoint {
 		}
 		switch seg.op {
 		case 'M':
-			flush()
+			flush(false)
 			cur = append(cur, pt(seg.pts[0]))
 			used++
 		case 'L':
@@ -67,22 +75,80 @@ func flattenSVGShape(shape svgShape, m svgAffine) [][]svgPoint {
 				used++
 			}
 		case 'Z':
-			flush()
+			flush(true)
 		}
 	}
-	flush()
-	return polys
+	flush(false)
+	return paths
 }
 
-// svgEvenOddMask rasterizes polys into a w×h alpha mask using the even-odd
+// svgFillRulesEquivalent reports the conservative case where even-odd and
+// non-zero coverage describe the same area. Keeping this check bounded avoids
+// quadratic work on adversarial paths; uncertain paths use the parity filler.
+func svgFillRulesEquivalent(paths []svgSubpath) bool {
+	if len(paths) != 1 || len(paths[0].points) < 3 || len(paths[0].points) > 256 {
+		return false
+	}
+	points := paths[0].points
+	n := len(points)
+	for i := 0; i < n; i++ {
+		a, b := points[i], points[(i+1)%n]
+		if !finiteSVGPoint(a) || !finiteSVGPoint(b) || a == b {
+			return false
+		}
+		for j := i + 1; j < n; j++ {
+			// Consecutive edges (including the first and last) share a vertex.
+			if j == i+1 || (i == 0 && j == n-1) {
+				continue
+			}
+			if svgLineSegmentsIntersect(a, b, points[j], points[(j+1)%n]) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func finiteSVGPoint(p svgPoint) bool {
+	return !math.IsNaN(p.x) && !math.IsNaN(p.y) &&
+		!math.IsInf(p.x, 0) && !math.IsInf(p.y, 0)
+}
+
+// svgLineSegmentsIntersect treats touching and collinear segments as
+// intersections. False negatives would incorrectly select non-zero filling,
+// while false positives merely select the parity fallback.
+func svgLineSegmentsIntersect(a, b, c, d svgPoint) bool {
+	cross := func(p, q, r svgPoint) float64 {
+		return (q.x-p.x)*(r.y-p.y) - (q.y-p.y)*(r.x-p.x)
+	}
+	onSegment := func(p, q, r svgPoint) bool {
+		const epsilon = 1e-9
+		return r.x >= math.Min(p.x, q.x)-epsilon && r.x <= math.Max(p.x, q.x)+epsilon &&
+			r.y >= math.Min(p.y, q.y)-epsilon && r.y <= math.Max(p.y, q.y)+epsilon
+	}
+	const epsilon = 1e-9
+	abC, abD := cross(a, b, c), cross(a, b, d)
+	cdA, cdB := cross(c, d, a), cross(c, d, b)
+	if ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon)) &&
+		((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon)) {
+		return true
+	}
+	return (math.Abs(abC) <= epsilon && onSegment(a, b, c)) ||
+		(math.Abs(abD) <= epsilon && onSegment(a, b, d)) ||
+		(math.Abs(cdA) <= epsilon && onSegment(c, d, a)) ||
+		(math.Abs(cdB) <= epsilon && onSegment(c, d, b))
+}
+
+// svgEvenOddMask rasterizes paths into a w×h alpha mask using the even-odd
 // rule, or returns nil when there is nothing to fill.
-func svgEvenOddMask(polys [][]svgPoint, w, h int) *image.Alpha {
+func svgEvenOddMask(paths []svgSubpath, w, h int) *image.Alpha {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
 	var edges []svgEdge
 	minY, maxY := math.Inf(1), math.Inf(-1)
-	for _, poly := range polys {
+	for _, path := range paths {
+		poly := path.points
 		n := len(poly)
 		for i := 0; i < n; i++ {
 			p, q := poly[i], poly[(i+1)%n]

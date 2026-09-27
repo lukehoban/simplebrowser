@@ -826,8 +826,9 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			x, y := m.apply(p[0], p[1])
 			return float32(x), float32(y)
 		}
-		if shape.fill.A != 0 && shape.fillRule == "evenodd" {
-			if mask := svgEvenOddMask(flattenSVGShape(shape, m), w, h); mask != nil {
+		paths := flattenSVGShape(shape, m)
+		if shape.fill.A != 0 && shape.fillRule == "evenodd" && !svgFillRulesEquivalent(paths) {
+			if mask := svgEvenOddMask(paths, w, h); mask != nil {
 				draw.DrawMask(dst, dst.Bounds(), image.NewUniform(shape.fill), image.Point{}, mask, image.Point{}, draw.Over)
 			}
 		} else if shape.fill.A != 0 {
