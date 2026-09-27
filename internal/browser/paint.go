@@ -39,6 +39,7 @@ func paint(layout Layout, output io.Writer, options renderOptions) error {
 			if c, ok := parseColor(strings.ToLower(strings.TrimSpace(bg))); ok {
 				fill(canvas, box.Rect, c)
 			}
+			drawBackgroundImage(canvas, box, layout.Document.BackgroundImages[box.Node], style)
 			drawBorders(canvas, box.Rect, style)
 		}
 		for _, run := range box.Text {

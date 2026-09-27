@@ -10,9 +10,10 @@ DOM, loads CSS and GIF/PNG/JPEG images, and computes deterministic box geometry
 and wrapped text runs, including replaced image boxes and the nested tables
 Hacker News uses for its page structure. Explicitly sized tables honor auto
 side margins and legacy centered containers, so the 85%-wide HN page is
-centered in the viewport. Painting rasterizes backgrounds,
-borders, embedded-font text, scaled GIF/PNG/JPEG images, and neutral placeholders
-for unsupported images. SVG and advanced CSS remain future work.
+centered in the viewport. Painting rasterizes colors, raster CSS backgrounds
+(GIF/PNG/JPEG), borders, embedded-font text, scaled GIF/PNG/JPEG `<img>`
+elements, and neutral placeholders for unsupported `<img>` elements. SVG and
+advanced CSS remain future work.
 
 ## Rendering progress
 
@@ -26,8 +27,7 @@ reference.*
 
 **What's next**
 - [Improve typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
-- [Paint CSS background vote arrows (#32)](https://github.com/lukehoban/simplebrowser/issues/32).
-- [Render the SVG logo (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
+- [Render the SVG logo and vote arrows (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
 - [Align inline images on the text baseline (#33)](https://github.com/lukehoban/simplebrowser/issues/33).
 
 Every pull request and push to `main` renders the fixture and uploads the
@@ -46,9 +46,8 @@ The offline HTML, stylesheet, and small image assets in `testdata/hn` are a
 captured snapshot; rendering does not depend on live Hacker News availability.
 HN's black titles and gray subtext use the page's link styles; GIF/PNG/JPEG
 images paint at their used size, while failed or unsupported images get a
-neutral placeholder. The missing SVG logo and CSS vote arrows are tracked in
-[#31](https://github.com/lukehoban/simplebrowser/issues/31) and
-[#32](https://github.com/lukehoban/simplebrowser/issues/32).
+neutral placeholder. Raster CSS backgrounds paint, but the missing SVG logo
+and vote arrows still need [SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
 
 ## Architecture
 
