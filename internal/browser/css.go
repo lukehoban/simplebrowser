@@ -466,7 +466,7 @@ func validNegationArguments(selectors []Selector) bool {
 		for _, part := range selector.Parts {
 			for _, pseudo := range part.PseudoClasses {
 				switch pseudo {
-				case "link", "any-link", "visited", "hover", "active", "focus", "last-child":
+				case "link", "any-link", "visited", "hover", "active", "focus", "first-child", "last-child":
 				default:
 					return false
 				}
