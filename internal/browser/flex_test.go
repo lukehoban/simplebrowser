@@ -127,6 +127,24 @@ func TestFlexAutomaticMinimumHonorsSpecifiedAndMaximumWidth(t *testing.T) {
 	}
 }
 
+func TestFlexAutomaticMinimumHonorsMaxWidthWithoutSpecifiedWidth(t *testing.T) {
+	const source = `<body style="margin:0"><div style="display:flex;width:100px">
+		<div id="item" style="max-width:20px">unbreakableword</div>
+		<div id="fixed" style="flex:none;width:80px"></div>
+	</div></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 120, 30))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "item", "fixed")
+	if got := boxes["item"].Rect.Dx(); got != 20 {
+		t.Fatalf("max-width-only item width = %d, want 20px (box=%v)", got, boxes["item"].Rect)
+	}
+	if got := boxes["fixed"].Rect.Min.X; got != 20 {
+		t.Fatalf("fixed sibling starts at %d, want x=20 after max-width cap", got)
+	}
+}
+
 func TestFlexAutomaticMinimumExemptsScrollContainersAndColumns(t *testing.T) {
 	const source = `<body style="margin:0"><div id="scroll-row" style="display:flex;width:20px"><div id="scroll-item" style="width:40px;overflow:auto">unbreakableword</div><div style="flex:none;width:10px"></div></div></body>`
 	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 50, 50))
