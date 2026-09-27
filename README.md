@@ -34,6 +34,8 @@ and the [per-area benchmark matrix (#240)](https://github.com/lukehoban/simplebr
 for current scope and live checklists. The bounded
 [Wikipedia Moon target (#243)](https://github.com/lukehoban/simplebrowser/issues/243)
 has an [offline baseline, reference and gap inventory](docs/wikipedia-moon-baseline.md).
+[GitHub repository-page target (#242)](https://github.com/lukehoban/simplebrowser/issues/242)
+has an [offline baseline and evidence notes](docs/github-vscode-baseline.md).
 
 ## Usage
 
