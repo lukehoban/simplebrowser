@@ -67,6 +67,21 @@ func TestPaintTextInsideAbsoluteAndFixedBoxes(t *testing.T) {
 	}
 }
 
+func TestPaintAbsolutePositionedAutoVerticalMarginFixture(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/abspos-auto-vertical-margins.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	img := painted(t, string(source), image.Rect(0, 0, 300, 400))
+	blue := color.RGBA{0, 102, 204, 255}
+	gray := color.RGBA{238, 238, 238, 255}
+	// The 96px child begins 96px into the 288px containing block.
+	pixel(t, img, 30, 95, gray)
+	pixel(t, img, 30, 96, blue)
+	pixel(t, img, 30, 191, blue)
+	pixel(t, img, 30, 192, gray)
+}
+
 func TestPaintBackgroundsBordersAndOrder(t *testing.T) {
 	img := painted(t, `<div style="margin:0;width:50px;height:30px;background-color:#ff0000;border:3px solid #0000ff"><div style="margin:0;width:10px;height:8px;background-color:green"></div></div>`, image.Rect(0, 0, 80, 50))
 	pixel(t, img, 0, 0, color.RGBA{0, 0, 255, 255})

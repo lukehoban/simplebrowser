@@ -86,6 +86,41 @@ func TestPositionedOffsetsUseNearestPositionedAncestorPaddingBox(t *testing.T) {
 	}
 }
 
+func TestAbsolutePositionedAutoVerticalMarginsCenterInConstraintSpace(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><div id="parent" style="position:relative;margin:0;width:240px;height:3in">
+		<div id="centered" style="position:absolute;left:20px;top:.5in;bottom:.5in;width:140px;height:1in;margin-top:auto;margin-bottom:auto"></div>
+	</div></body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "parent", "centered")
+	parent, centered := boxes["parent"], boxes["centered"]
+	wantY := parent.Content.Min.Y + 96
+	if centered.Rect.Min.Y != wantY || centered.Rect.Dy() != 96 {
+		t.Fatalf("centered box = %v, want y=%d and 96px height inside parent %v", centered.Rect, wantY, parent.Content)
+	}
+	if centered.Rect.Max.Y != parent.Content.Max.Y-96 {
+		t.Fatalf("remaining top/bottom constraint space is unbalanced: child %v, parent content %v", centered.Rect, parent.Content)
+	}
+}
+
+func TestAbsolutePositionedSingleAutoVerticalMarginUsesRemainingSpace(t *testing.T) {
+	doc := styledForLayout(t, `<div id="parent" style="position:relative;margin:0;width:200px;height:200px">
+		<div id="target" style="position:absolute;top:20px;bottom:30px;width:20px;height:60px;margin-top:10px;margin-bottom:auto"></div>
+	</div>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "parent", "target")
+	parent, target := boxes["parent"], boxes["target"]
+	// 200 - top 20 - bottom 30 - fixed top margin 10 - height 60 = 80.
+	if target.Rect.Min.Y != parent.Content.Min.Y+30 || target.Rect.Max.Y != parent.Content.Max.Y-110 {
+		t.Fatalf("single auto margin constraint = child %v, parent %v; want top margin 10px and remaining bottom margin 80px", target.Rect, parent.Content)
+	}
+}
+
 func TestFixedPositionOffsetsUseViewport(t *testing.T) {
 	doc := styledForLayout(t, `<div style="position:relative;margin:0;width:100px;height:80px">
 		<div id="fixed" style="position:fixed;left:3px;top:4px;width:10px;height:12px"></div>
