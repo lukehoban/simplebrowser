@@ -346,7 +346,10 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	if n, ok := svgUnitInterval(a["stroke-opacity"]); ok {
 		current.strokeOpacity = n
 	}
-	if n, ok := svgLength(a["stroke-width"]); ok && n <= maxSVGStrokeWidth {
+	// stroke-width resolves font-relative units against this element's
+	// cascaded face and size, and percentages against the normalized
+	// viewport diagonal, like other SVG lengths.
+	if n, ok := basis.length(a["stroke-width"], svgDiagonal); ok && n <= maxSVGStrokeWidth {
 		current.width = n
 	}
 	if v := a["stroke-linecap"]; v == "butt" || v == "square" || v == "round" {

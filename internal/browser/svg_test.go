@@ -1770,3 +1770,104 @@ func TestSVGStylesheetFontFaceDrivesFontMetricLengths(t *testing.T) {
 		t.Errorf("stylesheet font face radius = %g, want %g", got, want)
 	}
 }
+
+func TestSVGStrokeWidthFontRelativeUnits(t *testing.T) {
+	verdana := ratiosFor(ComputedStyle{"font-family": "Verdana"})
+	mono := ratiosFor(ComputedStyle{"font-family": "Courier", "font-weight": "bold", "font-style": "italic"})
+	src := `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">` +
+		`<g font-family="Verdana" font-size="20" stroke="red">` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="1ex"/>` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="1ch"/>` +
+		`<g stroke-width="1ex" font-family="Courier" font-weight="bold" font-style="italic"><line x1="2" y1="15" x2="28" y2="15"/></g>` +
+		`<g stroke-width="1ch"><line x1="2" y1="15" x2="28" y2="15" font-size="40"/></g>` +
+		`<line x1="2" y1="15" x2="28" y2="15" style="stroke-width: 2ex"/>` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="1em"/>` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="10%"/>` +
+		`<g stroke-width="3"><line x1="2" y1="15" x2="28" y2="15" stroke-width="1e9ex"/>` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="-1ch"/>` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="1exgarbage"/>` +
+		`<line x1="2" y1="15" x2="28" y2="15" stroke-width="inherit"/></g>` +
+		`</g><line x1="2" y1="15" x2="28" y2="15" stroke="red"/></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []struct {
+		name  string
+		width float64
+	}{
+		{"verdana ex", 20 * verdana.ex},
+		{"verdana ch", 20 * verdana.ch},
+		// Descendants inherit the computed length, resolved against the
+		// face and size of the element that specified it.
+		{"inherited ex resolved on group face", 20 * mono.ex},
+		{"inherited ch resolved on group size", 20 * verdana.ch},
+		{"style ex", 40 * verdana.ex},
+		{"em", 20},
+		{"percent of normalized diagonal", 10},
+		{"out of bounds keeps inherited", 3},
+		{"negative keeps inherited", 3},
+		{"garbage keeps inherited", 3},
+		{"inherit keyword", 3},
+		{"default", 1},
+	}
+	if len(img.shapes) != len(want) {
+		t.Fatalf("shapes = %d, want %d", len(img.shapes), len(want))
+	}
+	for i, w := range want {
+		if got := img.shapes[i].width; math.Abs(got-w.width) > 1e-8 {
+			t.Errorf("%s: stroke width = %g, want %g", w.name, got, w.width)
+		}
+	}
+}
+
+func TestSVGStrokeFontUnitsVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "stroke-font-units-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blue, orange, green, white := color.RGBA{17, 102, 170, 255}, color.RGBA{238, 85, 17, 255}, color.RGBA{51, 153, 102, 255}, color.RGBA{255, 255, 255, 255}
+	verdanaEx := 20 * ratiosFor(ComputedStyle{"font-family": "Verdana"}).ex
+	for _, p := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{50, 36, blue},
+		{50, 36 + int(verdanaEx/2) - 1, blue},
+		{50, 36 + int(verdanaEx/2) + 2, white},
+		{50, 80, blue},
+		{160, 36, orange},
+		{160, 80, orange},
+		{266, 36, green},
+		{266, 80, green},
+		{266, 36 - 5, green}, // 30px Arial x-height is well above 10px
+	} {
+		if got := img.RGBAAt(p.x, p.y); got != p.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", p.x, p.y, got, p.want)
+		}
+	}
+	if dir := os.Getenv("SVG_STROKE_FONT_UNITS_VISUAL_DIR"); dir != "" {
+		// Before reproduces the old parser: font-relative stroke widths were
+		// invalid, so the default 1px stroke was painted.
+		before := strings.NewReplacer("1ex", "1unsupported", "1ch", "1unsupported").Replace(string(data))
+		old, err := decodeSVG([]byte(before))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, render := range map[string]*svgImage{"svg-stroke-font-units-before.png": old, "svg-stroke-font-units-after.png": img} {
+			f, err := os.Create(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			encodeErr := png.Encode(f, render.RGBA)
+			closeErr := f.Close()
+			if encodeErr != nil || closeErr != nil {
+				t.Fatalf("%s: %v / %v", name, encodeErr, closeErr)
+			}
+		}
+	}
+}
