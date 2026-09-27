@@ -385,8 +385,19 @@ func parseValues(s string) []CSSValue {
 			continue
 		}
 		depth := 0
+		var quote byte
 		for i < len(s) {
-			if s[i] == '(' {
+			if quote != 0 {
+				if s[i] == '\\' && i+1 < len(s) {
+					i += 2
+					continue
+				}
+				if s[i] == quote {
+					quote = 0
+				}
+			} else if s[i] == '"' || s[i] == '\'' {
+				quote = s[i]
+			} else if s[i] == '(' {
 				depth++
 			} else if s[i] == ')' && depth > 0 {
 				depth--

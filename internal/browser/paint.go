@@ -458,7 +458,10 @@ func (p *painter) paintBackground(box *Box) {
 				fill(p.canvas, box.Rect, c)
 			}
 		}
-		drawBackgroundImage(p.canvas, box, p.document.BackgroundImages[box.Node], style)
+		layers := p.document.BackgroundImages[box.Node]
+		for i := len(layers) - 1; i >= 0; i-- {
+			drawBackgroundImage(p.canvas, box, layers[i], backgroundLayerStyle(style, i))
+		}
 		if box.BorderWidths != nil {
 			drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
 		} else {
