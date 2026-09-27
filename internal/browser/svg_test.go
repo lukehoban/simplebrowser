@@ -847,3 +847,25 @@ func TestSVGFillRuleVisual(t *testing.T) {
 		}
 	}
 }
+
+// fill-rule also applies to the basic shapes, e.g. a self-intersecting
+// <polygon>.
+func TestSVGFillRulePolygon(t *testing.T) {
+	const pts = "50,4 63,84 4,34 96,34 37,84"
+	for _, tc := range []struct {
+		rule   string
+		center color.RGBA
+	}{
+		{"nonzero", color.RGBA{0, 128, 0, 255}},
+		{"evenodd", color.RGBA{0, 0, 0, 0}},
+	} {
+		src := `<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><polygon fill="green" fill-rule="` + tc.rule + `" points="` + pts + `"/></svg>`
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.rule, err)
+		}
+		if got := img.RGBAAt(50, 45); got != tc.center {
+			t.Errorf("%s polygon center = %v, want %v", tc.rule, got, tc.center)
+		}
+	}
+}
