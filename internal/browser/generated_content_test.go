@@ -360,6 +360,14 @@ func TestInvalidContentDeclarationDoesNotOverrideValidOne(t *testing.T) {
 		// Valid but unsupported values still win and suppress the box (#327).
 		{"valid unsupported wins", `p::before{content:"OK";content:counter(item)}`, "x|"},
 		{"valid quote keyword wins", `p::before{content:"OK";content:open-quote}`, "x|"},
+		// Only a real var() function token defers validation (#332 review).
+		{"novar function after valid", `p::before{content:"OK";content:novar(--x)}`, "OK|x|"},
+		{"ident ending in var after valid", `p::before{content:"OK";content:my-var(--x)}`, "OK|x|"},
+		{"unknown function after valid", `p::before{content:"OK";content:bogus("a")}`, "OK|x|"},
+		{"var text in string is literal", `p::before{content:"var(--x)"}`, "var(--x)|x|"},
+		{"var substitutes", `p{--x:"OK"}p::before{content:"A";content:var(--x)}`, "OK|x|"},
+		{"uppercase VAR substitutes", `p{--x:"OK"}p::before{content:"A";content:VAR(--x)}`, "OK|x|"},
+		{"var fallback substitutes", `p::before{content:"A";content:var(--missing, "OK")}`, "OK|x|"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := allText(t, "<style>"+tc.rule+"</style><body style=\"margin:0\"><p>x</p></body>",
@@ -378,9 +386,24 @@ func TestValidContentDeclaration(t *testing.T) {
 		`"a" / "alt"`: true, `var(--x)`: true, `"x" var(--y)`: true,
 		"\"a\nb\"": false, `"x\"`: false, `"unterminated`: false, "12px": false, "3": false,
 		"bogus": false, "red": false, `"a", "b"`: false, "": false,
+		`VAR(--x)`: true, `linear-gradient(red, blue)`: true, `counters(a, ".")`: true,
+		`novar(--x)`: false, `my-var(--x)`: false, `\\var(--x)`: false, `bogus(1)`: false,
+		`"var(--x)" 12px`: false, `/* var( */ 12px`: false,
 	} {
 		if got := validContentDeclaration(value); got != want {
 			t.Errorf("validContentDeclaration(%q) = %v, want %v", value, got, want)
+		}
+	}
+}
+
+func TestContainsVarFunction(t *testing.T) {
+	for text, want := range map[string]bool{
+		"var(--x)": true, "VaR(--x)": true, "1px var(--x)": true, "calc(1px + var(--x))": true,
+		"novar(--x)": false, "my-var(--x)": false, "var (--x)": false, `"var(--x)"`: false,
+		`'a' var(--x)`: true, "/* var(--x) */ red": false, "var": false, `\\var(--x)`: false,
+	} {
+		if got := containsVarFunction(text); got != want {
+			t.Errorf("containsVarFunction(%q) = %v, want %v", text, got, want)
 		}
 	}
 }

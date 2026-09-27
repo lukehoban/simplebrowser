@@ -118,6 +118,29 @@ func generatedContent(value string) (string, bool) {
 	return text.String(), true
 }
 
+// contentFunctions lists the functions valid in a content value: attr(),
+// counters and the <image> functions. Any other function (e.g. novar()) makes
+// the declaration invalid.
+var contentFunctions = map[string]bool{
+	"attr": true, "counter": true, "counters": true, "url": true, "src": true,
+	"image": true, "image-set": true, "-webkit-image-set": true,
+	"cross-fade": true, "-webkit-cross-fade": true, "element": true, "paint": true,
+	"linear-gradient": true, "repeating-linear-gradient": true,
+	"radial-gradient": true, "repeating-radial-gradient": true,
+	"conic-gradient": true, "repeating-conic-gradient": true,
+	"-webkit-linear-gradient": true, "-webkit-repeating-linear-gradient": true,
+	"-webkit-radial-gradient": true, "-webkit-repeating-radial-gradient": true,
+	"-webkit-gradient": true,
+}
+
+// functionName returns the name before the first "(" of a function value.
+func functionName(text string) string {
+	if i := strings.IndexByte(text, '('); i >= 0 {
+		return text[:i]
+	}
+	return text
+}
+
 // validContentDeclaration reports whether a declared `content` value matches
 // the property's grammar closely enough to be kept. Declarations that do not,
 // such as bad or unterminated strings, lengths or unknown keywords, are
@@ -131,7 +154,7 @@ func validContentDeclaration(value string) bool {
 	if value == "" {
 		return false
 	}
-	if strings.Contains(strings.ToLower(value), "var(") {
+	if containsVarFunction(value) {
 		return true
 	}
 	switch strings.ToLower(value) {
@@ -148,8 +171,11 @@ func validContentDeclaration(value string) bool {
 			if _, ok := decodeCSSString(v.Text); !ok {
 				return false
 			}
-		case "url", "function":
-			// Images, attr(), counter(s)() and similar functions.
+		case "url":
+		case "function":
+			if !contentFunctions[strings.ToLower(functionName(v.Text))] {
+				return false
+			}
 		default:
 			switch strings.ToLower(v.Text) {
 			case "open-quote", "close-quote", "no-open-quote", "no-close-quote", "/":

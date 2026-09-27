@@ -28,9 +28,10 @@ go run ./cmd/simplebrowser -o out.png testdata/generated-content/index.html
   whose closing quote is missing or escaped (`"x\"`) or that contains a raw
   newline, makes the declaration invalid.
 * Invalid `content` declarations — bad strings, lengths, numbers, unknown
-  keywords — are dropped while parsing, so an earlier valid declaration
-  still applies (`content:"OK"; content:12px` shows `OK`). Values containing
-  `var()` are checked only after substitution.
+  keywords, unknown functions such as `novar()` — are dropped while parsing,
+  so an earlier valid declaration still applies (`content:"OK"; content:12px`
+  shows `OK`). Only a real `var()` function token (case-insensitive, not part
+  of a longer name or inside a string) defers checking until substitution.
 * `content: ""` still generates a box. That is how icon-shaped pseudo-elements
   such as Vector's dropdown chevron are written, and it is why an empty string
   is not treated like `none`.
