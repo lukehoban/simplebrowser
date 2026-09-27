@@ -531,6 +531,21 @@ func TestFlexWrapLinesGeometryAndPixels(t *testing.T) {
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 80, 20), "a": image.Rect(0, 0, 80, 20), "n": image.Rect(80, 0, 90, 10)},
 		pixels: map[image.Point]color.RGBA{{75, 5}: red, {85, 5}: blue},
 	}, {
+		name:   "unitless flex shorthand implies an indefinite 0% basis (#291)",
+		source: `<div id="c" style="float:left;display:flex;height:10px;background:red"><div id="a" style="flex:0;width:40px;height:10px"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 40, 10), "n": image.Rect(40, 0, 50, 10)},
+		pixels: map[image.Point]color.RGBA{{35, 5}: {255, 0, 0, 255}, {45, 5}: {0, 0, 255, 255}},
+	}, {
+		name:   "two-number flex shorthand implies an indefinite 0% basis (#291)",
+		source: `<div id="c" style="float:left;display:flex;height:10px;background:red"><div id="a" style="flex:0 0;width:40px;height:10px"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 40, 10), "n": image.Rect(40, 0, 50, 10)},
+		pixels: map[image.Point]color.RGBA{{35, 5}: {255, 0, 0, 255}, {45, 5}: {0, 0, 255, 255}},
+	}, {
+		name:   "explicit zero-length flex basis stays definite (#291)",
+		source: `<div id="c" style="float:left;display:flex;height:10px;background:red"><div id="a" style="flex:0 0 0px;width:40px;height:10px"></div></div><div id="n" style="float:left;width:10px;height:10px;background:blue"></div>`,
+		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 0, 10), "a": image.Rect(0, 0, 0, 10), "n": image.Rect(0, 0, 10, 10)},
+		pixels: map[image.Point]color.RGBA{{5, 5}: {0, 0, 255, 255}},
+	}, {
 		name:   "mixed percentage calc basis is indefinite for floated intrinsic width (#282/#291)",
 		source: `<div id="c" style="float:left;display:flex"><div id="a" style="flex-grow:0;flex-shrink:0;flex-basis:calc(50% + 10px);width:40px;height:10px;background:red"></div></div>`,
 		want:   map[string]image.Rectangle{"c": image.Rect(0, 0, 40, 10), "a": image.Rect(0, 0, 30, 10)},

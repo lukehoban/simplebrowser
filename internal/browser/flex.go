@@ -454,15 +454,26 @@ func flexClampContribution(child *StyledNode, contribution int) int {
 }
 
 // flexBasisIsLength reports whether the basis flexFactors resolved came from
-// a length (flex-basis, or the flex shorthand's last component; a unitless
-// single-value shorthand implies basis 0) rather than a percentage or other
-// value that is indefinite during intrinsic sizing.
+// an explicit length (flex-basis, or the flex shorthand's basis component)
+// rather than a percentage or other value that is indefinite during intrinsic
+// sizing. `flex:<number>` and `flex:<number> <number>` omit the basis
+// component, which per css-flexbox §7.1.1 means `0%`: a percentage, so it is
+// indefinite while the container's own width is being measured and the item
+// keeps its content contribution. An explicit `flex:0 0 0px` stays definite.
 func flexBasisIsLength(style ComputedStyle) bool {
 	value := strings.TrimSpace(style["flex-basis"])
 	if value == "" || strings.EqualFold(value, "auto") {
-		value = "0"
-		if fields := strings.Fields(style["flex"]); len(fields) > 1 {
-			value = fields[len(fields)-1]
+		value = ""
+		switch fields := strings.Fields(style["flex"]); {
+		case len(fields) > 2:
+			value = fields[2]
+		case len(fields) == 2:
+			if _, err := strconv.ParseFloat(fields[1], 64); err != nil {
+				value = fields[1]
+			}
+		}
+		if value == "" {
+			return false
 		}
 	}
 	kind := classifyValue(value).Kind
