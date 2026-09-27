@@ -3,6 +3,7 @@ package browser
 import (
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -48,6 +49,52 @@ func TestTokenizer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestXHTMLTokenizerRecognizesCDATA(t *testing.T) {
+	tokenizer := NewXHTMLTokenizer(`<style>
+<![CDATA[p::before { content: "<&amp;>"; }]]>
+</style><![CDATA[tail &amp;]]>`)
+	var got []Token
+	for {
+		token := tokenizer.Next()
+		if token.Type == EOFToken {
+			break
+		}
+		got = append(got, token)
+	}
+	want := []Token{
+		{Type: StartTagToken, Name: "style"},
+		{Type: TextToken, Data: "\n"},
+		{Type: TextToken, Data: `p::before { content: "<&amp;>"; }`},
+		{Type: TextToken, Data: "\n"},
+		{Type: EndTagToken, Name: "style"},
+		{Type: TextToken, Data: "tail &amp;"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tokens = %#v\nwant %#v", got, want)
+	}
+}
+
+func TestXHTMLTokenizerUnterminatedAndMalformedCDATA(t *testing.T) {
+	t.Run("unterminated section consumes remaining input as text", func(t *testing.T) {
+		tokenizer := NewXHTMLTokenizer(`<style><![CDATA[p { color: green }</style>`)
+		if got := tokenizer.Next(); got.Type != StartTagToken || got.Name != "style" {
+			t.Fatalf("start token = %#v", got)
+		}
+		if got := tokenizer.Next(); !reflect.DeepEqual(got, Token{Type: TextToken, Data: `p { color: green }</style>`}) {
+			t.Fatalf("CDATA token = %#v", got)
+		}
+		if got := tokenizer.Next(); got.Type != EOFToken {
+			t.Fatalf("final token = %#v", got)
+		}
+	})
+	t.Run("malformed opener follows declaration recovery", func(t *testing.T) {
+		tokenizer := NewXHTMLTokenizer(`<![CDATA broken]]><p>x</p>`)
+		if got := tokenizer.Next(); !reflect.DeepEqual(got, Token{Type: CommentToken, Data: `[CDATA broken]]`}) {
+			t.Fatalf("declaration token = %#v", got)
+		}
+	})
 }
 
 // compact renders tree shape without depending on pointer equality.
@@ -116,6 +163,7 @@ func TestParseResourceUsesEffectiveRedirectSource(t *testing.T) {
 			http.Redirect(w, r, "/final/page.html", http.StatusFound)
 			return
 		}
+
 		w.Write([]byte(`<a href="../next">next</a>`))
 	}))
 	defer server.Close()
@@ -135,5 +183,30 @@ func TestParseResourceUsesEffectiveRedirectSource(t *testing.T) {
 	}
 	if attr, ok := document.Root.Children[0].Attribute("HREF"); !ok || attr.Value != "../next" {
 		t.Fatalf("href = %#v, %v", attr, ok)
+	}
+}
+
+func TestParseSelectsXHTMLMode(t *testing.T) {
+	markup := `<style><![CDATA[p { color: green }]]></style><p>x</p>`
+	tests := []struct {
+		name     string
+		resource Resource
+		wantText string
+	}{
+		{"local xht", Resource{URL: filepath.Join(t.TempDir(), "page.xht"), Body: []byte(markup)}, `p { color: green }`},
+		{"HTTP media type", Resource{URL: "https://example.test/page", ContentType: "application/xhtml+xml; charset=UTF-8", Body: []byte(markup)}, `p { color: green }`},
+		{"ordinary HTML raw text", Resource{URL: "https://example.test/page.html", ContentType: "text/html", Body: []byte(markup)}, `<![CDATA[p { color: green }]]>`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, err := parse(tt.resource)
+			if err != nil {
+				t.Fatal(err)
+			}
+			style := doc.Root.Children[0]
+			if style.Name != "style" || len(style.Children) != 1 || style.Children[0].Data != tt.wantText {
+				t.Fatalf("style tree = %s, want text %q", compact(style), tt.wantText)
+			}
+		})
 	}
 }

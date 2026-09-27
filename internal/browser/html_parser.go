@@ -1,6 +1,10 @@
 package browser
 
-import "strings"
+import (
+	"mime"
+	"path/filepath"
+	"strings"
+)
 
 // NodeType describes a DOM node. The document root contains the parsed
 // fragment as children; implicit html/head/body wrappers are not synthesized.
@@ -41,9 +45,19 @@ func (n *Node) append(child *Node) {
 
 // ParseHTML builds a tolerant DOM from an HTML fragment or document.
 func ParseHTML(input string) *Node {
+	return parseMarkup(NewTokenizer(input))
+}
+
+// ParseXHTML builds a DOM using the focused XHTML lexical mode. This mode
+// recognizes XML CDATA sections while deliberately retaining the parser's
+// tolerant recovery behavior; it is not a complete XML implementation.
+func ParseXHTML(input string) *Node {
+	return parseMarkup(NewXHTMLTokenizer(input))
+}
+
+func parseMarkup(t *Tokenizer) *Node {
 	root := &Node{Type: DocumentNode}
 	stack := []*Node{root}
-	t := NewTokenizer(input)
 	for {
 		token := t.Next()
 		if token.Type == EOFToken {
@@ -97,7 +111,23 @@ func parse(resource Resource) (Document, error) {
 	if base == "" {
 		base = resource.Source // callers constructing resources directly
 	}
-	return Document{Resource: resource, Root: ParseHTML(string(resource.Body)), BaseURL: base}, nil
+	parseDocument := ParseHTML
+	if isXHTMLResource(resource) {
+		parseDocument = ParseXHTML
+	}
+	return Document{Resource: resource, Root: parseDocument(string(resource.Body)), BaseURL: base}, nil
+}
+
+func isXHTMLResource(resource Resource) bool {
+	if mediaType, _, err := mime.ParseMediaType(resource.ContentType); err == nil &&
+		strings.EqualFold(mediaType, "application/xhtml+xml") {
+		return true
+	}
+	source := resource.URL
+	if source == "" {
+		source = resource.Source
+	}
+	return isLocalPath(source) && strings.EqualFold(filepath.Ext(localPath(source)), ".xht")
 }
 
 func voidElement(name string) bool {
