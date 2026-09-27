@@ -41,11 +41,11 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 | Feature | Observed above the fold | Current renderer |
 |---|---|---|
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | viewport media conditions and nested rules supported → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
-| `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | evaluated against the features this engine actually renders → [#251](https://github.com/lukehoban/simplebrowser/issues/251); `mask-image`, `grid` and `round()` report unsupported, so icon fallbacks are selected. Their SVG `data:` backgrounds decode offline, including Vector's legacy `image/svg+xml;utf8` form with literal spaces → [#268](https://github.com/lukehoban/simplebrowser/issues/268); full-page icon fidelity still depends on surrounding pseudo-element layout and sizing work such as [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
+| `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | evaluated against the features this engine actually renders → [#251](https://github.com/lukehoban/simplebrowser/issues/251); `mask-image`, `grid` and `round()` report unsupported, so icon fallbacks are selected. Their SVG `data:` backgrounds decode offline, including Vector's legacy `image/svg+xml;utf8` form with literal spaces → [#268](https://github.com/lukehoban/simplebrowser/issues/268) |
 | Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | row/column, sizing, gaps, alignment ([#247](https://github.com/lukehoban/simplebrowser/issues/247)) and wrapping ([#272](https://github.com/lukehoban/simplebrowser/issues/272)) implemented; scope in [flexbox support](flexbox.md) |
 | Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping → [#252](https://github.com/lukehoban/simplebrowser/issues/252); float clearance → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
-| Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | ordinary declarations now substitute inherited variables and fallbacks ([#246](https://github.com/lukehoban/simplebrowser/issues/246), shared with #242); `calc()` lengths still need #254 |
-| `calc()` | image width, spacing, media conditions | [#254](https://github.com/lukehoban/simplebrowser/issues/254) |
+| Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | ordinary declarations substitute inherited variables and fallbacks ([#246](https://github.com/lukehoban/simplebrowser/issues/246), shared with #242), including values used by ordinary `calc()` lengths; nested `calc()` from a variable remains [#287](https://github.com/lukehoban/simplebrowser/issues/287) |
+| `calc()` | image width, spacing, media conditions | bounded arithmetic in ordinary length declarations is implemented → [#254](https://github.com/lukehoban/simplebrowser/issues/254); other math functions remain [#281](https://github.com/lukehoban/simplebrowser/issues/281) |
 | `overflow:hidden` / `clip` | hidden skip link, dropdown label text | descendant padding-box and absolute `clip:rect()` painting implemented → [#253](https://github.com/lukehoban/simplebrowser/issues/253); [before/after repro](screenshots/wikipedia-moon/jump-link-before-after.png) |
 | Fonts | title in `"Linux Libertine", Georgia, …, serif` at 28.8px; body `sans-serif` 14–17.6px | serif → [#87](https://github.com/lukehoban/simplebrowser/issues/87); Arial/Helvetica metrics → [#120](https://github.com/lukehoban/simplebrowser/issues/120) |
 | Images / `srcset` | five visible images (wordmark, tagline, two indicators, 280×266 Moon photo); each thumbnail has a `2x` `srcset` candidate | the 1× `src` is right at device scale 1; `srcset` is not needed for this view |
@@ -54,13 +54,14 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 
 ## Prioritized next behaviors
 
-1. [#254](https://github.com/lukehoban/simplebrowser/issues/254) `calc()` for
-   the image width and spacing.
-2. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
+1. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
    clearance and margin collapse, after [#252](https://github.com/lukehoban/simplebrowser/issues/252)
    float placement.
-3. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
+2. Fonts [#87](https://github.com/lukehoban/simplebrowser/issues/87)
    and [#120](https://github.com/lukehoban/simplebrowser/issues/120).
+3. Remaining CSS math functions and nesting:
+   [#281](https://github.com/lukehoban/simplebrowser/issues/281) and
+   [#287](https://github.com/lukehoban/simplebrowser/issues/287).
 
 Each new issue has a small repro in
 [`testdata/wikipedia-moon/repros/`](../testdata/wikipedia-moon/repros) and an
