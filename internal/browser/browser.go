@@ -28,13 +28,14 @@ type Document struct {
 
 // StyledDocument is the output of the style stage.
 type StyledDocument struct {
-	Document     Document
-	UserAgent    Stylesheet
-	Stylesheets  []Stylesheet
-	InlineStyles map[*Node][]Declaration
-	StyleRoot    *StyledNode
-	Styles       map[*Node]ComputedStyle
-	Images       map[*Node]image.Image
+	Document         Document
+	UserAgent        Stylesheet
+	Stylesheets      []Stylesheet
+	InlineStyles     map[*Node][]Declaration
+	StyleRoot        *StyledNode
+	Styles           map[*Node]ComputedStyle
+	Images           map[*Node]image.Image
+	BackgroundImages map[*Node]image.Image
 }
 
 // ComputedStyle contains the values used by later layout and painting stages.

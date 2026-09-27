@@ -11,6 +11,21 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 	if err != nil {
 		return StyledDocument{}, err
 	}
+	// External CSS image URLs are relative to the stylesheet, not the page.
+	for i := range sheets {
+		base := sheets[i].URL
+		if base == "" {
+			base = document.BaseURL
+		}
+		for j := range sheets[i].Rules {
+			for k := range sheets[i].Rules[j].Declarations {
+				d := &sheets[i].Rules[j].Declarations[k]
+				if d.Property == "background" || d.Property == "background-image" {
+					d.Value = resolveBackgroundURL(d.Value, base)
+				}
+			}
+		}
+	}
 	ua := UserAgentStylesheet()
 	styles := make(map[*Node]ComputedStyle)
 	var makeTree func(*Node, ComputedStyle) *StyledNode
@@ -31,9 +46,10 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 		return result
 	}
 	root := makeTree(document.Root, nil)
+	images, backgrounds := fetchImages(document, root, fetcher)
 	return StyledDocument{Document: document, UserAgent: ua, Stylesheets: sheets,
 		InlineStyles: inline, StyleRoot: root, Styles: styles,
-		Images: fetchImages(document, root, fetcher)}, nil
+		Images: images, BackgroundImages: backgrounds}, nil
 }
 
 type winningDeclaration struct {
@@ -207,6 +223,9 @@ func matchesPseudoClass(n *Node, pseudo string) bool {
 }
 
 func expandDeclaration(d Declaration) []Declaration {
+	if d.Property == "background" {
+		return expandBackground(d)
+	}
 	if d.Property == "border" {
 		result := make([]Declaration, 0, 4)
 		for _, side := range []string{"top", "right", "bottom", "left"} {

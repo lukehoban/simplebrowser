@@ -8,9 +8,9 @@ The project has a working fetch, parse, cascade, and layout pipeline covering
 block, inline, and table formatting. The CLI fetches HTTP(S) pages, builds a
 DOM, loads CSS and GIF/PNG/JPEG images, and computes deterministic box geometry
 and wrapped text runs, including replaced image boxes and the nested tables
-Hacker News uses for its page structure. Painting now rasterizes backgrounds,
-borders, and embedded-font text. Drawing decoded images, SVG, and advanced CSS
-remain future work.
+Hacker News uses for its page structure. Painting now rasterizes colors, raster CSS background images (GIF/PNG/JPEG),
+borders, and embedded-font text. Drawing decoded `<img>` images, SVG, and
+advanced CSS remain future work.
 
 ## Rendering progress
 
@@ -46,8 +46,9 @@ trailing-whitespace underline fix has landed. Remaining gaps include
 [typography (#27)](https://github.com/lukehoban/simplebrowser/issues/27).
 Images are fetched, decoded, and laid out but [not yet painted (#11)](https://github.com/lukehoban/simplebrowser/issues/11);
 the missing logo and vote arrows also need
-[SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31) and
-[CSS background images (#32)](https://github.com/lukehoban/simplebrowser/issues/32).
+[SVG support (#31)](https://github.com/lukehoban/simplebrowser/issues/31).
+Raster CSS backgrounds are painted, but HN's vote arrows reference
+`triangle.svg`, which remains unsupported.
 
 ## Architecture
 
