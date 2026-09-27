@@ -1,0 +1,13 @@
+<!doctype html>
+<html>
+<head><title>Positioned text regression</title></head>
+<body style="margin:0;font:20px monospace">
+  <div style="position:relative;width:500px;height:170px;padding-top:80px;background:#eeeeee">
+    <div style="position:absolute;left:20px;top:25px;color:#aa0000">Absolute text</div>
+    <div style="position:relative;margin-left:20px">
+      <div style="position:absolute;left:15px;top:40px;color:#006600">Nested absolute text</div>
+    </div>
+  </div>
+  <div style="position:fixed;left:20px;top:210px;color:#0000aa">Fixed text</div>
+</body>
+</html>
