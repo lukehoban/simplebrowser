@@ -94,6 +94,9 @@ func TestRunAllRelationsAndPerReferenceErrors(t *testing.T) {
 	if r.Total != 6 || r.Pass != 2 || r.Fail != 1 || r.Error != 3 || len(r.Results) != 6 {
 		t.Fatalf("unexpected multi-relation report: %+v", r)
 	}
+	if again := run(root, diagnostics); !reflect.DeepEqual(r, again) {
+		t.Fatalf("multi-relation output was nondeterministic:\nfirst:  %+v\nsecond: %+v", r, again)
+	}
 	for i, relation := range []string{"match", "mismatch", "match", "match", "match", "match"} {
 		if r.Results[i].Relation != relation || r.Results[i].Test != "relations/test.html" {
 			t.Fatalf("relation %d out of deterministic order: %+v", i, r.Results[i])
