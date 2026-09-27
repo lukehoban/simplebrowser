@@ -50,6 +50,7 @@ func TestAbsolutelyPositionedBoxesDoNotContributeToFlowHeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	boxes := boxesByID(got.Root, "parent", "out", "flow")
 	parent, out, flow := boxes["parent"], boxes["out"], boxes["flow"]
 	if parent.Content.Dy() != 10 {
@@ -60,6 +61,29 @@ func TestAbsolutelyPositionedBoxesDoNotContributeToFlowHeight(t *testing.T) {
 	}
 	if out.Rect.Min.Y != flow.Rect.Min.Y || out.Rect.Dy() != 30 {
 		t.Fatalf("positioned geometry = %v, flow geometry = %v", out.Rect, flow.Rect)
+	}
+}
+
+func TestPositionedAutoWidthIncludesChildOuterWidth(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0">
+		<div id="wrapper" style="position:relative">
+			<div id="reference" style="position:absolute;left:0;top:0;width:60px;height:60px;border:5px solid red"></div>
+			<div id="subject" style="position:absolute;left:0;top:0;border:5px solid green">
+				<div id="content" style="width:30px;height:30px;margin:10px;border:5px solid green"></div>
+			</div>
+		</div>
+	</body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 120))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "reference", "subject", "content")
+	if got, want := boxes["subject"].Rect, boxes["reference"].Rect; got != want {
+		t.Fatalf("later positioned sibling geometry = %v content %v child %v, want reference geometry %v",
+			got, boxes["subject"].Content, boxes["content"].Rect, want)
+	}
+	if got, want := boxes["content"].Rect, image.Rect(15, 15, 55, 55); got != want {
+		t.Fatalf("positioned child geometry = %v, want %v", got, want)
 	}
 }
 
