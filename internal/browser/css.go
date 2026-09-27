@@ -22,7 +22,8 @@ type CSSRule struct {
 }
 
 // A selector is stored left-to-right. The first part has no combinator;
-// later parts use " " (descendant) or ">" (child).
+// later parts use " " (descendant), ">" (child), "+" (adjacent sibling),
+// or "~" (general sibling).
 type Selector struct{ Parts []SelectorPart }
 type SelectorPart struct {
 	Combinator string
@@ -196,8 +197,8 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 			}
 			part := SelectorPart{}
 			if len(selector.Parts) > 0 {
-				if p.s[p.i] == '>' {
-					part.Combinator = ">"
+				if strings.ContainsRune(">+~", rune(p.s[p.i])) {
+					part.Combinator = p.s[p.i : p.i+1]
 					p.i++
 					p.skip()
 				} else if space {
@@ -205,6 +206,11 @@ func parseSelectorGroup(s string) ([]Selector, bool) {
 				} else {
 					return nil, false
 				}
+				if p.i < len(p.s) && strings.ContainsRune(">+~", rune(p.s[p.i])) {
+					return nil, false
+				}
+			} else if strings.ContainsRune(">+~", rune(p.s[p.i])) {
+				return nil, false
 			}
 			if p.i >= len(p.s) {
 				return nil, false
