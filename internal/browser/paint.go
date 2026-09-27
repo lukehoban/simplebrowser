@@ -438,16 +438,18 @@ func documentOrder(root *Node) map[*Node]int {
 
 // stacking reports whether box is positioned and, if so, its z-index. Only
 // positioned boxes with an integer z-index form a stacking context; z-index
-// on non-positioned boxes is ignored. A masked element also forms a stacking
-// context and, when not positioned, paints in the z-index 0 layer (CSS
-// Masking §6 and CSS 2.1 Appendix E, as for opacity), so that it can be
-// composited through its mask as a unit.
+// on non-positioned boxes is ignored. A masked element, or one with opacity
+// below 1, also forms a stacking context and, when not positioned, paints in
+// the z-index 0 layer (CSS Masking §6, CSS Color 4 §11.2 and CSS 2.1
+// Appendix E), so that it can be composited as a unit.
 func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 	if box == nil || box.Node == nil || box.Node.Type != ElementNode {
 		return false, 0, false
 	}
 	style := p.document.Styles[box.Node]
-	masked := !box.Anonymous && hasMask(style)
+	// Masks and opacity below 1 both composite the element as a group, which
+	// requires a stacking context.
+	masked := !box.Anonymous && (hasMask(style) || elementOpacity(style) < 1)
 	switch strings.ToLower(strings.TrimSpace(style["position"])) {
 	case "relative", "absolute", "fixed", "sticky":
 	default:
@@ -471,9 +473,17 @@ func (p *painter) stacking(box *Box) (positioned bool, z int, context bool) {
 // for the anonymous viewport box, which has no background of its own.
 func (p *painter) paintStackingContext(ctx *Box, includeSelf bool) {
 	paint := func() { p.paintStackingContextContents(ctx, includeSelf) }
-	if includeSelf && ctx.Node != nil && !ctx.Anonymous && hasMask(p.document.Styles[ctx.Node]) {
-		contents := paint
-		paint = func() { p.paintMasked(ctx, contents) }
+	if includeSelf && ctx.Node != nil && !ctx.Anonymous {
+		style := p.document.Styles[ctx.Node]
+		if hasMask(style) {
+			contents := paint
+			paint = func() { p.paintMasked(ctx, contents) }
+		}
+		if opacity := elementOpacity(style); opacity < 1 {
+			// Opacity applies to the element's rendering after masking.
+			grouped := paint
+			paint = func() { p.paintWithOpacity(opacity, grouped) }
+		}
 	}
 	if clip, ok := p.legacyClip(ctx); ok {
 		p.withClip(clip, paint)
