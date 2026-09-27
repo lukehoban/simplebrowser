@@ -158,7 +158,6 @@ func TestGradientPercentageHint(t *testing.T) {
 		"linear-gradient(20%, red, blue)",
 		"linear-gradient(red, blue, 20%)",
 		"linear-gradient(red, 20%, 30%, blue)",
-		"linear-gradient(red, 20%, blue, 60%, green)",
 		"linear-gradient(red, 20px, blue)",
 		"linear-gradient(red, NaN%, blue)",
 		"linear-gradient(red, 1e309%, blue)",
@@ -174,6 +173,62 @@ func TestGradientPercentageHint(t *testing.T) {
 	if got := parseGradient("linear-gradient(red, 20%, blue)", 4097, 20); got != nil {
 		t.Fatal("hint bypassed resource bounds")
 	}
+}
+
+func TestGradientMultiplePercentageHintsStayWithinTheirIntervals(t *testing.T) {
+	g := parseGradient("linear-gradient(to right, red 0%, 10%, blue 25%, green 75%, 90%, white 100%)", 100, 20)
+	if g == nil || len(g.stops) != 4 {
+		t.Fatalf("multiple-hint gradient rejected: %+v", g)
+	}
+	for i, want := range []struct {
+		at      float64
+		hasHint bool
+	}{{0, false}, {.25, true}, {.75, false}, {1, true}} {
+		if got := g.stops[i]; got.at != want.at || got.hasHint != want.hasHint {
+			t.Errorf("stop %d = %+v, want at %g with hint=%v", i, got, want.at, want.hasHint)
+		}
+	}
+	for i, want := range []float64{0, .1, 0, .9} {
+		if got := g.stops[i].hint; g.stops[i].hasHint && got != want {
+			t.Errorf("stop %d hint = %g, want %g", i, got, want)
+		}
+	}
+	for _, tc := range []struct {
+		x    int
+		want color.NRGBA
+		tol  uint8
+	}{
+		{9, color.NRGBA{132, 0, 123, 255}, 3},    // first hint remaps red -> blue
+		{20, color.NRGBA{38, 0, 217, 255}, 3},    // still the first interval
+		{49, color.NRGBA{0, 64, 128, 255}, 2},    // middle interval remains linear
+		{89, color.NRGBA{122, 191, 122, 255}, 3}, // second hint remaps green -> white
+	} {
+		got := color.NRGBAModel.Convert(g.At(tc.x, 10)).(color.NRGBA)
+		if absInt(int(got.R)-int(tc.want.R)) > int(tc.tol) ||
+			absInt(int(got.G)-int(tc.want.G)) > int(tc.tol) ||
+			absInt(int(got.B)-int(tc.want.B)) > int(tc.tol) ||
+			got.A != tc.want.A {
+			t.Errorf("hint pixel %d = %v, want about %v", tc.x, got, tc.want)
+		}
+	}
+	for _, invalid := range []string{
+		"linear-gradient(red, 20%, 30%, blue)",
+		"linear-gradient(red, 20%, blue, 60%, 70%, green)",
+		"linear-gradient(red 20%, 20%, blue)",
+		"linear-gradient(red, 20%, blue 10%, 15%, green)",
+		"linear-gradient(red, 20%, blue, 100%, green)",
+	} {
+		if got := parseGradient(invalid, 100, 20); got != nil {
+			t.Errorf("accepted malformed multiple hint gradient %q", invalid)
+		}
+	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func TestBackgroundLayersFetchAndComposite(t *testing.T) {
