@@ -2,6 +2,7 @@ package browser
 
 import (
 	"fmt"
+	"image"
 	"image/color"
 	"net/url"
 	"path/filepath"
@@ -18,6 +19,15 @@ type Stylesheet struct {
 	URL   string
 	// Layers contains cascade layer paths in the order first introduced.
 	Layers []string
+	// LayerDeclarations preserves every layer introduction together with its
+	// enclosing media condition. The active first introduction depends on the
+	// viewport, so Layers alone is not sufficient to assign cascade order.
+	LayerDeclarations []LayerDeclaration
+}
+
+type LayerDeclaration struct {
+	Name  string
+	Media string
 }
 
 type CSSRule struct {
@@ -191,7 +201,7 @@ func stripComments(s string) string {
 func ParseCSS(input string) Stylesheet {
 	var sheet Stylesheet
 	parseCSSRules(input, "", "", &sheet)
-	assignLayerOrder([]Stylesheet{sheet})
+	assignLayerOrder([]Stylesheet{sheet}, image.Pt(placeholderWidth, placeholderHeight))
 	return sheet
 }
 
@@ -211,7 +221,7 @@ func parseCSSRules(input, media, layer string, sheet *Stylesheet) {
 				prelude = strings.TrimSpace(stripComments(prelude))
 				if names, ok := layerStatementNames(prelude); ok {
 					for _, name := range names {
-						sheet.declareLayer(joinLayerName(layer, name))
+						sheet.declareLayer(joinLayerName(layer, name), media)
 					}
 				}
 			}
@@ -240,7 +250,7 @@ func parseCSSRules(input, media, layer string, sheet *Stylesheet) {
 		}
 		if name, ok := layerBlockName(prelude); ok {
 			fullName := joinLayerName(layer, name)
-			sheet.declareLayer(fullName)
+			sheet.declareLayer(fullName, media)
 			parseCSSRules(body, media, fullName, sheet)
 			continue
 		}
@@ -917,7 +927,7 @@ func ExtractStyles(doc Document, fetcher *Fetcher) ([]Stylesheet, map[*Node][]De
 			return nil, nil, err
 		}
 	}
-	assignLayerOrder(sheets)
+	assignLayerOrder(sheets, image.Pt(placeholderWidth, placeholderHeight))
 	return sheets, inline, nil
 }
 

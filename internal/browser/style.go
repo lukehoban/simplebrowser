@@ -47,6 +47,11 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 // fetching resources or mutating the original tree. A new viewport can change
 // inherited font sizes and hence em/rem/ex/ch throughout the document.
 func computeStyles(document StyledDocument, viewport image.Point) StyledDocument {
+	// Conditional layer declarations establish order only while their
+	// conditions match. Recompute against this viewport on a copy because a
+	// later layout pass can restyle the same loaded document at another size.
+	document.Stylesheets = cloneStylesheetsForLayerOrder(document.Stylesheets)
+	assignLayerOrder(document.Stylesheets, viewport)
 	styles := make(map[*Node]ComputedStyle)
 	pseudoNodes := document.pseudoNodes
 	if pseudoNodes == nil {
@@ -144,7 +149,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	winners := map[string]winningDeclaration{}
 	order := 0
 	var candidates []winningDeclaration
-	unlayeredOrder := layerCount(sheets)
+	unlayeredOrder := layerCount(sheets, viewport)
 	add := func(d Declaration, spec [3]int, origin int, isInline bool, layer int, presentational bool) {
 		order++
 		candidates = append(candidates, winningDeclaration{

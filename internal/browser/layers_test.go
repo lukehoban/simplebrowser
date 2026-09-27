@@ -169,6 +169,74 @@ func TestCascadeLayersWithinSupportsAndMedia(t *testing.T) {
 	}
 }
 
+func TestInactiveConditionalLayerBlockDoesNotEstablishOrder(t *testing.T) {
+	styled := layerTestStyles(t, `<!doctype html><style>
+		@media print {
+			@layer phantom { .never { color: black } }
+		}
+		@layer actual {
+			#normal { color: red }
+			#important { color: red !important }
+		}
+		@layer phantom {
+			.target { color: blue }
+			.important { color: blue !important }
+		}
+	</style>
+	<p id="normal" class="target">normal</p>
+	<p id="important" class="important">important</p>`)
+	if got := styledElementByID(styled.StyleRoot, "normal").Style["color"]; got != "blue" {
+		t.Fatalf("inactive conditional block established normal layer order: color = %q, want blue", got)
+	}
+	if got := styledElementByID(styled.StyleRoot, "important").Style["color"]; got != "red" {
+		t.Fatalf("inactive conditional block established important layer order: color = %q, want red", got)
+	}
+}
+
+func TestConditionalLayerStatementsTrackViewportAndSupports(t *testing.T) {
+	doc, err := parse(Resource{URL: "layers.html", Body: []byte(`<!doctype html>
+		<style>
+			@supports (display: block) {
+				@media (min-width: 900px) { @layer conditional; }
+			}
+			@supports (display: unsupported) { @layer ignored; }
+		</style>
+		<style>
+			@layer actual { #normal { color: red } #important { color: red !important } }
+			@layer conditional { .target { color: blue } .important { color: blue !important } }
+			@layer ignored { .ignored { background-color: green } }
+		</style>
+		<p id="normal" class="target">normal</p>
+		<p id="important" class="important">important</p>`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// At 800px the nested media statement is inactive, so the later
+	// conditional layer has higher normal and lower important precedence.
+	styled = computeStyles(styled, image.Pt(800, 600))
+	if got := styledElementByID(styled.StyleRoot, "normal").Style["color"]; got != "blue" {
+		t.Fatalf("800px normal color = %q, want blue", got)
+	}
+	if got := styledElementByID(styled.StyleRoot, "important").Style["color"]; got != "red" {
+		t.Fatalf("800px important color = %q, want red", got)
+	}
+
+	// At 1000px the first stylesheet establishes conditional before actual.
+	// This also exercises recomputing order on a previously styled document.
+	styled = computeStyles(styled, image.Pt(1000, 600))
+	if got := styledElementByID(styled.StyleRoot, "normal").Style["color"]; got != "red" {
+		t.Fatalf("1000px normal color = %q, want red", got)
+	}
+	if got := styledElementByID(styled.StyleRoot, "important").Style["color"]; got != "blue" {
+		t.Fatalf("1000px important color = %q, want blue", got)
+	}
+}
+
 func TestCascadePresentationalHintsAndAuthorLayers(t *testing.T) {
 	styled := layerTestStyles(t, `<!doctype html><style>
 		@layer reset { table { background-color: blue } }

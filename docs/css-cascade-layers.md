@@ -3,9 +3,11 @@
 The renderer parses named, anonymous, nested, and dotted `@layer` blocks,
 ordering statements, and rules nested in supported `@media` and `@supports`
 conditions. Named-layer order is shared across author stylesheets in document
-order. Normal declarations prefer later layers and unlayered declarations;
-`!important` reverses that order. Layer precedence is resolved before
-specificity and source order. Presentational hints remain below author CSS.
+order; layer statements and blocks inside `@media` establish order only when
+the query matches the rendering viewport. Normal declarations prefer later
+layers and unlayered declarations; `!important` reverses that order. Layer
+precedence is resolved before specificity and source order. Presentational
+hints remain below author CSS.
 
 The fixture below uses Primer-style reset, base, component, and utility layers,
 plus an unlayered application override:

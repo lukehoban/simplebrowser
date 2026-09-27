@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"image"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -73,11 +74,13 @@ func validLayerName(name string) bool {
 	return true
 }
 
-func layerCount(sheets []Stylesheet) int {
+func layerCount(sheets []Stylesheet, viewport image.Point) int {
 	seen := map[string]bool{}
 	for _, sheet := range sheets {
-		for _, name := range sheet.Layers {
-			seen[name] = true
+		for _, declaration := range sheet.LayerDeclarations {
+			if declaration.Media == "" || mediaQueryMatches(declaration.Media, viewport) {
+				seen[declaration.Name] = true
+			}
 		}
 	}
 	return len(seen)
@@ -90,12 +93,13 @@ func joinLayerName(parent, child string) string {
 	return parent + "." + child
 }
 
-func (s *Stylesheet) declareLayer(name string) {
+func (s *Stylesheet) declareLayer(name, media string) {
 	for i := 0; i <= len(name); i++ {
 		if i < len(name) && name[i] != '.' {
 			continue
 		}
 		prefix := name[:i]
+		s.LayerDeclarations = append(s.LayerDeclarations, LayerDeclaration{Name: prefix, Media: media})
 		found := false
 		for _, existing := range s.Layers {
 			if existing == prefix {
@@ -112,11 +116,15 @@ func (s *Stylesheet) declareLayer(name string) {
 // assignLayerOrder merges layer trees in stylesheet order. The preorder
 // rank gives later sibling layers higher normal precedence; a layer's own
 // declarations precede its nested layers, as required by the cascade.
-func assignLayerOrder(sheets []Stylesheet) {
+func assignLayerOrder(sheets []Stylesheet, viewport image.Point) {
 	children := map[string][]string{"": nil}
 	known := map[string]bool{}
 	for _, sheet := range sheets {
-		for _, name := range sheet.Layers {
+		for _, declaration := range sheet.LayerDeclarations {
+			if declaration.Media != "" && !mediaQueryMatches(declaration.Media, viewport) {
+				continue
+			}
+			name := declaration.Name
 			if known[name] {
 				continue
 			}
@@ -153,4 +161,12 @@ func assignLayerOrder(sheets []Stylesheet) {
 			}
 		}
 	}
+}
+
+func cloneStylesheetsForLayerOrder(sheets []Stylesheet) []Stylesheet {
+	cloned := append([]Stylesheet(nil), sheets...)
+	for i := range cloned {
+		cloned[i].Rules = append([]CSSRule(nil), sheets[i].Rules...)
+	}
+	return cloned
 }
