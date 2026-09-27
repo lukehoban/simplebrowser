@@ -173,6 +173,24 @@ func resolveCustomPropertyURLs(value, base string) string {
 	return out.String()
 }
 
+// A calc() token is a length/percentage component, not an image function.
+// Keep it intact while expanding the position/size portions of a shorthand.
+func backgroundMathComponent(v CSSValue) bool {
+	if v.Kind != "function" || !strings.HasPrefix(strings.ToLower(v.Text), "calc(") {
+		return false
+	}
+	result, ok := parseCSSMathFunction(v.Text, func(n float64, unit string) (cssMathValue, bool) {
+		switch unit {
+		case "%":
+			return cssMathValue{percent: n / 100}, true
+		case "px", "em", "rem", "ex", "ch", "vw", "vh":
+			return cssMathValue{px: n}, true
+		}
+		return cssMathValue{}, false
+	})
+	return ok && !result.number
+}
+
 func expandBackground(d Declaration) []Declaration {
 	parts := backgroundLayers(d.Value)
 	props := map[string][]string{}
@@ -206,7 +224,7 @@ func expandBackground(d Declaration) []Declaration {
 			case word == "no-repeat" || word == "repeat" || word == "repeat-x" || word == "repeat-y":
 				repeat = word
 			case afterSlash && sizeValues < 2 &&
-				(v.Kind == "length" || v.Kind == "percentage" || word == "auto" ||
+				(v.Kind == "length" || v.Kind == "percentage" || backgroundMathComponent(v) || word == "auto" ||
 					(sizeValues == 0 && (word == "cover" || word == "contain"))):
 				if size != "" {
 					size += " "
@@ -214,7 +232,7 @@ func expandBackground(d Declaration) []Declaration {
 				size += v.Text
 				sizeValues++
 			case !afterSlash && (word == "left" || word == "right" || word == "top" || word == "bottom" || word == "center" ||
-				v.Kind == "length" || v.Kind == "percentage"):
+				v.Kind == "length" || v.Kind == "percentage" || backgroundMathComponent(v)):
 				position += " " + v.Text
 			}
 		}
@@ -243,13 +261,18 @@ func validBackground(value string) bool {
 		if strings.TrimSpace(layer) == "" {
 			return false
 		}
-		seenImage, seenRepeat, seenColor, afterSlash := false, false, false, false
+		seenImage, seenRepeat, seenColor, afterSlash, sizeDone := false, false, false, false, false
 		positionCount, sizeCount := 0, 0
 		for _, token := range parseValues(layer) {
 			word := strings.ToLower(token.Text)
+			// <bg-size> ends at the first token that cannot extend it, so
+			// "center / 20px no-repeat" continues with the other components.
+			if afterSlash && sizeCount > 0 && !(token.Kind == "length" || token.Kind == "percentage" || backgroundMathComponent(token) || word == "auto") {
+				afterSlash, sizeDone = false, true
+			}
 			switch {
 			case token.Text == "/":
-				if afterSlash || positionCount == 0 {
+				if afterSlash || sizeDone || positionCount == 0 {
 					return false
 				}
 				afterSlash = true
@@ -269,14 +292,14 @@ func validBackground(value string) bool {
 					return false
 				}
 				seenRepeat = true
-			case afterSlash && (token.Kind == "length" || token.Kind == "percentage" || word == "auto" ||
+			case afterSlash && (token.Kind == "length" || token.Kind == "percentage" || backgroundMathComponent(token) || word == "auto" ||
 				sizeCount == 0 && (word == "cover" || word == "contain")):
 				sizeCount++
 				if sizeCount > 2 {
 					return false
 				}
-			case !afterSlash && (word == "left" || word == "right" || word == "top" ||
-				word == "bottom" || word == "center" || token.Kind == "length" || token.Kind == "percentage"):
+			case !afterSlash && !sizeDone && (word == "left" || word == "right" || word == "top" ||
+				word == "bottom" || word == "center" || token.Kind == "length" || token.Kind == "percentage" || backgroundMathComponent(token)):
 				positionCount++
 				if positionCount > 2 {
 					return false
@@ -305,6 +328,14 @@ func backgroundLayerStyle(style ComputedStyle, index int) ComputedStyle {
 
 func backgroundLength(s string, basis int) (int, bool) {
 	if strings.EqualFold(s, "auto") {
+		return 0, false
+	}
+	if len(s) > 5 && strings.EqualFold(s[:5], "calc(") {
+		// Computed mixed lengths (e.g. calc(50% + 2px)) resolve against the
+		// positioning area here, at used-value time.
+		if v, ok := evaluateComputedCalc(s, float64(basis)); ok && v >= float64(math.MinInt32) && v <= float64(math.MaxInt32) {
+			return int(math.Round(v)), true
+		}
 		return 0, false
 	}
 	return imageDimensionValue(s, basis)
@@ -379,7 +410,7 @@ func drawBackgroundImage(dst *image.RGBA, box *Box, src image.Image, style Compu
 		return
 	}
 	w, h := src.Bounds().Dx(), src.Bounds().Dy()
-	size := strings.Fields(style["background-size"])
+	size, _ := splitCSSComponents(style["background-size"])
 	if len(size) > 0 {
 		a, aok := backgroundLength(size[0], area.Dx())
 		b, bok := 0, false
@@ -387,6 +418,16 @@ func drawBackgroundImage(dst *image.RGBA, box *Box, src image.Image, style Compu
 			b, bok = backgroundLength(size[1], area.Dy())
 		}
 		switch {
+		case (strings.EqualFold(size[0], "contain") || strings.EqualFold(size[0], "cover")) && w > 0 && h > 0:
+			// The image fills one dimension of the positioning area while
+			// preserving its intrinsic aspect ratio. Cover fills both axes.
+			scaleX := float64(area.Dx()) / float64(w)
+			scaleY := float64(area.Dy()) / float64(h)
+			scale := math.Min(scaleX, scaleY)
+			if strings.EqualFold(size[0], "cover") {
+				scale = math.Max(scaleX, scaleY)
+			}
+			w, h = int(math.Round(float64(w)*scale)), int(math.Round(float64(h)*scale))
 		case aok && bok:
 			w, h = a, b
 		case aok && w > 0:
@@ -410,7 +451,7 @@ func drawBackgroundImage(dst *image.RGBA, box *Box, src image.Image, style Compu
 			src = raster
 		}
 	}
-	words := strings.Fields(strings.ToLower(style["background-position"]))
+	words, _ := splitCSSComponents(strings.ToLower(style["background-position"]))
 	xPosition, yPosition := backgroundPositionAxes(words)
 	x := area.Min.X + backgroundAxis(xPosition, area.Dx()-w)
 	y := area.Min.Y + backgroundAxis(yPosition, area.Dy()-h)
