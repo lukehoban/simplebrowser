@@ -28,6 +28,7 @@ type flexItem struct {
 	box           *Box
 	anonymous     bool
 	margin        [4]int
+	autoMargin    [4]bool
 	main, grow    float64
 	shrink        float64
 	extra         int // margins, borders and padding on the main axis
@@ -149,7 +150,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 		if column {
 			extra = margin[0] + margin[2] + inner[0] + inner[2]
 		}
-		items = append(items, flexItem{node: child, margin: margin, main: main, grow: grow, shrink: shrink,
+		items = append(items, flexItem{node: child, margin: margin, autoMargin: autoMarginEdges(child), main: main, grow: grow, shrink: shrink,
 			extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
 	}
 
@@ -310,7 +311,12 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 				mainSize = containerHeight
 			}
 		}
-		offset, between := flexJustification(parent.Style["justify-content"], mainSize-occupied, len(line.items), gap)
+		// css-flexbox §8.1: main-axis auto margins absorb positive remaining
+		// free space (equally, when there are several) before justification,
+		// which then has nothing left to distribute.
+		free := mainSize - occupied
+		free -= distributeAutoMargins(line.items, free, column)
+		offset, between := flexJustification(parent.Style["justify-content"], free, len(line.items), gap)
 		cursor := offset
 		for _, item := range line.items {
 			align := flexItemAlignment(item.node.Style["align-self"], alignItems)
@@ -357,6 +363,58 @@ func flexItemAlignment(value, alignItems string) string {
 	default:
 		return align
 	}
+}
+
+// autoMarginEdges records which physical margin edges were specified as
+// `auto`. boxEdges resolves those to zero, which is correct until free space
+// is known; flex distributes remaining main-axis space to them afterwards.
+func autoMarginEdges(n *StyledNode) [4]bool {
+	var auto [4]bool
+	for i, side := range []string{"top", "right", "bottom", "left"} {
+		auto[i] = strings.EqualFold(strings.TrimSpace(n.Style["margin-"+side]), "auto")
+	}
+	return auto
+}
+
+// distributeAutoMargins gives positive remaining main-axis free space to a
+// line's `auto` main margins, in equal shares (rounding down, so an odd
+// remainder pixel lands on the last auto margin), and returns the space
+// consumed. Zero or negative free
+// space leaves auto margins at zero, so an overflowing line keeps its
+// flex-start behavior. Distribution is physical, so it holds for the
+// `-reverse` directions and applies per line when wrapping.
+func distributeAutoMargins(items []flexItem, free int, column bool) int {
+	if free <= 0 {
+		return 0
+	}
+	start, end := 3, 1 // margin-left, margin-right
+	if column {
+		start, end = 0, 2 // margin-top, margin-bottom
+	}
+	count := 0
+	for _, item := range items {
+		for _, side := range [2]int{start, end} {
+			if item.autoMargin[side] {
+				count++
+			}
+		}
+	}
+	if count == 0 {
+		return 0
+	}
+	assigned, seen := 0, 0
+	for i := range items {
+		for _, side := range [2]int{start, end} {
+			if !items[i].autoMargin[side] {
+				continue
+			}
+			seen++
+			share := free*seen/count - assigned
+			assigned += share
+			items[i].margin[side] += share
+		}
+	}
+	return assigned
 }
 
 func flexOuterMain(item flexItem, column bool) int {
