@@ -10,7 +10,7 @@ import (
 // whose `content` computes to a string sequence creates an element-like box
 // that is the originating element's first or last child. The box takes part in
 // the ordinary style, layout and paint paths, so backgrounds, borders and
-// (once implemented) masks apply to it without further special cases.
+// masks apply to it without further special cases.
 //
 // The supported `content` grammar is deliberately narrow: `none`, `normal` and
 // sequences of strings. `url()`, `attr()`, counters and quotes generate no box

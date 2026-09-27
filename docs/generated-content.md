@@ -4,7 +4,7 @@
 sequence generate an element-like box that is the originating element's first
 or last child. The generated box takes part in the ordinary cascade, layout and
 paint paths, so inheritance, `display`, box model properties, backgrounds and
-borders all apply to it.
+borders and `mask-image` all apply to it.
 
 ![Before and after rendering of the generated-content fixture](screenshots/generated-content/before-after.png)
 
@@ -52,9 +52,9 @@ Conservatively, nothing is painted when a generated box would be wrong:
 ## On the Moon page
 
 The Vector language dropdown's chevron is an empty-string `::after` box sized
-by `width`/`height` and drawn with `mask-image`. The box is now generated and
-sized correctly; until `mask-image`
-([#308](https://github.com/lukehoban/simplebrowser/issues/308)) lands it paints
-as a solid square rather than a chevron glyph.
+by `width`/`height` and drawn with `mask-image`. Both generated content (#312)
+and mask painting ([#308](https://github.com/lukehoban/simplebrowser/issues/308),
+implemented in [CSS mask support](css-mask.md)) are present in the current
+renderer, so the chevron now paints as a glyph rather than a solid square.
 
 ![Moon language chevron before, after, and in Chrome](screenshots/generated-content/moon-language-chevron.png)
