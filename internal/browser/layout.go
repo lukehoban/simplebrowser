@@ -11,6 +11,8 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
 
 // Box is a laid out element. Coordinates are in viewport pixels and include
@@ -77,36 +79,44 @@ func (m metrics) advance(s string) fixed.Int26_6 {
 // Synthetic small caps use uppercase glyphs at 80% of the selected face's
 // size. Preserve the original text in the DOM and layout runs; both measurement
 // and painting walk the same contiguous face segments (including kerning).
+//
+// Lowercase runs are mapped with Unicode full (SpecialCasing) uppercase rules
+// for the root locale, so one source rune may expand to several glyphs
+// (ß → SS, ﬁ → FI, ŉ → ʼN). Mapping a whole contiguous lowercase segment
+// rather than rune-by-rune keeps any context-sensitive rules deterministic.
+// Language-tailored mappings (lang="tr", "lt", "el") are not applied.
 func (m metrics) eachTextSegment(s string, visit func(font.Face, string)) {
 	if m.smallCapsFace == nil {
 		visit(m.face, s)
 		return
 	}
-	var segment strings.Builder
+	start := 0
 	small := false
-	flush := func() {
-		if segment.Len() == 0 {
+	flush := func(end int) {
+		if end <= start {
 			return
 		}
-		face := m.face
+		face, text := m.face, s[start:end]
 		if small {
-			face = m.smallCapsFace
+			face, text = m.smallCapsFace, smallCapsUpper(text)
 		}
-		visit(face, segment.String())
-		segment.Reset()
+		visit(face, text)
+		start = end
 	}
-	for _, r := range s {
-		next := unicode.IsLower(r)
-		if next != small {
-			flush()
+	for i, r := range s {
+		if next := unicode.IsLower(r); next != small {
+			flush(i)
 			small = next
 		}
-		if next {
-			r = unicode.ToUpper(r)
-		}
-		segment.WriteRune(r)
 	}
-	flush()
+	flush(len(s))
+}
+
+// smallCapsUpper applies root-locale full uppercase mapping. A fresh Caser is
+// used per call because cases.Caser is stateful and not safe for concurrent
+// renders.
+func smallCapsUpper(s string) string {
+	return cases.Upper(language.Und).String(s)
 }
 
 func (m metrics) lineHeight() int {
