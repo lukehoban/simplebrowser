@@ -419,6 +419,12 @@ const (
 )
 
 func childFlowKind(child *StyledNode) flowKind {
+	// Comments, doctypes, and other non-rendered DOM nodes never generate
+	// boxes, even when their computed style map inherited a block display.
+	if child == nil || child.Node == nil ||
+		(child.Node.Type != ElementNode && child.Node.Type != TextNode) {
+		return flowSkip
+	}
 	if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
 		return flowSkip
 	}
@@ -641,6 +647,20 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		if len(inline) == 0 {
 			return
 		}
+		// Comments and surrounding collapsible whitespace do not create a
+		// line box. In particular, they must not move the static position of
+		// a following absolutely positioned box.
+		visible := false
+		for _, child := range inline {
+			if !emptyInline(child) {
+				visible = true
+				break
+			}
+		}
+		if !visible {
+			inline = nil
+			return
+		}
 		inlineX := fixed.I(x)
 		if cb.hasInlinePenX {
 			inlineX = cb.inlinePenX
@@ -776,7 +796,9 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		n = &StyledNode{Node: n.Node, Style: style, Children: n.Children}
 	}
 	positionX, positionY := staticX, staticY
-	left, top := strings.TrimSpace(n.Style["left"]), strings.TrimSpace(n.Style["top"])
+	left := strings.TrimSpace(n.Style["left"])
+	top := strings.TrimSpace(n.Style["top"])
+	bottom := strings.TrimSpace(n.Style["bottom"])
 	if left != "" && !strings.EqualFold(left, "auto") {
 		positionX = cb.x + int(math.Round(px(left, float64(width), 0)))
 	}
@@ -784,7 +806,47 @@ func layoutPositioned(n *StyledNode, staticX, staticY, _ int, cb containingBlock
 		positionY = cb.y + int(math.Round(px(top, float64(width), 0)))
 	}
 	box, _ := layoutBlock(n, positionX, positionY, width, faces, cb)
-	right, bottom := strings.TrimSpace(n.Style["right"]), strings.TrimSpace(n.Style["bottom"])
+	cssHeight := strings.TrimSpace(n.Style["height"])
+	marginTopAuto := strings.EqualFold(strings.TrimSpace(n.Style["margin-top"]), "auto")
+	marginBottomAuto := strings.EqualFold(strings.TrimSpace(n.Style["margin-bottom"]), "auto")
+	// With definite top, bottom, and height, auto vertical margins absorb
+	// the remaining constraint space. layoutBlock represents the border box
+	// only, so move it by the used top margin after resolving both margins.
+	if top != "" && !strings.EqualFold(top, "auto") &&
+		bottom != "" && !strings.EqualFold(bottom, "auto") &&
+		cssHeight != "" && !strings.EqualFold(cssHeight, "auto") &&
+		(marginTopAuto || marginBottomAuto) {
+		margins := boxEdges(n, "margin", float64(width))
+		topMargin, bottomMargin := margins[0], margins[2]
+		if marginTopAuto {
+			topMargin = 0
+		}
+		if marginBottomAuto {
+			bottomMargin = 0
+		}
+		topOffset := int(math.Round(px(top, float64(width), 0)))
+		bottomOffset := int(math.Round(px(bottom, float64(width), 0)))
+		remaining := cb.height - topOffset - bottomOffset - box.Rect.Dy() - topMargin - bottomMargin
+		switch {
+		case marginTopAuto && marginBottomAuto:
+			if remaining >= 0 {
+				topMargin = remaining / 2
+				bottomMargin = remaining - topMargin
+			} else {
+				// CSS 2.1 resolves a negative equal split by setting the
+				// top auto margin to zero and placing the deficit below.
+				topMargin, bottomMargin = 0, remaining
+			}
+		case marginTopAuto:
+			topMargin = remaining
+		case marginBottomAuto:
+			bottomMargin = remaining
+		}
+		if topMargin != 0 {
+			box = translatePositionedBox(box, 0, topMargin)
+		}
+	}
+	right := strings.TrimSpace(n.Style["right"])
 	if right != "" && !strings.EqualFold(right, "auto") && (left == "" || strings.EqualFold(left, "auto")) {
 		offset := int(math.Round(px(right, float64(width), 0)))
 		box = translatePositionedBox(box, cb.x+width-offset-box.Rect.Max.X, 0)
