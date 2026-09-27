@@ -216,6 +216,8 @@ func addPresentational(n *Node, add func(Declaration, [3]int, int, bool)) {
 			add(Declaration{Property: "background-color", Value: a.Value}, [3]int{}, 1, false)
 		case "width":
 			add(Declaration{Property: "width", Value: cssDimension(a.Value)}, [3]int{}, 1, false)
+		case "height":
+			add(Declaration{Property: "height", Value: cssDimension(a.Value)}, [3]int{}, 1, false)
 		case "align":
 			add(Declaration{Property: "text-align", Value: strings.ToLower(a.Value)}, [3]int{}, 1, false)
 		case "cellpadding":
