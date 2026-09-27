@@ -13,6 +13,9 @@
   table { border-collapse: collapse; width: 400px; }
   td { border: 1px solid #567; padding: 8px; }
   td:first-child { width: 42%; background: #ffdf93; }
+  tr:first-child td { background: #dbeafe; }
+  .first-column { width: 42%; background: #ffdf93; }
+  .first-row td { background: #dbeafe; }
   .sized { box-sizing: border-box; width: 100px; padding: 8px; border: 1px solid #567; background: #ffdf93; }
   .rounded { width: 100px; height: 24px; border: 1px solid #567; border-radius: 8px; background: #ffdf93; }
 </style>
@@ -22,8 +25,10 @@
 <div class="row"><span>Product</span><span>Solutions</span><span class="end">Sign in</span></div>
 <h2>Auto-width header: final item should reach right edge</h2>
 <div class="auto-row"><span>GitHub</span><span>Product</span><span>Solutions</span><span>Open Source</span><span>Pricing</span><span class="auto-end">Sign in</span></div>
-<h2>Table: first cell requests 42% of the table width</h2>
+<h2>Table A: :first-child requests a 42% first column and blue first row</h2>
 <table><tr><td>First</td><td>Second</td></tr><tr><td>Next</td><td>Content</td></tr></table>
+<h2>Table B: equivalent explicit classes</h2>
+<table><tr class="first-row"><td class="first-column">First</td><td>Second</td></tr><tr><td class="first-column">Next</td><td>Content</td></tr></table>
 <h2>Border-box: outer width should be 100px</h2>
 <div class="sized">Box</div>
 <h2>Rounded border: corners should follow 8px radius</h2>

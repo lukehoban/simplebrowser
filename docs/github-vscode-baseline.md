@@ -90,10 +90,16 @@ visible impact:
    expected x positions; a small fixed-width and auto-width flex repro confirms
    unused space is not assigned to the item's `margin-left:auto` ([#315](https://github.com/lukehoban/simplebrowser/issues/315)).
 2. File table's first column ends at x235 → x255 with the same x28 left edge and
-   x520 right edge. Its first cell requests `width:42%` and the fixture sets
-   `box-sizing:border-box`; the isolated 400px table also shows an oversized
-   first column. This is covered by the already open [#310](https://github.com/lukehoban/simplebrowser/issues/310)
-   (specified widths still treated as content-box, including cell padding).
+   x520 right edge. The primary cause is that
+   `.file-list td:first-child { width:42% }` does not match because
+   [`:first-child` is unsupported](https://github.com/lukehoban/simplebrowser/issues/324).
+   A two-table repro contrasts that selector with equivalent explicit classes.
+   Once the selector matches, [#310](https://github.com/lukehoban/simplebrowser/issues/310)
+   remains a smaller secondary contribution because specified widths still use
+   content-box sizing despite the fixture's `box-sizing:border-box`.
+   The unsupported selector also drops
+   `.file-list tr:first-child td { background:var(--muted-bg) }`, which accounts
+   for the missing muted background on the first file row.
 3. Tabs rule sits around y196 → y200, branch controls y216 → y220, first table
    row y260 → y265; the ninth row ends around y557 → y580. Relative row-height
    drift is independently visible in a two-row padded table
@@ -108,7 +114,9 @@ visible impact:
 The isolated tests are in
 [`testdata/github-vscode/layout-repros.html`](../testdata/github-vscode/layout-repros.html),
 **not** in the pinned stand-in fixture. The image compares Chrome 154 (left)
-with the renderer at main `e33246e` (right), both at 800×600:
+with the renderer at main `e33246e` (right), both at 800×600. In the focused
+table pair, Chrome renders the selector-driven and explicit-class tables alike;
+simplebrowser applies only the explicit classes:
 
 ![Isolated layout repros, Chrome versus simplebrowser](screenshots/github-vscode/layout-repros-comparison.png)
 
