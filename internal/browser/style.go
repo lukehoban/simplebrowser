@@ -250,6 +250,10 @@ func addPresentational(n *Node, add func(Declaration, [3]int, int, bool)) {
 			add(Declaration{Property: "height", Value: cssDimension(a.Value)}, [3]int{}, 1, false)
 		case "align":
 			add(Declaration{Property: "text-align", Value: strings.ToLower(a.Value)}, [3]int{}, 1, false)
+			if n.Name == "table" && strings.EqualFold(strings.TrimSpace(a.Value), "center") {
+				add(Declaration{Property: "margin-left", Value: "auto"}, [3]int{}, 1, false)
+				add(Declaration{Property: "margin-right", Value: "auto"}, [3]int{}, 1, false)
+			}
 		case "cellpadding":
 			add(Declaration{Property: "padding", Value: cssDimension(a.Value)}, [3]int{}, 1, false)
 		case "cellspacing":
