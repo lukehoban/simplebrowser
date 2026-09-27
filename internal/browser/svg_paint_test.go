@@ -322,3 +322,14 @@ func TestSVGPaintVisual(t *testing.T) {
 		}
 	}
 }
+
+// Embedded stylesheets can set stop properties and group opacity.
+func TestSVGPaintFromStylesheet(t *testing.T) {
+	img := decodeSVGString(t, svgOpen+`width="20" height="20"><style>
+		.s { stop-color: #0000ff } #fade { opacity: .5 }
+		</style><defs><linearGradient id="g"><stop class="s"/><stop class="s" offset="1"/></linearGradient></defs>
+		<g id="fade"><rect width="12" height="20" fill="red"/><rect x="8" width="12" height="20" fill="url(#g)"/></g></svg>`)
+	if got := img.RGBAAt(10, 10); !near(got, color.RGBA{0, 0, 128, 128}, 1) {
+		t.Errorf("overlap = %v, want half-transparent blue only", got)
+	}
+}

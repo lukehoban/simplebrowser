@@ -17,52 +17,10 @@ func (p svgPoint) mul(n float64) svgPoint  { return svgPoint{p.x * n, p.y * n} }
 // Geometry is built in SVG user space, then transformed (including non-uniform
 // scales and reflections) in the same way as filled paths.
 func strokeSVGPath(r *vector.Rasterizer, shape svgShape, m svgAffine) {
-	var points []svgPoint
-	used := 0
 	dashBudget := maxSVGPathSegs
-	flush := func(closed bool) {
-		if len(points) > 1 {
-			strokeSVGSubpath(r, points, closed, shape, m, &dashBudget)
-		}
-		points = nil
+	for _, path := range flattenSVGShape(shape, svgIdentity) {
+		strokeSVGSubpath(r, path.points, path.closed, shape, m, &dashBudget)
 	}
-	for _, seg := range shape.segments {
-		if used >= maxSVGPathSegs {
-			break
-		}
-		switch seg.op {
-		case 'M':
-			flush(false)
-			points = append(points, svgPoint{seg.pts[0][0], seg.pts[0][1]})
-			used++
-		case 'L':
-			points = append(points, svgPoint{seg.pts[0][0], seg.pts[0][1]})
-			used++
-		case 'Q', 'C':
-			if len(points) == 0 {
-				continue
-			}
-			start := points[len(points)-1]
-			// Bounded curve flattening; the segment budget also bounds the
-			// rasterizer work for adversarial SVG inputs.
-			for i := 1; i <= 32 && used < maxSVGPathSegs; i++ {
-				t := float64(i) / 32
-				u := 1 - t
-				a := svgPoint{seg.pts[0][0], seg.pts[0][1]}
-				b := svgPoint{seg.pts[1][0], seg.pts[1][1]}
-				if seg.op == 'Q' {
-					points = append(points, start.mul(u*u).add(a.mul(2*u*t)).add(b.mul(t*t)))
-				} else {
-					c := svgPoint{seg.pts[2][0], seg.pts[2][1]}
-					points = append(points, start.mul(u*u*u).add(a.mul(3*u*u*t)).add(b.mul(3*u*t*t)).add(c.mul(t*t*t)))
-				}
-				used++
-			}
-		case 'Z':
-			flush(true)
-		}
-	}
-	flush(false)
 }
 
 func strokeSVGSubpath(r *vector.Rasterizer, pts []svgPoint, closed bool, shape svgShape, m svgAffine, dashBudget *int) {

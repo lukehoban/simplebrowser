@@ -253,6 +253,274 @@ func TestSVGViewBoxScaling(t *testing.T) {
 	}
 }
 
+func TestSVGShapeLengthsResolveAgainstViewportAndFont(t *testing.T) {
+	for _, src := range []string{
+		`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><circle cx="50%" cy="50%" r="30%" fill="red"/><rect x="10%" y="10%" width="25%" height="20%" fill="blue"/></svg>`,
+		`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80" viewBox="0 0 60 40"><circle cx="50%" cy="50%" r="30%" fill="red"/><rect x="10%" y="10%" width="25%" height="20%" fill="blue"/></svg>`,
+	} {
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, tc := range []struct {
+			x, y int
+			want color.RGBA
+		}{
+			{60, 40, color.RGBA{255, 0, 0, 255}}, // center: r uses normalized diagonal
+			{13, 9, color.RGBA{0, 0, 255, 255}},  // rect x/width and y/height use their axes
+			{85, 40, color.RGBA{255, 0, 0, 255}}, // within 30% of normalized diagonal
+			{92, 40, color.RGBA{}},               // outside that radius
+		} {
+			if got := img.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+				t.Errorf("decodeSVG shape lengths pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+			}
+		}
+	}
+
+	units, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect x="1pt" y="1mm" width="2mm" height="2mm" fill="blue"/><g font-size="10"><circle cx="30" cy="30" r="1em" fill="red"/></g><circle cx="80" cy="30" r="1rem" fill="green"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{2, 4, color.RGBA{0, 0, 255, 255}},   // pt/mm conversions
+		{10, 4, color.RGBA{}},                // 2mm extent
+		{30, 30, color.RGBA{255, 0, 0, 255}}, // inherited em font size
+		{40, 30, color.RGBA{}},               // em radius is 10 user units
+		{80, 30, color.RGBA{0, 128, 0, 255}}, // rem uses the initial root size
+	} {
+		if got := units.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("absolute/font-relative pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+
+	lengths := svgLengthBasis{horizontal: 120, vertical: 80, diagonal: math.Hypot(120/math.Sqrt2, 80/math.Sqrt2), fontSize: 10, rootFontSize: 16}
+	for _, tc := range []struct {
+		value string
+		axis  svgAxis
+		want  float64
+	}{
+		{"50%", svgHorizontal, 60},
+		{"50%", svgVertical, 40},
+		{"50%", svgDiagonal, lengths.diagonal / 2},
+		{"1em", svgHorizontal, 10},
+		{"1rem", svgHorizontal, 16},
+	} {
+		if got, ok := lengths.length(tc.value, tc.axis); !ok || math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("resolve SVG length %q = %g, %v; want %g", tc.value, got, ok, tc.want)
+		}
+	}
+	if got, ok := svgFontSize("2rem", 10, 16); !ok || got != 32 {
+		t.Errorf("resolve SVG font-size rem = %g, %v; want 32, true", got, ok)
+	}
+	for _, tc := range []struct {
+		value string
+		want  float64
+	}{
+		{"1in", 96},
+		{"2.54cm", 96},
+		{"25.4mm", 96},
+		{"101.6Q", 96},
+		{"72pt", 96},
+		{"6pc", 96},
+	} {
+		if got, ok := svgLength(tc.value); !ok || math.Abs(got-tc.want) > 1e-9 {
+			t.Errorf("absolute SVG length %q = %g, %v; want %g", tc.value, got, ok, tc.want)
+		}
+	}
+	if _, ok := svgLength("1000000in"); ok {
+		t.Error("accepted an unbounded absolute SVG length")
+	}
+
+	rootRem, err := decodeSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" font-size="2rem"><circle cx="40" cy="40" r="1em" fill="red"/><circle cx="120" cy="40" r="1rem" fill="blue"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{40, 40, color.RGBA{255, 0, 0, 255}},
+		{70, 40, color.RGBA{255, 0, 0, 255}}, // root font-size 2rem computes to 32px
+		{73, 40, color.RGBA{}},
+		{120, 40, color.RGBA{0, 0, 255, 255}}, // 1rem sees the computed root size
+		{150, 40, color.RGBA{0, 0, 255, 255}},
+		{153, 40, color.RGBA{}},
+	} {
+		if got := rootRem.RGBA.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("root-relative SVG font size pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
+func TestSVGFontMetricGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name, family, weight, style, unit string
+		size                              float64
+	}{
+		{"sans ex", "Arial", "", "", "ex", 20},
+		{"verdana ch", "Verdana", "", "", "ch", 30},
+		{"mono italic bold ex", "Courier", "bold", "italic", "ex", 26},
+		{"mono bold ch", "monospace", "700", "", "ch", 20},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ratios := ratiosFor(ComputedStyle{"font-family": tc.family, "font-weight": tc.weight, "font-style": tc.style})
+			ratio := ratios.ex
+			if tc.unit == "ch" {
+				ratio = ratios.ch
+			}
+			src := `<svg width="100" height="100"><g font-size="` + trimFloat(tc.size) + `" font-family="` + tc.family +
+				`" font-weight="` + tc.weight + `" font-style="` + tc.style + `"><circle cx="50" cy="50" r="1` + tc.unit + `"/></g></svg>`
+			img, err := decodeSVG([]byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(img.shapes) != 1 {
+				t.Fatalf("shapes = %d, want one", len(img.shapes))
+			}
+			got := img.shapes[0].segments[0].pts[0][0] - 50
+			if math.Abs(got-tc.size*ratio) > 1e-8 {
+				t.Errorf("radius = %.6f, want selected-face metric %.6f", got, tc.size*ratio)
+			}
+			if got := img.RGBAAt(50, 50); got != (color.RGBA{0, 0, 0, 255}) {
+				t.Errorf("center pixel = %v, want opaque circle", got)
+			}
+		})
+	}
+	if ratiosFor(ComputedStyle{"font-family": "Verdana"}).ch == ratiosFor(ComputedStyle{"font-family": "Courier"}).ch {
+		t.Fatal("fixture font faces must have distinct 0 glyph advances")
+	}
+}
+
+func TestSVGFontMetricLengthsAndInheritance(t *testing.T) {
+	mono := ratiosFor(ComputedStyle{"font-family": "Courier", "font-weight": "bold", "font-style": "italic"})
+	verdana := ratiosFor(ComputedStyle{"font-family": "Verdana"})
+	src := `<svg width="100" height="100" font-size="20" font-family="Verdana">` +
+		`<g font-size="2ex" font-family="Courier" font-style="italic" font-weight="bold">` +
+		`<rect x="-1ch" y="1ex" width="2ch" height="1ex"/></g>` +
+		`<circle cx="50" cy="50" r="1ch"/></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 2 {
+		t.Fatalf("shapes = %d, want rect and circle", len(img.shapes))
+	}
+	childSize := 40 * verdana.ex // font-size uses parent's x-height, not new face
+	rect := img.shapes[0].segments[0].pts[0]
+	if math.Abs(rect[0]+childSize*mono.ch) > 1e-8 || math.Abs(rect[1]-childSize*mono.ex) > 1e-8 {
+		t.Errorf("inherited rect origin = %v, want (%g,%g)", rect, -childSize*mono.ch, childSize*mono.ex)
+	}
+	if got, want := img.shapes[1].segments[0].pts[0][0], 50+20*verdana.ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("sibling font leaked: radius endpoint %g, want %g", got, want)
+	}
+	for _, value := range []string{"1e999ex", "-1ex", "1000000000ch", "NaNex", "1exgarbage"} {
+		if _, ok := (svgLengthBasis{fontSize: 20, ratios: mono}).length(value, svgHorizontal); ok {
+			t.Errorf("unbounded/invalid shape length accepted: %q", value)
+		}
+	}
+	// Root font-size: ch uses the initial face, not the root's new family.
+	root, err := decodeSVG([]byte(`<svg width="100" height="100" font-family="Courier" font-size="2ch"><circle cx="50" cy="50" r="1ex"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 32 * ratiosFor(nil).ch * ratiosFor(ComputedStyle{"font-family": "Courier"}).ex
+	if got := root.shapes[0].segments[0].pts[0][0] - 50; math.Abs(got-want) > 1e-8 {
+		t.Errorf("root font-size/new face radius = %g, want %g", got, want)
+	}
+	// Inline style wins over presentation attributes and flows into local
+	// <use> expansion without leaking to sibling shapes.
+	reused, err := decodeSVG([]byte(`<svg width="100" height="100"><defs><rect id="bar" width="1ch" height="1ex"/></defs>` +
+		`<use href="#bar" x="10" font-family="Verdana" style="font-family: Courier; font-size: 20px"/>` +
+		`<rect y="50" width="1ch" height="1ex"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reused.shapes) != 2 {
+		t.Fatalf("reused shapes = %d", len(reused.shapes))
+	}
+	monoRegular := ratiosFor(ComputedStyle{"font-family": "Courier"})
+	if got, want := reused.shapes[0].segments[1].pts[0][0], 20*monoRegular.ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("reused width = %g, want %g", got, want)
+	}
+	if got, want := reused.shapes[1].segments[1].pts[0][0], 16*ratiosFor(nil).ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("sibling width = %g, want %g", got, want)
+	}
+}
+
+func TestSVGFontMetricVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "font-geometry-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{54, 38, color.RGBA{17, 102, 170, 255}},
+		{160, 38, color.RGBA{238, 85, 17, 255}},
+		{266, 38, color.RGBA{51, 153, 102, 255}},
+		{40, 80, color.RGBA{17, 102, 170, 255}},
+		{90, 4, color.RGBA{255, 255, 255, 255}},
+	} {
+		if got := img.RGBAAt(p.x, p.y); got != p.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", p.x, p.y, got, p.want)
+		}
+	}
+	if dir := os.Getenv("SVG_FONT_METRIC_VISUAL_DIR"); dir != "" {
+		// Before reproduces the old parser's behavior: ex/ch were invalid.
+		before := strings.NewReplacer("ex", "unsupported", "ch", "unsupported").Replace(string(data))
+		old, err := decodeSVG([]byte(before))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, render := range map[string]*svgImage{"svg-font-metrics-before.png": old, "svg-font-metrics-after.png": img} {
+			f, err := os.Create(filepath.Join(dir, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			encodeErr := png.Encode(f, render.RGBA)
+			closeErr := f.Close()
+			if encodeErr != nil || closeErr != nil {
+				t.Fatalf("%s: %v / %v", name, encodeErr, closeErr)
+			}
+		}
+	}
+}
+
+// The paired fixture visual shows percentages, absolute units and inherited
+// font-relative units before and after shape-length resolution.
+func TestSVGShapeLengthsVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "shape-lengths-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path := os.Getenv("SVG_SHAPE_LENGTHS_VISUAL_DIR"); path != "" {
+		before := image.NewRGBA(after.Bounds())
+		for name, img := range map[string]image.Image{"svg-shape-lengths-before.png": before, "svg-shape-lengths-after.png": after.RGBA} {
+			f, err := os.Create(filepath.Join(path, name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = png.Encode(f, img)
+			closeErr := f.Close()
+			if err != nil || closeErr != nil {
+				t.Fatalf("write %s: %v, %v", name, err, closeErr)
+			}
+		}
+	}
+}
+
 func TestSVGRasterizesFills(t *testing.T) {
 	src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 40 20">
 		<title>ignored</title>
@@ -980,6 +1248,110 @@ func TestSVGFillRuleAntialiasedEdge(t *testing.T) {
 	}
 }
 
+// Equivalent simple geometry must take the same antialiasing path regardless
+// of fill-rule. This skewed edge differed by up to 19 alpha levels when
+// even-odd used the lower-resolution scanline filler.
+func TestSVGEquivalentFillRulesHaveSameAntialiasing(t *testing.T) {
+	const d = "M2 2.13L18 3.01L18 17L2 17Z"
+	nonzero, evenodd := renderSVGFillRulePair(t, d)
+	for y := 0; y < 20; y++ {
+		for x := 0; x < 20; x++ {
+			a, b := nonzero.RGBAAt(x, y).A, evenodd.RGBAAt(x, y).A
+			if a != b {
+				t.Fatalf("alpha at (%d,%d): nonzero=%d evenodd=%d", x, y, a, b)
+			}
+		}
+	}
+
+	if path := os.Getenv("SVG_FILL_AA_VISUAL_PATH"); path != "" {
+		writeSVGFillAACloseup(t, path, nonzero, evenodd)
+	}
+}
+
+// Complex paths still require parity rasterization. Its denser vertical
+// sampling keeps near-horizontal edge coverage within one alpha level of the
+// vector rasterizer. The off-canvas second subpath conservatively selects the
+// parity path without changing the visible geometry.
+func TestSVGFillRuleComplexPathAntialiasing(t *testing.T) {
+	const d = "M2 2.13L18 3.01L18 17L2 17Z M-10 -10L-9 -10L-9 -9Z"
+	nonzero, evenodd := renderSVGFillRulePair(t, d)
+	maxDelta := 0
+	for y := 0; y < 20; y++ {
+		for x := 0; x < 20; x++ {
+			delta := int(nonzero.RGBAAt(x, y).A) - int(evenodd.RGBAAt(x, y).A)
+			if delta < 0 {
+				delta = -delta
+			}
+			if delta > maxDelta {
+				maxDelta = delta
+			}
+		}
+	}
+	if maxDelta > 1 {
+		t.Errorf("maximum alpha difference = %d, want <= 1", maxDelta)
+	}
+}
+
+func renderSVGFillRulePair(t *testing.T, d string) (*svgImage, *svgImage) {
+	t.Helper()
+	var images [2]*svgImage
+	for i, rule := range []string{"nonzero", "evenodd"} {
+		src := `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="black" fill-rule="` + rule + `" d="` + d + `"/></svg>`
+		img, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatalf("%s: %v", rule, err)
+		}
+		images[i] = img
+	}
+	return images[0], images[1]
+}
+
+// writeSVGFillAACloseup enlarges source pixels without smoothing. The panels
+// are non-zero, even-odd, and an amplified red alpha-difference map.
+func writeSVGFillAACloseup(t *testing.T, path string, nonzero, evenodd *svgImage) {
+	t.Helper()
+	const scale, gap = 12, 8
+	panel := 20 * scale
+	out := image.NewRGBA(image.Rect(0, 0, panel*3+gap*2, panel))
+	drawPanel := func(offset int, pixel func(x, y int) color.RGBA) {
+		for y := 0; y < 20; y++ {
+			for x := 0; x < 20; x++ {
+				c := pixel(x, y)
+				for yy := 0; yy < scale; yy++ {
+					for xx := 0; xx < scale; xx++ {
+						out.SetRGBA(offset+x*scale+xx, y*scale+yy, c)
+					}
+				}
+			}
+		}
+	}
+	onWhite := func(img *svgImage) func(int, int) color.RGBA {
+		return func(x, y int) color.RGBA {
+			alpha := img.RGBAAt(x, y).A
+			return color.RGBA{255 - alpha, 255 - alpha, 255 - alpha, 255}
+		}
+	}
+	drawPanel(0, onWhite(nonzero))
+	drawPanel(panel+gap, onWhite(evenodd))
+	drawPanel((panel+gap)*2, func(x, y int) color.RGBA {
+		delta := int(nonzero.RGBAAt(x, y).A) - int(evenodd.RGBAAt(x, y).A)
+		if delta < 0 {
+			delta = -delta
+		}
+		amplified := min(255, delta*12)
+		return color.RGBA{255, uint8(255 - amplified), uint8(255 - amplified), 255}
+	})
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = png.Encode(f, out)
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		t.Fatalf("write fill antialiasing close-up: %v, %v", err, closeErr)
+	}
+}
+
 // Even-odd fill respects fill-opacity and composites once, not twice, where
 // subpaths meet.
 func TestSVGFillRuleOpacity(t *testing.T) {
@@ -1003,6 +1375,7 @@ func TestSVGFillRuleVisual(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	img, err := decodeSVG(data)
 	if err != nil {
 		t.Fatal(err)
@@ -1031,6 +1404,95 @@ func TestSVGFillRuleVisual(t *testing.T) {
 		closeErr := f.Close()
 		if err != nil || closeErr != nil {
 			t.Fatalf("write fill-rule render: %v, %v", err, closeErr)
+		}
+	}
+}
+
+func TestSVGStylesheetRingVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "style-demo.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without <style>, the output is identical to the old renderer, which
+	// skipped the element. Keep both renders for a reproducible comparison.
+	if path := os.Getenv("SVG_STYLE_BEFORE_VISUAL_PATH"); path != "" {
+		before := regexp.MustCompile(`(?s)<style>.*?</style>`).ReplaceAll(data, nil)
+		old, err := decodeSVG(before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, old.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write SVG stylesheet before visual: %v, %v", encodeErr, closeErr)
+		}
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x, y int
+		want color.RGBA
+	}{
+		{15, 15, color.RGBA{211, 38, 74, 255}},
+		{35, 30, color.RGBA{255, 255, 255, 255}},
+		{95, 15, color.RGBA{34, 153, 85, 255}},
+		{115, 30, color.RGBA{255, 255, 255, 255}},
+	} {
+		if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+			t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+		}
+	}
+	if path := os.Getenv("SVG_STYLE_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write SVG stylesheet visual: %v, %v", encodeErr, closeErr)
+		}
+	}
+}
+
+func TestSVGStylesheetCascade(t *testing.T) {
+	const svg = `<svg width="100" height="20">
+	<style>
+	rect { fill: red; stroke: blue; stroke-width: 2 }
+	.group > rect.box { fill: green }
+	#specific { fill: blue }
+	.group rect.box { fill: #008000 !important }
+	@media print { rect { fill: black } }
+	rect:hover { fill: black }
+	</style>
+	<g class="group" fill="red"><rect class="box" id="specific" x="2" y="2" width="16" height="16" fill="yellow" style="fill: red; stroke: none"/></g>
+	<rect x="22" y="2" width="16" height="16" style="fill: yellow"/>
+	<rect x="42" y="2" width="16" height="16" fill="yellow"/>
+	<g fill="blue"><rect x="62" y="2" width="16" height="16" style="fill: inherit"/></g>
+	<rect x="82" y="2" width="16" height="16" class="box" fill="yellow"/>
+	</svg>`
+	img, err := decodeSVG([]byte(svg))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x    int
+		want color.RGBA
+	}{
+		{10, color.RGBA{0, 128, 0, 255}},   // important beats inline and id
+		{30, color.RGBA{255, 255, 0, 255}}, // normal inline beats type
+		{50, color.RGBA{255, 0, 0, 255}},   // stylesheet beats presentation
+		{70, color.RGBA{0, 0, 255, 255}},   // explicit inherited value
+		{90, color.RGBA{255, 0, 0, 255}},   // descendant selector does not leak
+	} {
+		if got := img.RGBAAt(tc.x, 10); got != tc.want {
+			t.Errorf("pixel (%d,10) = %v, want %v", tc.x, got, tc.want)
 		}
 	}
 }
@@ -1188,5 +1650,21 @@ func TestSVGUseExpansionLimits(t *testing.T) {
 		strings.Repeat(`<use href="#p"/>`, 5) + `</svg>`
 	if _, err := decodeSVG([]byte(src)); err == nil {
 		t.Error("unbounded expanded segments accepted")
+	}
+}
+
+func TestSVGStylesheetFontFaceDrivesFontMetricLengths(t *testing.T) {
+	mono := ratiosFor(ComputedStyle{"font-family": "Courier", "font-weight": "bold"})
+	src := `<svg width="100" height="100"><style>.m { font-family: Courier; font-weight: bold; font-size: 20px }</style>` +
+		`<g class="m" font-family="Verdana"><circle cx="50" cy="50" r="1ch"/></g></svg>`
+	img, err := decodeSVG([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(img.shapes) != 1 {
+		t.Fatalf("shapes = %d, want one", len(img.shapes))
+	}
+	if got, want := img.shapes[0].segments[0].pts[0][0]-50, 20*mono.ch; math.Abs(got-want) > 1e-8 {
+		t.Errorf("stylesheet font face radius = %g, want %g", got, want)
 	}
 }

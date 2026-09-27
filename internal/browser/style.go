@@ -173,26 +173,36 @@ func formatPixels(value float64) string {
 }
 
 // Viewport-percentage lengths use the layout viewport, never a containing
-// block or the document's content height. Keep fractions until used-value
-// rounding in layout, just as for font-relative computed lengths.
+// block or the document's content height. This static renderer has no browser
+// chrome or changing visual viewport, so small, large, and dynamic variants
+// deliberately share that viewport. Keeping the mapping here makes it
+// straightforward to split when the renderer gains those viewport concepts.
+// Keep fractions until used-value rounding in layout, just as for
+// font-relative computed lengths.
 func resolveViewportRelativeValues(values ComputedStyle, viewport image.Point) {
 	for property, text := range values {
 		values[property] = resolveLengthTokens(property, text, func(v CSSValue) (string, bool) {
-			var basis int
-			switch v.Unit {
-			case "vw":
-				basis = viewport.X
-			case "vh":
-				basis = viewport.Y
-			case "vmin":
-				basis = min(viewport.X, viewport.Y)
-			case "vmax":
-				basis = max(viewport.X, viewport.Y)
-			default:
+			basis, ok := viewportLengthBasis(v.Unit, viewport)
+			if !ok {
 				return "", false
 			}
 			return formatPixels(v.Number * float64(basis) / 100), true
 		})
+	}
+}
+
+func viewportLengthBasis(unit string, viewport image.Point) (int, bool) {
+	switch unit {
+	case "vw", "svw", "lvw", "dvw":
+		return viewport.X, true
+	case "vh", "svh", "lvh", "dvh":
+		return viewport.Y, true
+	case "vmin", "svmin", "lvmin", "dvmin":
+		return min(viewport.X, viewport.Y), true
+	case "vmax", "svmax", "lvmax", "dvmax":
+		return max(viewport.X, viewport.Y), true
+	default:
+		return 0, false
 	}
 }
 

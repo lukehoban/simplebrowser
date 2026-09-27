@@ -234,7 +234,10 @@ func px(value string, basis, fallback float64) float64 {
 			// Computed styles resolve these from font metrics; this is only
 			// the 0.5em fallback for unresolved values.
 			return v.Number * 8
-		case "vw", "vh", "vmin", "vmax":
+		case "vw", "vh", "vmin", "vmax",
+			"svw", "svh", "svmin", "svmax",
+			"lvw", "lvh", "lvmin", "lvmax",
+			"dvw", "dvh", "dvmin", "dvmax":
 			// These need the viewport at computed-style time. Do not
 			// mistake unresolved lengths (e.g. in compound values) for px.
 			return fallback

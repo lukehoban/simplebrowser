@@ -203,7 +203,7 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 			if !child.valid || child.name != "stop" || len(g.stops) >= maxSVGGradientStops {
 				continue
 			}
-			g.stops = append(g.stops, svgParseStop(child.attrs, g.stops))
+			g.stops = append(g.stops, svgParseStop(s.cascadedAttributes(child), g.stops))
 		}
 		if len(g.stops) > 0 {
 			break

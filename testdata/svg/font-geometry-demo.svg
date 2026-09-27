@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="112" viewBox="0 0 320 112">
+  <rect width="320" height="112" fill="white"/>
+  <path d="M106 8V104M212 8V104" stroke="#dde3e8"/>
+  <g font-size="26px" font-family="Verdana">
+    <circle cx="54" cy="38" r="1ex" fill="#1166aa"/>
+    <rect x="1ch" y="72" width="2ch" height="1ex" fill="#1166aa"/>
+    <g font-family="Courier" font-weight="bold" font-style="italic">
+      <circle cx="160" cy="38" r="1ex" fill="#ee5511"/>
+      <rect x="5ch" y="72" width="2ch" height="1ex" fill="#ee5511"/>
+    </g>
+    <g font-size="150%" font-family="Arial">
+      <circle cx="266" cy="38" r="1ex" fill="#339966"/>
+      <rect x="6ch" y="72" width="2ch" height="1ex" fill="#339966"/>
+    </g>
+  </g>
+</svg>

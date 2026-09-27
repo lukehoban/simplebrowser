@@ -33,6 +33,7 @@ const (
 	maxSVGUseDepth    = 64
 	defaultSVGWidth   = 300
 	defaultSVGHeight  = 150
+	maxSVGGeometry    = 1e7
 	svgCircleConstant = 0.5522847498307936 // 4/3*(sqrt(2)-1), cubic arc control distance
 )
 
@@ -97,6 +98,9 @@ const (
 type svgImage struct {
 	width, height float64
 	dashBasis     float64
+	userWidth     float64
+	userHeight    float64
+	rootFontSize  float64
 	viewBox       [4]float64
 	hasViewBox    bool
 	align         string // "none" or e.g. "xMidYMid"
@@ -120,6 +124,8 @@ func looksLikeSVG(data []byte) bool {
 type svgNode struct {
 	name     string
 	attrs    map[string]string
+	cssNode  *Node
+	style    string
 	href     string
 	valid    bool
 	children []*svgNode
@@ -129,6 +135,11 @@ type svgFrame struct {
 	fill           color.NRGBA
 	hasFill        bool
 	fillGradient   *svgGradient
+	fontSize       float64
+	fontFamily     string
+	fontStyle      string
+	fontWeight     string
+	fontRatios     fontRatios
 	fillRule       string
 	opacity        float64
 	stroke         color.NRGBA
@@ -145,7 +156,7 @@ type svgFrame struct {
 
 func svgDefaultFrame() svgFrame {
 	return svgFrame{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero",
-		opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
+		fontSize: 16, fontRatios: ratiosFor(nil), opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
 		miterLimit: 4, transform: svgIdentity}
 }
 
@@ -158,6 +169,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	img := &svgImage{align: "xMidYMid"}
 	var root *svgNode
 	var stack []*svgNode
+	var sheets []Stylesheet
 	ids := make(map[string]*svgNode)
 	elements := 0
 	for {
@@ -176,6 +188,12 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			}
 			node := &svgNode{name: t.Name.Local, attrs: svgAttributes(t),
 				valid: t.Name.Space == svgNamespace || t.Name.Space == ""}
+			node.cssNode = &Node{Type: ElementNode, Name: node.name}
+			for _, attr := range t.Attr {
+				if attr.Name.Space == "" || attr.Name.Space == svgNamespace {
+					node.cssNode.Attributes = append(node.cssNode.Attributes, Attribute{Name: attr.Name.Local, Value: attr.Value})
+				}
+			}
 			hasHref := false
 			for _, a := range t.Attr {
 				if a.Name.Local == "href" && (a.Name.Space == "" || a.Name.Space == svgNamespace) {
@@ -197,9 +215,6 @@ func decodeSVG(data []byte) (*svgImage, error) {
 					return nil, errUnsupportedSVG
 				}
 				root = node
-				if err := img.parseRoot(node.attrs); err != nil {
-					return nil, err
-				}
 				// The root's own transform attribute (SVG 2) is not applied.
 				delete(node.attrs, "transform")
 			} else if len(stack) == 0 {
@@ -208,6 +223,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			} else {
 				parent := stack[len(stack)-1]
 				parent.children = append(parent.children, node)
+				node.cssNode.Parent = parent.cssNode
 			}
 			if node.valid && node.attrs["id"] != "" {
 				if _, exists := ids[node.attrs["id"]]; !exists {
@@ -216,14 +232,28 @@ func decodeSVG(data []byte) (*svgImage, error) {
 			}
 			stack = append(stack, node)
 		case xml.EndElement:
+			node := stack[len(stack)-1]
+			if node.name == "style" && node.valid {
+				sheets = append(sheets, ParseCSS(node.style))
+			}
 			stack = stack[:len(stack)-1]
+		case xml.CharData:
+			if len(stack) > 0 {
+				node := stack[len(stack)-1]
+				if node.name == "style" && node.valid {
+					node.style += string(t)
+				}
+			}
 		}
 	}
 	if root == nil {
 		return nil, errUnsupportedSVG
 	}
-	state := svgExpansion{img: img, root: root, ids: ids, active: make(map[*svgNode]bool),
+	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool),
 		gradients: make(map[*svgNode]*svgGradient)}
+	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
+		return nil, err
+	}
 	if err := state.walk(root, svgDefaultFrame(), false, 0); err != nil {
 		return nil, err
 	}
@@ -242,6 +272,7 @@ type svgExpansion struct {
 	img    *svgImage
 	root   *svgNode
 	ids    map[string]*svgNode
+	sheets []Stylesheet
 	active map[*svgNode]bool
 	// gradients memoizes resolved paint servers by element.
 	gradients map[*svgNode]*svgGradient
@@ -267,10 +298,38 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		return nil
 	}
 	current := parent
-	a := node.attrs
+	a := s.cascadedAttributes(node)
+	for _, property := range []struct {
+		key string
+		dst *string
+	}{
+		{"font-family", &current.fontFamily},
+		{"font-style", &current.fontStyle},
+		{"font-weight", &current.fontWeight},
+	} {
+		if value := strings.TrimSpace(a[property.key]); value != "" && !strings.EqualFold(value, "inherit") {
+			*property.dst = value
+		}
+	}
+	current.fontRatios = ratiosFor(ComputedStyle{
+		"font-family": current.fontFamily, "font-style": current.fontStyle, "font-weight": current.fontWeight,
+	})
 	if value, ok := a["fill"]; ok {
 		p := parseSVGPaint(value, svgPaintValue{parent.fill, parent.fillGradient, parent.hasFill}, s.resolveGradient)
 		current.fill, current.fillGradient, current.hasFill = p.color, p.gradient, p.ok
+	}
+	rootFontSize := s.img.rootFontSize
+	if node == s.root {
+		// On the root element, rem is relative to its initial value rather
+		// than to the root font size being computed here.
+		rootFontSize = 16
+	}
+	if n, ok := svgFontSize(a["font-size"], parent.fontSize, rootFontSize, parent.fontRatios); ok {
+		current.fontSize = n
+	}
+	basis := svgLengthBasis{
+		horizontal: s.img.userWidth, vertical: s.img.userHeight, diagonal: s.img.dashBasis,
+		fontSize: current.fontSize, rootFontSize: s.img.rootFontSize, ratios: current.fontRatios,
 	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
 		current.opacity = n // inherited property, not ancestor compositing
@@ -322,11 +381,11 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		return nil
 	}
 	if opacity >= 1 {
-		return s.walkContent(node, current, useDepth)
+		return s.walkContent(node, a, current, basis, useDepth)
 	}
 	start := len(s.img.shapes)
 	s.img.shapes = append(s.img.shapes, svgShape{kind: svgLayerPush, opacity: opacity})
-	if err := s.walkContent(node, current, useDepth); err != nil {
+	if err := s.walkContent(node, a, current, basis, useDepth); err != nil {
 		return err
 	}
 	s.img.closeLayer(start)
@@ -358,8 +417,8 @@ func (img *svgImage) closeLayer(start int) {
 	img.shapes = append(img.shapes, svgShape{kind: svgLayerPop})
 }
 
-func (s *svgExpansion) walkContent(node *svgNode, current svgFrame, useDepth int) error {
-	name, a := node.name, node.attrs
+func (s *svgExpansion) walkContent(node *svgNode, a map[string]string, current svgFrame, basis svgLengthBasis, useDepth int) error {
+	name := node.name
 	if name == "use" {
 		// Only same-document fragment IDs: never open a URL or interpret a
 		// fragment as a filesystem path.
@@ -387,15 +446,15 @@ func (s *svgExpansion) walkContent(node *svgNode, current svgFrame, useDepth int
 		case "path":
 			shape = parseSVGPath(a["d"], maxSVGPathSegs-s.segments)
 		case "rect":
-			shape = svgRect(a)
+			shape = svgRectWithBasis(a, basis)
 		case "circle":
-			if r, ok := svgLength(a["r"]); ok {
-				shape = svgEllipse(a, r, r)
+			if r, ok := basis.length(a["r"], svgDiagonal); ok {
+				shape = svgEllipseWithLengths(a, r, r, basis)
 			}
 		case "ellipse":
-			shape = svgEllipseAttrs(a)
+			shape = svgEllipseAttrsWithBasis(a, basis)
 		case "line":
-			shape = svgLine(a)
+			shape = svgLineWithBasis(a, basis)
 		case "polyline", "polygon":
 			shape = svgPolyline(a["points"], name == "polygon", maxSVGPathSegs-s.segments)
 		}
@@ -579,23 +638,73 @@ func svgUnitInterval(s string) (float64, bool) {
 	return math.Max(0, math.Min(1, n)), err == nil && !math.IsNaN(n)
 }
 
-// svgAttributes merges presentation attributes with the style attribute; the
-// style attribute wins, as in CSS.
+// svgAttributes retains presentation attributes and inline declarations
+// separately so stylesheet declarations can participate in the cascade.
 func svgAttributes(t xml.StartElement) map[string]string {
 	attrs := make(map[string]string, len(t.Attr))
-	style := ""
 	for _, a := range t.Attr {
 		if a.Name.Space != "" && a.Name.Space != svgNamespace {
 			continue
 		}
-		if a.Name.Local == "style" {
-			style = a.Value
-			continue
-		}
 		attrs[a.Name.Local] = a.Value
 	}
-	for _, d := range ParseDeclarations(style) {
-		attrs[strings.ToLower(d.Property)] = d.Value
+	return attrs
+}
+
+// CSS presentation properties are inherited from the parent frame in walk.
+// Presentation attributes are lowest-priority author hints; a matching rule
+// wins even over an id attribute, while !important beats normal inline style.
+// Non-presentation geometry remains sourced from attributes (and inline style)
+// as before; external stylesheets and unsupported CSS properties are ignored.
+var svgStyleProperties = map[string]bool{
+	"fill": true, "fill-rule": true, "fill-opacity": true,
+	"stroke": true, "stroke-opacity": true, "stroke-width": true,
+	"stroke-linecap": true, "stroke-linejoin": true, "stroke-miterlimit": true,
+	"stroke-dasharray": true, "stroke-dashoffset": true, "font-size": true,
+	"font-family": true, "font-style": true, "font-weight": true,
+	"opacity": true, "stop-color": true, "stop-opacity": true,
+}
+
+func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
+	attrs := make(map[string]string, len(node.attrs))
+	for k, v := range node.attrs {
+		attrs[k] = v
+	}
+	winners := make(map[string]winningDeclaration)
+	order := 0
+	add := func(d Declaration, spec [3]int, inline bool) {
+		if !svgStyleProperties[d.Property] {
+			return
+		}
+		order++
+		candidate := winningDeclaration{d: d, important: d.Important, inline: inline, origin: 1, order: order, spec: spec}
+		if old, ok := winners[d.Property]; !ok || beats(candidate, old) {
+			winners[d.Property] = candidate
+		}
+	}
+	for _, sheet := range s.sheets {
+		for _, rule := range sheet.Rules {
+			for _, selector := range rule.Selectors {
+				if !matchesSelector(node.cssNode, selector) {
+					continue
+				}
+				for _, d := range rule.Declarations {
+					add(d, specificity(selector), false)
+				}
+			}
+		}
+	}
+	for _, d := range ParseDeclarations(attrs["style"]) {
+		// The normal cascade uses a single id unit for inline specificity;
+		// SVG's bounded XML tree can contain arbitrary compound selectors.
+		// Keep inline specificity above every stylesheet selector.
+		add(d, [3]int{maxSVGElements + 1, 0, 0}, true)
+		if !svgStyleProperties[d.Property] {
+			attrs[d.Property] = d.Value // preserve existing inline geometry behavior
+		}
+	}
+	for property, winner := range winners {
+		attrs[property] = winner.d.Value
 	}
 	return attrs
 }
@@ -648,20 +757,41 @@ func (img *svgImage) parseRoot(attrs map[string]string) error {
 	}
 	img.width, img.height = width, height
 	basisWidth, basisHeight := width, height
+	img.rootFontSize = 16
+	if n, ok := svgFontSize(attrs["font-size"], 16, 16); ok {
+		img.rootFontSize = n
+	}
 	if img.hasViewBox {
 		basisWidth, basisHeight = img.viewBox[2], img.viewBox[3]
 	}
+	img.userWidth, img.userHeight = basisWidth, basisHeight
 	img.dashBasis = math.Hypot(basisWidth/math.Sqrt2, basisHeight/math.Sqrt2)
 	return nil
 }
 
-// svgLength parses an absolute length in px (or unitless). Percentages and
-// other units are treated as missing.
+// svgLength parses an absolute SVG length in CSS px (or unitless user units).
+// Percentages and font-relative units need a viewport/inheritance context and
+// are resolved by svgLengthBasis instead.
 func svgLength(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
-	s = strings.TrimSuffix(s, "px")
-	n, err := strconv.ParseFloat(s, 64)
+	if s == "" {
+		return 0, false
+	}
+	i := 0
+	for i < len(s) && (s[i] == '+' || s[i] == '-' || s[i] == '.' ||
+		(s[i] >= '0' && s[i] <= '9') || s[i] == 'e' || s[i] == 'E') {
+		i++
+	}
+	n, err := strconv.ParseFloat(s[:i], 64)
 	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+		return 0, false
+	}
+	factor, ok := svgAbsoluteUnit(strings.ToLower(strings.TrimSpace(s[i:])))
+	if !ok {
+		return 0, false
+	}
+	n *= factor
+	if math.IsNaN(n) || math.IsInf(n, 0) || n > maxSVGGeometry {
 		return 0, false
 	}
 	return n, true
@@ -670,11 +800,167 @@ func svgLength(s string) (float64, bool) {
 // svgCoordinate is like svgLength but allows negative values.
 func svgCoordinate(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
-	if rest, ok := strings.CutPrefix(s, "-"); ok {
-		n, ok := svgLength(rest)
-		return -n, ok
+	if s == "" {
+		return 0, false
 	}
-	return svgLength(s)
+	negative := strings.HasPrefix(s, "-")
+	if negative || strings.HasPrefix(s, "+") {
+		s = s[1:]
+	}
+	n, ok := svgLength(s)
+	if negative {
+		n = -n
+	}
+	return n, ok
+}
+
+func svgAbsoluteUnit(unit string) (float64, bool) {
+	switch unit {
+	case "", "px":
+		return 1, true
+	case "in":
+		return 96, true
+	case "cm":
+		return 96 / 2.54, true
+	case "mm":
+		return 96 / 25.4, true
+	case "q":
+		return 96 / 101.6, true
+	case "pt":
+		return 96.0 / 72.0, true
+	case "pc":
+		return 16, true
+	default:
+		return 0, false
+	}
+}
+
+type svgAxis uint8
+
+const (
+	svgHorizontal svgAxis = iota
+	svgVertical
+	svgDiagonal
+)
+
+type svgLengthBasis struct {
+	horizontal, vertical, diagonal float64
+	fontSize, rootFontSize         float64
+	ratios                         fontRatios
+}
+
+func (b svgLengthBasis) length(value string, axis svgAxis) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "%") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		base := b.horizontal
+		switch axis {
+		case svgVertical:
+			base = b.vertical
+		case svgDiagonal:
+			base = b.diagonal
+		}
+		n = n * base / 100
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "rem") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-3]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= b.rootFontSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "em") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-2]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= b.fontSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+	}
+	for _, unit := range []string{"ex", "ch"} {
+		if strings.HasSuffix(strings.ToLower(value), unit) {
+			n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-len(unit)]), 64)
+			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+				return 0, false
+			}
+			ratio := b.ratios.ex
+			if unit == "ch" {
+				ratio = b.ratios.ch
+			}
+			n *= b.fontSize * ratio
+			return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+		}
+	}
+	return svgLength(value)
+}
+
+func (b svgLengthBasis) coordinate(value string, axis svgAxis) (float64, bool) {
+	value = strings.TrimSpace(value)
+	negative := strings.HasPrefix(value, "-")
+	if negative || strings.HasPrefix(value, "+") {
+		value = strings.TrimSpace(value[1:])
+	}
+	n, ok := b.length(value, axis)
+	if negative {
+		n = -n
+	}
+	return n, ok
+}
+
+func svgFontSize(value string, parentSize, rootSize float64, parentRatios ...fontRatios) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if strings.HasSuffix(value, "%") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n = parentSize * n / 100
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "rem") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-3]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= rootSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "em") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-2]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= parentSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	for _, unit := range []string{"ex", "ch"} {
+		if strings.HasSuffix(strings.ToLower(value), unit) {
+			n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-len(unit)]), 64)
+			if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+				return 0, false
+			}
+			ratios := ratiosFor(nil)
+			if len(parentRatios) > 0 {
+				ratios = parentRatios[0]
+			}
+			ratio := ratios.ex
+			if unit == "ch" {
+				ratio = ratios.ch
+			}
+			n *= parentSize * ratio
+			return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+		}
+	}
+	n, ok := svgLength(value)
+	return n, ok
 }
 
 func svgPaint(value string, inherited color.NRGBA, inheritedOK bool) (color.NRGBA, bool) {
@@ -791,45 +1077,53 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			x, y := m.apply(p[0], p[1])
 			return float32(x), float32(y)
 		}
-		if shape.fill.A != 0 && shape.fillRule == "evenodd" {
-			if mask := svgEvenOddMask(flattenSVGShape(shape, m), w, h); mask != nil {
-				src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
-				draw.DrawMask(dst, dst.Bounds(), src, image.Point{}, mask, image.Point{}, draw.Over)
+		if shape.fill.A != 0 {
+			var paths []svgSubpath
+			useParityRasterizer := false
+			if shape.fillRule == "evenodd" {
+				paths = flattenSVGShape(shape, m)
+				useParityRasterizer = !svgFillRulesEquivalent(paths)
 			}
-		} else if shape.fill.A != 0 {
-			r.Reset(w, h)
-			drawn := false
-			for _, seg := range shape.segments {
-				switch seg.op {
-				case 'M':
-					x, y := pt(seg.pts[0])
-					if drawn {
+			if useParityRasterizer {
+				if mask := svgEvenOddMask(paths, w, h); mask != nil {
+					src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
+					draw.DrawMask(dst, dst.Bounds(), src, image.Point{}, mask, image.Point{}, draw.Over)
+				}
+			} else {
+				r.Reset(w, h)
+				drawn := false
+				for _, seg := range shape.segments {
+					switch seg.op {
+					case 'M':
+						x, y := pt(seg.pts[0])
+						if drawn {
+							r.ClosePath()
+						}
+						r.MoveTo(x, y)
+					case 'L':
+						x, y := pt(seg.pts[0])
+						r.LineTo(x, y)
+						drawn = true
+					case 'Q':
+						x1, y1 := pt(seg.pts[0])
+						x, y := pt(seg.pts[1])
+						r.QuadTo(x1, y1, x, y)
+						drawn = true
+					case 'C':
+						x1, y1 := pt(seg.pts[0])
+						x2, y2 := pt(seg.pts[1])
+						x, y := pt(seg.pts[2])
+						r.CubeTo(x1, y1, x2, y2, x, y)
+						drawn = true
+					case 'Z':
 						r.ClosePath()
 					}
-					r.MoveTo(x, y)
-				case 'L':
-					x, y := pt(seg.pts[0])
-					r.LineTo(x, y)
-					drawn = true
-				case 'Q':
-					x1, y1 := pt(seg.pts[0])
-					x, y := pt(seg.pts[1])
-					r.QuadTo(x1, y1, x, y)
-					drawn = true
-				case 'C':
-					x1, y1 := pt(seg.pts[0])
-					x2, y2 := pt(seg.pts[1])
-					x, y := pt(seg.pts[2])
-					r.CubeTo(x1, y1, x2, y2, x, y)
-					drawn = true
-				case 'Z':
-					r.ClosePath()
 				}
-			}
-			if drawn {
-				r.ClosePath()
-				src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
-				r.Draw(dst, dst.Bounds(), src, image.Point{})
+				if drawn {
+					r.ClosePath()
+					src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
+					r.Draw(dst, dst.Bounds(), src, image.Point{})
+				}
 			}
 		}
 		if shape.stroke.A != 0 && shape.width > 0 {
@@ -1162,15 +1456,26 @@ func svgArc(x, y, rx, ry, rotation float64, large, sweep bool, ex, ey float64) (
 
 // svgRect converts a <rect>, including rx/ry rounded corners, into segments.
 func svgRect(attrs map[string]string) []svgSegment {
-	x, _ := svgCoordinate(attrs["x"])
-	y, _ := svgCoordinate(attrs["y"])
-	w, okW := svgLength(attrs["width"])
-	h, okH := svgLength(attrs["height"])
+	return svgRectWithBasis(attrs, svgLengthBasis{})
+}
+
+func svgRectWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
+	return svgRectWithBasis(attrs, svgLengthBasis{
+		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
+		fontSize: fontSize, rootFontSize: img.rootFontSize, ratios: ratiosFor(nil),
+	})
+}
+
+func svgRectWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegment {
+	x, _ := basis.coordinate(attrs["x"], svgHorizontal)
+	y, _ := basis.coordinate(attrs["y"], svgVertical)
+	w, okW := basis.length(attrs["width"], svgHorizontal)
+	h, okH := basis.length(attrs["height"], svgVertical)
 	if !okW || !okH || w <= 0 || h <= 0 {
 		return nil
 	}
-	rx, okRX := svgLength(attrs["rx"])
-	ry, okRY := svgLength(attrs["ry"])
+	rx, okRX := basis.length(attrs["rx"], svgHorizontal)
+	ry, okRY := basis.length(attrs["ry"], svgVertical)
 	switch {
 	case okRX && !okRY:
 		ry = rx
@@ -1211,12 +1516,27 @@ var svgRenderedElements = map[string]bool{
 // svgEllipseAttrs resolves ellipse radii. A missing or "auto" radius takes
 // the other one (SVG 2); a negative or unparseable radius disables rendering.
 func svgEllipseAttrs(attrs map[string]string) []svgSegment {
+	return svgEllipseAttrsWithBasis(attrs, svgLengthBasis{})
+}
+
+func svgEllipseAttrsWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
+	return svgEllipseAttrsWithBasis(attrs, svgLengthBasis{
+		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
+		fontSize: fontSize, rootFontSize: img.rootFontSize, ratios: ratiosFor(nil),
+	})
+}
+
+func svgEllipseAttrsWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegment {
 	radius := func(name string) (r float64, auto, ok bool) {
 		value, present := attrs[name]
 		if !present || strings.TrimSpace(value) == "auto" {
 			return 0, true, true
 		}
-		r, ok = svgLength(value)
+		axis := svgHorizontal
+		if name == "ry" {
+			axis = svgVertical
+		}
+		r, ok = basis.length(value, axis)
 		return r, false, ok
 	}
 	rx, autoX, okX := radius("rx")
@@ -1230,18 +1550,22 @@ func svgEllipseAttrs(attrs map[string]string) []svgSegment {
 	if autoY {
 		ry = rx
 	}
-	return svgEllipse(attrs, rx, ry)
+	return svgEllipseWithLengths(attrs, rx, ry, basis)
 }
 
 // svgEllipse outlines an ellipse centered at (cx, cy) with four cubics,
 // starting at the rightmost point and proceeding clockwise (positive angle
 // direction in SVG's y-down space). Zero radii disable rendering.
 func svgEllipse(attrs map[string]string, rx, ry float64) []svgSegment {
+	return svgEllipseWithLengths(attrs, rx, ry, svgLengthBasis{})
+}
+
+func svgEllipseWithLengths(attrs map[string]string, rx, ry float64, basis svgLengthBasis) []svgSegment {
 	if !(rx > 0 && ry > 0) || math.IsInf(rx, 0) || math.IsInf(ry, 0) {
 		return nil
 	}
-	cx, _ := svgCoordinate(attrs["cx"])
-	cy, _ := svgCoordinate(attrs["cy"])
+	cx, _ := basis.coordinate(attrs["cx"], svgHorizontal)
+	cy, _ := basis.coordinate(attrs["cy"], svgVertical)
 	kx, ky := rx*svgCircleConstant, ry*svgCircleConstant
 	pt := func(px, py float64) [2]float64 { return [2]float64{px, py} }
 	return []svgSegment{
@@ -1257,10 +1581,25 @@ func svgEllipse(attrs map[string]string, rx, ry float64) []svgSegment {
 // svgLine is an open two-point subpath; its fill has no area, so only a
 // stroke is visible.
 func svgLine(attrs map[string]string) []svgSegment {
+	return svgLineWithBasis(attrs, svgLengthBasis{})
+}
+
+func svgLineWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
+	return svgLineWithBasis(attrs, svgLengthBasis{
+		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
+		fontSize: fontSize, rootFontSize: img.rootFontSize, ratios: ratiosFor(nil),
+	})
+}
+
+func svgLineWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegment {
 	var p [4]float64
 	for i, name := range []string{"x1", "y1", "x2", "y2"} {
 		if value, ok := attrs[name]; ok {
-			n, valid := svgCoordinate(value)
+			axis := svgHorizontal
+			if i%2 == 1 {
+				axis = svgVertical
+			}
+			n, valid := basis.coordinate(value, axis)
 			if !valid {
 				return nil
 			}
