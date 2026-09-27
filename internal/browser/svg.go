@@ -33,6 +33,7 @@ const (
 	maxSVGUseDepth    = 64
 	defaultSVGWidth   = 300
 	defaultSVGHeight  = 150
+	maxSVGGeometry    = 1e7
 	svgCircleConstant = 0.5522847498307936 // 4/3*(sqrt(2)-1), cubic arc control distance
 )
 
@@ -81,6 +82,9 @@ type svgShape struct {
 type svgImage struct {
 	width, height float64
 	dashBasis     float64
+	userWidth     float64
+	userHeight    float64
+	rootFontSize  float64
 	viewBox       [4]float64
 	hasViewBox    bool
 	align         string // "none" or e.g. "xMidYMid"
@@ -112,6 +116,7 @@ type svgNode struct {
 type svgFrame struct {
 	fill          color.NRGBA
 	hasFill       bool
+	fontSize      float64
 	fillRule      string
 	opacity       float64
 	stroke        color.NRGBA
@@ -127,7 +132,7 @@ type svgFrame struct {
 
 func svgDefaultFrame() svgFrame {
 	return svgFrame{fill: color.NRGBA{A: 255}, hasFill: true, fillRule: "nonzero",
-		opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
+		fontSize: 16, opacity: 1, strokeOpacity: 1, width: 1, cap: "butt", join: "miter",
 		miterLimit: 4, transform: svgIdentity}
 }
 
@@ -250,6 +255,9 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 	if value, ok := a["fill"]; ok {
 		current.fill, current.hasFill = svgPaint(value, parent.fill, parent.hasFill)
 	}
+	if n, ok := svgFontSize(a["font-size"], parent.fontSize); ok {
+		current.fontSize = n
+	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
 		current.opacity = n // inherited property, not ancestor compositing
 	}
@@ -316,15 +324,19 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		case "path":
 			shape = parseSVGPath(a["d"], maxSVGPathSegs-s.segments)
 		case "rect":
-			shape = svgRect(a)
+			shape = svgRectWithLengths(a, s.img, current.fontSize)
 		case "circle":
-			if r, ok := svgLength(a["r"]); ok {
-				shape = svgEllipse(a, r, r)
+			basis := svgLengthBasis{
+				horizontal: s.img.userWidth, vertical: s.img.userHeight, diagonal: s.img.dashBasis,
+				fontSize: current.fontSize, rootFontSize: s.img.rootFontSize,
+			}
+			if r, ok := basis.length(a["r"], svgDiagonal); ok {
+				shape = svgEllipseWithLengths(a, r, r, basis)
 			}
 		case "ellipse":
-			shape = svgEllipseAttrs(a)
+			shape = svgEllipseAttrsWithLengths(a, s.img, current.fontSize)
 		case "line":
-			shape = svgLine(a)
+			shape = svgLineWithLengths(a, s.img, current.fontSize)
 		case "polyline", "polygon":
 			shape = svgPolyline(a["points"], name == "polygon", maxSVGPathSegs-s.segments)
 		}
@@ -567,20 +579,41 @@ func (img *svgImage) parseRoot(attrs map[string]string) error {
 	}
 	img.width, img.height = width, height
 	basisWidth, basisHeight := width, height
+	img.rootFontSize = 16
+	if n, ok := svgFontSize(attrs["font-size"], 16); ok {
+		img.rootFontSize = n
+	}
 	if img.hasViewBox {
 		basisWidth, basisHeight = img.viewBox[2], img.viewBox[3]
 	}
+	img.userWidth, img.userHeight = basisWidth, basisHeight
 	img.dashBasis = math.Hypot(basisWidth/math.Sqrt2, basisHeight/math.Sqrt2)
 	return nil
 }
 
-// svgLength parses an absolute length in px (or unitless). Percentages and
-// other units are treated as missing.
+// svgLength parses an absolute SVG length in CSS px (or unitless user units).
+// Percentages and font-relative units need a viewport/inheritance context and
+// are resolved by svgLengthBasis instead.
 func svgLength(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
-	s = strings.TrimSuffix(s, "px")
-	n, err := strconv.ParseFloat(s, 64)
+	if s == "" {
+		return 0, false
+	}
+	i := 0
+	for i < len(s) && (s[i] == '+' || s[i] == '-' || s[i] == '.' ||
+		(s[i] >= '0' && s[i] <= '9') || s[i] == 'e' || s[i] == 'E') {
+		i++
+	}
+	n, err := strconv.ParseFloat(s[:i], 64)
 	if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+		return 0, false
+	}
+	factor, ok := svgAbsoluteUnit(strings.ToLower(strings.TrimSpace(s[i:])))
+	if !ok {
+		return 0, false
+	}
+	n *= factor
+	if math.IsNaN(n) || math.IsInf(n, 0) || n > maxSVGGeometry {
 		return 0, false
 	}
 	return n, true
@@ -589,11 +622,126 @@ func svgLength(s string) (float64, bool) {
 // svgCoordinate is like svgLength but allows negative values.
 func svgCoordinate(s string) (float64, bool) {
 	s = strings.TrimSpace(s)
-	if rest, ok := strings.CutPrefix(s, "-"); ok {
-		n, ok := svgLength(rest)
-		return -n, ok
+	if s == "" {
+		return 0, false
 	}
-	return svgLength(s)
+	negative := strings.HasPrefix(s, "-")
+	if negative || strings.HasPrefix(s, "+") {
+		s = s[1:]
+	}
+	n, ok := svgLength(s)
+	if negative {
+		n = -n
+	}
+	return n, ok
+}
+
+func svgAbsoluteUnit(unit string) (float64, bool) {
+	switch unit {
+	case "", "px":
+		return 1, true
+	case "in":
+		return 96, true
+	case "cm":
+		return 96 / 2.54, true
+	case "mm":
+		return 96 / 25.4, true
+	case "q":
+		return 96 / 101.6, true
+	case "pt":
+		return 96 / 72, true
+	case "pc":
+		return 16, true
+	default:
+		return 0, false
+	}
+}
+
+type svgAxis uint8
+
+const (
+	svgHorizontal svgAxis = iota
+	svgVertical
+	svgDiagonal
+)
+
+type svgLengthBasis struct {
+	horizontal, vertical, diagonal float64
+	fontSize, rootFontSize         float64
+}
+
+func (b svgLengthBasis) length(value string, axis svgAxis) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "%") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		base := b.horizontal
+		switch axis {
+		case svgVertical:
+			base = b.vertical
+		case svgDiagonal:
+			base = b.diagonal
+		}
+		n = n * base / 100
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "rem") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-3]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= b.rootFontSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "em") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-2]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= b.fontSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0) && !math.IsNaN(n)
+	}
+	return svgLength(value)
+}
+
+func (b svgLengthBasis) coordinate(value string, axis svgAxis) (float64, bool) {
+	value = strings.TrimSpace(value)
+	negative := strings.HasPrefix(value, "-")
+	if negative || strings.HasPrefix(value, "+") {
+		value = strings.TrimSpace(value[1:])
+	}
+	n, ok := b.length(value, axis)
+	if negative {
+		n = -n
+	}
+	return n, ok
+}
+
+func svgFontSize(value string, parentSize float64) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	if strings.HasSuffix(value, "%") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(strings.TrimSuffix(value, "%")), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n = parentSize * n / 100
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	if strings.HasSuffix(strings.ToLower(value), "em") {
+		n, err := strconv.ParseFloat(strings.TrimSpace(value[:len(value)-2]), 64)
+		if err != nil || math.IsNaN(n) || math.IsInf(n, 0) || n < 0 {
+			return 0, false
+		}
+		n *= parentSize
+		return n, n <= maxSVGGeometry && !math.IsInf(n, 0)
+	}
+	n, ok := svgLength(value)
+	return n, ok
 }
 
 func svgPaint(value string, inherited color.NRGBA, inheritedOK bool) (color.NRGBA, bool) {
@@ -1031,15 +1179,26 @@ func svgArc(x, y, rx, ry, rotation float64, large, sweep bool, ex, ey float64) (
 
 // svgRect converts a <rect>, including rx/ry rounded corners, into segments.
 func svgRect(attrs map[string]string) []svgSegment {
-	x, _ := svgCoordinate(attrs["x"])
-	y, _ := svgCoordinate(attrs["y"])
-	w, okW := svgLength(attrs["width"])
-	h, okH := svgLength(attrs["height"])
+	return svgRectWithBasis(attrs, svgLengthBasis{})
+}
+
+func svgRectWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
+	return svgRectWithBasis(attrs, svgLengthBasis{
+		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
+		fontSize: fontSize, rootFontSize: img.rootFontSize,
+	})
+}
+
+func svgRectWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegment {
+	x, _ := basis.coordinate(attrs["x"], svgHorizontal)
+	y, _ := basis.coordinate(attrs["y"], svgVertical)
+	w, okW := basis.length(attrs["width"], svgHorizontal)
+	h, okH := basis.length(attrs["height"], svgVertical)
 	if !okW || !okH || w <= 0 || h <= 0 {
 		return nil
 	}
-	rx, okRX := svgLength(attrs["rx"])
-	ry, okRY := svgLength(attrs["ry"])
+	rx, okRX := basis.length(attrs["rx"], svgHorizontal)
+	ry, okRY := basis.length(attrs["ry"], svgVertical)
 	switch {
 	case okRX && !okRY:
 		ry = rx
@@ -1080,12 +1239,27 @@ var svgRenderedElements = map[string]bool{
 // svgEllipseAttrs resolves ellipse radii. A missing or "auto" radius takes
 // the other one (SVG 2); a negative or unparseable radius disables rendering.
 func svgEllipseAttrs(attrs map[string]string) []svgSegment {
+	return svgEllipseAttrsWithBasis(attrs, svgLengthBasis{})
+}
+
+func svgEllipseAttrsWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
+	return svgEllipseAttrsWithBasis(attrs, svgLengthBasis{
+		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
+		fontSize: fontSize, rootFontSize: img.rootFontSize,
+	})
+}
+
+func svgEllipseAttrsWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegment {
 	radius := func(name string) (r float64, auto, ok bool) {
 		value, present := attrs[name]
 		if !present || strings.TrimSpace(value) == "auto" {
 			return 0, true, true
 		}
-		r, ok = svgLength(value)
+		axis := svgHorizontal
+		if name == "ry" {
+			axis = svgVertical
+		}
+		r, ok = basis.length(value, axis)
 		return r, false, ok
 	}
 	rx, autoX, okX := radius("rx")
@@ -1099,18 +1273,22 @@ func svgEllipseAttrs(attrs map[string]string) []svgSegment {
 	if autoY {
 		ry = rx
 	}
-	return svgEllipse(attrs, rx, ry)
+	return svgEllipseWithLengths(attrs, rx, ry, basis)
 }
 
 // svgEllipse outlines an ellipse centered at (cx, cy) with four cubics,
 // starting at the rightmost point and proceeding clockwise (positive angle
 // direction in SVG's y-down space). Zero radii disable rendering.
 func svgEllipse(attrs map[string]string, rx, ry float64) []svgSegment {
+	return svgEllipseWithLengths(attrs, rx, ry, svgLengthBasis{})
+}
+
+func svgEllipseWithLengths(attrs map[string]string, rx, ry float64, basis svgLengthBasis) []svgSegment {
 	if !(rx > 0 && ry > 0) || math.IsInf(rx, 0) || math.IsInf(ry, 0) {
 		return nil
 	}
-	cx, _ := svgCoordinate(attrs["cx"])
-	cy, _ := svgCoordinate(attrs["cy"])
+	cx, _ := basis.coordinate(attrs["cx"], svgHorizontal)
+	cy, _ := basis.coordinate(attrs["cy"], svgVertical)
 	kx, ky := rx*svgCircleConstant, ry*svgCircleConstant
 	pt := func(px, py float64) [2]float64 { return [2]float64{px, py} }
 	return []svgSegment{
@@ -1126,10 +1304,25 @@ func svgEllipse(attrs map[string]string, rx, ry float64) []svgSegment {
 // svgLine is an open two-point subpath; its fill has no area, so only a
 // stroke is visible.
 func svgLine(attrs map[string]string) []svgSegment {
+	return svgLineWithBasis(attrs, svgLengthBasis{})
+}
+
+func svgLineWithLengths(attrs map[string]string, img *svgImage, fontSize float64) []svgSegment {
+	return svgLineWithBasis(attrs, svgLengthBasis{
+		horizontal: img.userWidth, vertical: img.userHeight, diagonal: img.dashBasis,
+		fontSize: fontSize, rootFontSize: img.rootFontSize,
+	})
+}
+
+func svgLineWithBasis(attrs map[string]string, basis svgLengthBasis) []svgSegment {
 	var p [4]float64
 	for i, name := range []string{"x1", "y1", "x2", "y2"} {
 		if value, ok := attrs[name]; ok {
-			n, valid := svgCoordinate(value)
+			axis := svgHorizontal
+			if i%2 == 1 {
+				axis = svgVertical
+			}
+			n, valid := basis.coordinate(value, axis)
 			if !valid {
 				return nil
 			}
