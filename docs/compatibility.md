@@ -15,7 +15,7 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | `normal-flow/block-formatting-contexts-005.xht` | `normal-flow/block-formatting-contexts-005-ref.xht` | match | **pass** | 0 |
 | `normal-flow/block-formatting-context-height-001.xht` | `reference/ref-filled-black-96px-square.xht` | match | **pass** | 0 |
 | `normal-flow/block-in-inline-align-001.html` | `normal-flow/block-in-inline-align-001-ref.html` | match | **pass** | 0 |
-| `tables/anonymous-table-box-width-001.xht` | `reference/ref-filled-green-100px-square.xht` | match | **fail** | 20000 |
+| `tables/anonymous-table-box-width-001.xht` | `reference/ref-filled-green-100px-square.xht` | match | **fail** | 10000 |
 | `tables/border-collapse-005.html` | `tables/border-collapse-005-ref.html` | match | **pass** | 0 |
 
 On failures, run `make compatibility` and inspect `artifacts/wpt/<test>/` (test, reference, red pixel diff). A failure is a pixel mismatch, not a test process failure.
