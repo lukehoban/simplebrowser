@@ -113,9 +113,9 @@ func (s *Stylesheet) declareLayer(name, media string) {
 	}
 }
 
-// assignLayerOrder merges layer trees in stylesheet order. The preorder
-// rank gives later sibling layers higher normal precedence; a layer's own
-// declarations precede its nested layers, as required by the cascade.
+// assignLayerOrder merges layer trees in stylesheet order. Later sibling
+// layers have higher normal precedence. A parent layer's own declarations
+// occupy its implicit final sublayer, after its explicitly nested layers.
 func assignLayerOrder(sheets []Stylesheet, viewport image.Point) {
 	children := map[string][]string{"": nil}
 	known := map[string]bool{}
@@ -144,9 +144,9 @@ func assignLayerOrder(sheets []Stylesheet, viewport image.Point) {
 	var visit func(string)
 	visit = func(parent string) {
 		for _, name := range children[parent] {
+			visit(name)
 			rank[name] = next
 			next++
-			visit(name)
 		}
 	}
 	visit("")

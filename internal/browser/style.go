@@ -911,6 +911,11 @@ func beats(a, b winningDeclaration) bool {
 	if a.presentational != b.presentational {
 		return !a.presentational
 	}
+	// Element-attached declarations outrank stylesheet declarations at the
+	// same origin and importance, before layer order and selector specificity.
+	if a.inline != b.inline {
+		return a.inline
+	}
 	// Layers are considered before specificity. Normal declarations prefer
 	// later layers; important declarations reverse layer order, including
 	// making unlayered important rules weaker than layered important rules.
@@ -919,9 +924,6 @@ func beats(a, b winningDeclaration) bool {
 			return a.layer < b.layer
 		}
 		return a.layer > b.layer
-	}
-	if a.inline != b.inline {
-		return a.inline
 	}
 	for i := range a.spec {
 		if a.spec[i] != b.spec[i] {

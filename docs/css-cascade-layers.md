@@ -4,8 +4,12 @@ The renderer parses named, anonymous, nested, and dotted `@layer` blocks,
 ordering statements, and rules nested in supported `@media` and `@supports`
 conditions. Named-layer order is shared across author stylesheets in document
 order; layer statements and blocks inside `@media` establish order only when
-the query matches the rendering viewport. Normal declarations prefer later
-layers and unlayered declarations; `!important` reverses that order. Layer
+the query matches the rendering viewport. Within a parent layer, its rules
+occupy an implicit final sublayer after its explicitly nested layers. Normal
+declarations prefer later layers and unlayered declarations; `!important`
+reverses that order.
+Element-attached inline declarations win over stylesheet declarations at the
+same origin and importance before layer order and selector specificity. Layer
 precedence is resolved before specificity and source order. Presentational
 hints remain below author CSS.
 

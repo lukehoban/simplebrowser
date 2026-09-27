@@ -42,8 +42,8 @@ func TestParseCascadeLayerBlocksStatementsAndConditions(t *testing.T) {
 	if sheet.Rules[1].Layer != "theme.components" || sheet.Rules[2].Layer == "" {
 		t.Fatalf("nested/anonymous layer metadata = %#v", sheet.Rules)
 	}
-	if sheet.Rules[0].LayerOrder >= sheet.Rules[1].LayerOrder {
-		t.Fatalf("nested layer order = %d, parent order = %d", sheet.Rules[1].LayerOrder, sheet.Rules[0].LayerOrder)
+	if sheet.Rules[0].LayerOrder <= sheet.Rules[1].LayerOrder {
+		t.Fatalf("parent layer order = %d, want greater than nested layer order = %d", sheet.Rules[0].LayerOrder, sheet.Rules[1].LayerOrder)
 	}
 }
 
@@ -68,12 +68,19 @@ func TestCascadeLayerOrderAndImportantReversal(t *testing.T) {
 	}
 }
 
-func TestCascadeLayeredImportantCanBeatInlineImportant(t *testing.T) {
+func TestCascadeInlineStyleBeatsLayeredDeclarations(t *testing.T) {
 	styled := layerTestStyles(t, `<!doctype html><style>
-		@layer critical { #x { color: red !important } }
-	</style><p id="x" style="color: blue !important">inline</p>`)
-	if got := styledElementByID(styled.StyleRoot, "x").Style["color"]; got != "red" {
-		t.Fatalf("layered important color = %q, want red", got)
+		@layer critical {
+			#normal { color: red }
+			#important { color: red !important }
+		}
+	</style>
+	<p id="normal" style="color: blue">normal inline</p>
+	<p id="important" style="color: blue !important">important inline</p>`)
+	for _, id := range []string{"normal", "important"} {
+		if got := styledElementByID(styled.StyleRoot, id).Style["color"]; got != "blue" {
+			t.Errorf("%s inline color = %q, want blue", id, got)
+		}
 	}
 }
 
@@ -129,14 +136,49 @@ func TestCascadeNestedAndAnonymousLayers(t *testing.T) {
 	<p id="normal" class="normal">nested normal</p>
 	<p id="important" class="important">nested important</p>
 	<p id="anon" class="anon">anonymous</p>`)
-	if got := styledElementByID(styled.StyleRoot, "normal").Style["color"]; got != "blue" {
-		t.Fatalf("nested normal color = %q, want blue", got)
+	if got := styledElementByID(styled.StyleRoot, "normal").Style["color"]; got != "red" {
+		t.Fatalf("parent layer normal color = %q, want red", got)
 	}
-	if got := styledElementByID(styled.StyleRoot, "important").Style["color"]; got != "red" {
-		t.Fatalf("nested important color = %q, want red (important precedence reverses nested layer order)", got)
+	if got := styledElementByID(styled.StyleRoot, "important").Style["color"]; got != "blue" {
+		t.Fatalf("nested important color = %q, want blue (important precedence reverses nested layer order)", got)
 	}
 	if got := styledElementByID(styled.StyleRoot, "anon").Style["color"]; got != "blue" {
 		t.Fatalf("later anonymous layer color = %q, want blue", got)
+	}
+}
+
+func TestCascadeParentLayerFollowsDottedAndAnonymousSublayers(t *testing.T) {
+	styled := layerTestStyles(t, `<!doctype html><style>
+		@layer dotted { #dotted { color: red } }
+		@layer dotted.inner { .dotted { color: blue } }
+		@layer {
+			#anonymous { color: red }
+			#important-anonymous { color: red !important }
+			@layer { .anonymous { color: blue } }
+			@layer { .important-anonymous { color: blue !important } }
+		}
+	</style>
+	<p id="dotted" class="dotted">dotted normal</p>
+	<p id="anonymous" class="anonymous">anonymous normal</p>
+	<p id="important-anonymous" class="important-anonymous">anonymous important</p>`)
+	if got := styledElementByID(styled.StyleRoot, "dotted").Style["color"]; got != "red" {
+		t.Fatalf("dotted parent normal color = %q, want red", got)
+	}
+	if got := styledElementByID(styled.StyleRoot, "anonymous").Style["color"]; got != "red" {
+		t.Fatalf("anonymous parent normal color = %q, want red", got)
+	}
+	if got := styledElementByID(styled.StyleRoot, "important-anonymous").Style["color"]; got != "blue" {
+		t.Fatalf("nested anonymous important color = %q, want blue", got)
+	}
+
+	// The same dotted layer pair also verifies that important declarations
+	// reverse the parent/child layer order.
+	styled = layerTestStyles(t, `<!doctype html><style>
+		@layer dotted { #x { color: red !important } }
+		@layer dotted.inner { .x { color: blue !important } }
+	</style><p id="x" class="x">dotted important</p>`)
+	if got := styledElementByID(styled.StyleRoot, "x").Style["color"]; got != "blue" {
+		t.Fatalf("dotted nested important color = %q, want blue", got)
 	}
 }
 
