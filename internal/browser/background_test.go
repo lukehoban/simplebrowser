@@ -149,6 +149,104 @@ func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
 	}
 }
 
+func TestBackgroundPositionAxes(t *testing.T) {
+	for _, tc := range []struct {
+		value, x, y string
+	}{
+		{"", "left", "top"},
+		{"right", "right", "center"},
+		{"top", "center", "top"},
+		{"bottom", "center", "bottom"},
+		{"center", "center", "center"},
+		{"25%", "25%", "center"},
+		{"12px", "12px", "center"},
+		{"top right", "right", "top"},
+		{"bottom left", "left", "bottom"},
+		{"center left", "left", "center"},
+		{"right center", "right", "center"},
+		{"left bottom", "left", "bottom"},
+		{"top 25%", "25%", "top"},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			x, y := backgroundPositionAxes(strings.Fields(tc.value))
+			if x != tc.x || y != tc.y {
+				t.Errorf("axes = %q %q, want %q %q", x, y, tc.x, tc.y)
+			}
+			props := map[string]string{}
+			for _, d := range expandBackground(Declaration{Value: "url(tile.png) no-repeat " + tc.value}) {
+				props[d.Property] = d.Value
+			}
+			if got := props["background-position"]; got != tc.value {
+				t.Errorf("shorthand position = %q, want %q", got, tc.value)
+			}
+		})
+	}
+}
+
+func TestBackgroundPositionPixels(t *testing.T) {
+	tile := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 10; x++ {
+			tile.SetRGBA(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	for _, tc := range []struct {
+		position string
+		x, y     int
+	}{
+		{"right", 90, 45},
+		{"left", 0, 45},
+		{"top", 45, 0},
+		{"bottom", 45, 90},
+		{"center", 45, 45},
+		{"top right", 90, 0},
+		{"right top", 90, 0},
+		{"bottom left", 0, 90},
+		{"left bottom", 0, 90},
+		{"center right", 90, 45},
+		{"25% 75%", 23, 68},
+	} {
+		t.Run(tc.position, func(t *testing.T) {
+			dst := image.NewRGBA(image.Rect(0, 0, 100, 100))
+			drawBackgroundImage(dst, &Box{Rect: dst.Bounds()}, tile, ComputedStyle{
+				"background-position": tc.position, "background-repeat": "no-repeat",
+			})
+			pixel(t, dst, tc.x, tc.y, color.RGBA{255, 0, 0, 255})
+			for _, p := range []image.Point{{0, 0}, {99, 99}, {tc.x - 1, tc.y}, {tc.x, tc.y - 1}} {
+				if p.In(dst.Bounds()) && (p.X < tc.x || p.Y < tc.y) {
+					pixel(t, dst, p.X, p.Y, color.RGBA{})
+				}
+			}
+		})
+	}
+
+	oversized := image.NewRGBA(image.Rect(0, 0, 120, 120))
+	for y := 0; y < 120; y++ {
+		for x := 0; x < 120; x++ {
+			oversized.SetRGBA(x, y, color.RGBA{uint8(x), uint8(y), 0, 255})
+		}
+	}
+	for _, tc := range []struct {
+		position string
+		want     color.RGBA
+	}{
+		{"0% 0%", color.RGBA{0, 0, 0, 255}},
+		{"25% 75%", color.RGBA{5, 15, 0, 255}},
+		{"50% 50%", color.RGBA{10, 10, 0, 255}},
+		{"100% 100%", color.RGBA{20, 20, 0, 255}},
+		{"right", color.RGBA{20, 10, 0, 255}},
+	} {
+		t.Run("oversized "+tc.position, func(t *testing.T) {
+			dst := image.NewRGBA(image.Rect(0, 0, 100, 100))
+			drawBackgroundImage(dst, &Box{Rect: dst.Bounds()}, oversized, ComputedStyle{
+				"background-position": tc.position, "background-repeat": "no-repeat",
+			})
+			pixel(t, dst, 0, 0, tc.want)
+			pixel(t, dst, 99, 99, color.RGBA{tc.want.R + 99, tc.want.G + 99, 0, 255})
+		})
+	}
+}
+
 func TestGradientStopNormalizationAndUnsupportedSyntax(t *testing.T) {
 	g := parseGradient("linear-gradient(to right, red 80%, green, blue 20%, white)", 100, 20)
 	if g == nil {
