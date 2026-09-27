@@ -63,7 +63,10 @@ The reference is pinned to the original capture in PR #264, with SHA-256
 Integrating main `c24a989a5b0142bbe74c24b729a30d597bfc8f91` (media-query
 evaluation) left the GitHub baseline byte-identical across two regenerations
 and unchanged from the original PR: this stand-in contains no media queries.
-The original reference and labeled comparison therefore remain intact.
+Integrating main `e3917f8d08751dc91aefc3167d7481303104859d` (overflow
+clipping) also left the baseline byte-identical in a fresh render. Both
+800×600 comparison panes still match their PNG sources pixel-for-pixel. The
+original reference and labeled comparison therefore remain intact.
 
 ## Source, scope, and asset notes
 
@@ -126,6 +129,8 @@ current-render visuals:
 - [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246),
   distinct from the SVG-only limitation in #161.
 - [#247 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/247).
+- [#265 Refresh separate Moon comparison/documentation after media changes](https://github.com/lukehoban/simplebrowser/issues/265)
+  is tracked outside this GitHub stand-in visual.
 
 These are shared renderer prerequisites linked from the [Wikipedia Moon
 epic #243](https://github.com/lukehoban/simplebrowser/issues/243); that
