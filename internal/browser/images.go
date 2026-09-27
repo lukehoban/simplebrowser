@@ -16,33 +16,45 @@ const maxDecodedImagePixels int64 = 16 << 20
 // fetchImages loads visible img resources once per render. Individual failures
 // are deliberately non-fatal: layout still reserves the dimensions requested
 // by HTML/CSS and can display a broken-image placeholder in a later painter.
-func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) map[*Node]image.Image {
+func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) (map[*Node]image.Image, map[*Node]image.Image) {
 	if fetcher == nil {
 		fetcher = &Fetcher{}
 	}
 	images := make(map[*Node]image.Image)
+	backgrounds := make(map[*Node]image.Image)
 	cache := make(map[string]image.Image)
 	visited := make(map[string]bool)
+	load := func(base, source string) image.Image {
+		target, err := ResolveCSSURL(base, source)
+		if err != nil {
+			return nil
+		}
+		if !visited[target] {
+			visited[target] = true
+			if resource, err := fetcher.Fetch(target); err == nil {
+				cache[target] = decodeImage(resource.Body)
+			}
+		}
+		return cache[target]
+	}
 	var visit func(*StyledNode)
 	visit = func(n *StyledNode) {
 		if n == nil || n.Node == nil {
+			return
+		}
+		if strings.EqualFold(n.Style["display"], "none") {
 			return
 		}
 		if n.Node.Type == ElementNode && strings.EqualFold(n.Node.Name, "img") &&
 			!strings.EqualFold(n.Style["display"], "none") {
 			src, ok := n.Node.Attribute("src")
 			if ok && strings.TrimSpace(src.Value) != "" {
-				if target, err := ResolveCSSURL(document.BaseURL, src.Value); err == nil {
-					if !visited[target] {
-						visited[target] = true
-						if resource, err := fetcher.Fetch(target); err == nil {
-							cache[target] = decodeImage(resource.Body)
-						}
-					}
-					if decoded := cache[target]; decoded != nil {
-						images[n.Node] = decoded
-					}
-				}
+				images[n.Node] = load(document.BaseURL, src.Value)
+			}
+		}
+		if n.Node.Type == ElementNode {
+			if source := backgroundURL(n.Style["background-image"]); source != "" {
+				backgrounds[n.Node] = load(document.BaseURL, source)
 			}
 		}
 		for _, child := range n.Children {
@@ -50,7 +62,7 @@ func fetchImages(document Document, root *StyledNode, fetcher *Fetcher) map[*Nod
 		}
 	}
 	visit(root)
-	return images
+	return images, backgrounds
 }
 
 func decodeImage(data []byte) image.Image {
