@@ -460,7 +460,21 @@ func (p *painter) paintBackground(box *Box) {
 		}
 		layers := p.document.BackgroundImages[box.Node]
 		for i := len(layers) - 1; i >= 0; i-- {
-			drawBackgroundImage(p.canvas, box, layers[i], backgroundLayerStyle(style, i))
+			src := layers[i]
+			if src == nil {
+				values := backgroundLayers(style["background-image"])
+				if i < len(values) {
+					area := box.Rect
+					area.Min.X += borderWidth(style, "left")
+					area.Min.Y += borderWidth(style, "top")
+					area.Max.X -= borderWidth(style, "right")
+					area.Max.Y -= borderWidth(style, "bottom")
+					if gradient := parseGradient(values[i], area.Dx(), area.Dy()); gradient != nil {
+						src = gradient
+					}
+				}
+			}
+			drawBackgroundImage(p.canvas, box, src, backgroundLayerStyle(style, i))
 		}
 		if box.BorderWidths != nil {
 			drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
