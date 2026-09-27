@@ -620,6 +620,9 @@ func (p *painter) paintBackground(box *Box) {
 	}
 	style := p.document.Styles[box.Node]
 	if box.Node != nil && box.Node.Type == ElementNode && style != nil {
+		if visibilityHidden(style) {
+			return
+		}
 		if box.BorderOnly {
 			if box.BorderWidths != nil {
 				drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)
@@ -668,9 +671,15 @@ func (p *painter) paintContent(box *Box) {
 		p.paintInlineBackground(fragment)
 	}
 	for _, run := range box.Text {
+		if visibilityHidden(run.Style) {
+			continue
+		}
 		drawText(p.canvas, run, p.document.Styles, p.faces)
 	}
 	for _, picture := range box.Images {
+		if picture.Node != nil && visibilityHidden(p.document.Styles[picture.Node]) {
+			continue
+		}
 		if p.options.debugImageBoxes {
 			drawImageBoxOutline(p.canvas, picture)
 		} else {
@@ -685,7 +694,7 @@ func (p *painter) paintContent(box *Box) {
 // around the text rectangle.
 func (p *painter) paintInlineBackground(fragment InlineBackground) {
 	style := p.document.Styles[fragment.Node]
-	if style == nil || fragment.Rect.Empty() {
+	if style == nil || fragment.Rect.Empty() || visibilityHidden(style) {
 		return
 	}
 	if c, ok := backgroundColor(style); ok {
@@ -705,6 +714,19 @@ func (p *painter) paintInlineBackground(fragment InlineBackground) {
 		drawBackgroundImage(p.canvas, &Box{Node: fragment.Node, Rect: fragment.Rect},
 			src, backgroundLayerStyle(style, i))
 	}
+}
+
+// visibilityHidden reports whether a box's own background, borders, text and
+// replaced content are invisible (CSS 2.1 §11.2). Layout is unaffected, and
+// painting still visits descendants because visibility:visible can override
+// the inherited value. collapse only differs from hidden for table rows and
+// columns, which this renderer does not collapse yet.
+func visibilityHidden(style ComputedStyle) bool {
+	switch strings.ToLower(strings.TrimSpace(style["visibility"])) {
+	case "hidden", "collapse":
+		return true
+	}
+	return false
 }
 
 // paintOwn draws a box as a unit for positioned stacking layers and floats.

@@ -65,6 +65,8 @@ type InlineBackground struct {
 // or malformed SVG; the rectangle is still reserved so painting can draw a
 // placeholder.
 type ImageBox struct {
+	// Node is the replaced element; painting reads its visibility.
+	Node  *Node
 	Image image.Image
 	Rect  image.Rectangle
 }
@@ -542,6 +544,12 @@ func collapsibleSpace(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' 
 // that inline layout collapses away, i.e. whether it would render nothing.
 func collapsibleWhitespaceOnly(text string) bool {
 	return strings.TrimFunc(text, collapsibleSpace) == ""
+}
+
+// collapsibleFields returns the unbreakable text runs used by inline layout.
+// Unlike strings.Fields, it keeps no-break spaces inside a run.
+func collapsibleFields(text string) []string {
+	return strings.FieldsFunc(text, collapsibleSpace)
 }
 
 // emptyInline reports whether inline content would produce no line box:
@@ -1341,10 +1349,11 @@ func cloneStyle(style ComputedStyle) ComputedStyle {
 
 func positionedIntrinsicWidths(n *StyledNode, faces *faceSet, containingWidth int) (minimum, maximum int) {
 	if n.Node.Type == TextNode {
-		text := strings.Join(strings.Fields(n.Node.Data), " ")
+		fields := collapsibleFields(n.Node.Data)
+		text := strings.Join(fields, " ")
 		m := faces.metrics(n.Style)
 		maximum = m.width(text)
-		for _, word := range strings.Fields(text) {
+		for _, word := range fields {
 			minimum = max(minimum, m.width(word))
 		}
 		return minimum, maximum
@@ -1407,7 +1416,7 @@ func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, 
 	rect := image.Rect(x+margin[3], y+margin[0],
 		content.Max.X+padding[1]+border[1], content.Max.Y+padding[2]+border[2])
 	box := &Box{Node: n.Node, Rect: rect, Content: content,
-		Images: []ImageBox{{Image: picture, Rect: content}}}
+		Images: []ImageBox{{Node: n.Node, Image: picture, Rect: content}}}
 	return box, rect.Dy() + margin[0] + margin[2]
 }
 
@@ -1857,7 +1866,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 					box.Children = append(box.Children,
 						&Box{Node: p.node, Rect: border, Content: content, AtomicInline: true})
 				} else {
-					box.Images = append(box.Images, ImageBox{Image: p.image, Rect: content})
+					box.Images = append(box.Images, ImageBox{Node: p.node, Image: p.image, Rect: content})
 				}
 				xpos = penX.Round() + p.outerWidth()
 				penX = fixed.I(xpos)
