@@ -848,8 +848,11 @@ func specificity(s Selector) [3]int {
 		result[1] += len(p.Classes)
 		result[1] += len(p.Attributes)
 		for _, pseudo := range p.PseudoClasses {
-			if strings.HasPrefix(pseudo, ":") {
-				result[2]++ // pseudo-elements count like type selectors
+			if isPseudoElementName(pseudo) {
+				// Pseudo-elements, including the legacy one-colon :before,
+				// :after, :first-line and :first-letter, count like type
+				// selectors.
+				result[2]++
 			} else {
 				result[1]++
 			}

@@ -101,6 +101,20 @@ continued"`, "linecontinued", true},
 		{`open-quote`, "", false},
 		{`"a" url(x.png)`, "", false},
 		{`"unterminated`, "", false},
+		// An escaped closing quote leaves the string unterminated.
+		{`"x\"`, "", false},
+		{`'x\'`, "", false},
+		{`"x" "y\"`, "", false},
+		{`"x\`, "", false},
+		// Escaped newline forms are line continuations; unescaped ones make a
+		// bad string.
+		{"\"a\\\fb\"", "ab", true},
+		{"\"a\\\rb\"", "ab", true},
+		{"\"a\\\r\nb\"", "ab", true},
+		{"\"a\fb\"", "", false},
+		{"\"a\nb\"", "", false},
+		{`"a\\"`, `a\`, true},
+		{`"\41 B"`, "AB", true},
 	} {
 		got, ok := generatedContent(tc.value)
 		if ok != tc.wantBox || got != tc.want {
@@ -288,5 +302,44 @@ func TestGeneratedContentStableAcrossViewportRestyle(t *testing.T) {
 	}
 	if len(widths) != 2 || widths[0] != 100 || widths[1] != 200 {
 		t.Fatalf("generated widths = %v, want [100 200]", widths)
+	}
+}
+
+func TestGeneratedContentStringEscapesEndToEnd(t *testing.T) {
+	viewport := image.Rect(0, 0, 300, 100)
+	// An escaped closing quote never terminates the string, so the
+	// declaration is invalid and generates no box.
+	if got := allText(t, `<style>p::before{content:"x\"}</style><p>T</p>`, viewport); got != "T|" {
+		t.Errorf("escaped closing quote: text = %q, want %q", got, "T|")
+	}
+	// A backslash before a form feed continues the string.
+	if got := allText(t, "<style>p::before{content:\"a\\\fb\"}</style><p>T</p>", viewport); got != "ab|T|" {
+		t.Errorf("escaped form feed: text = %q, want %q", got, "ab|T|")
+	}
+}
+
+func TestGeneratedContentLegacySyntaxSpecificityMatchesDoubleColon(t *testing.T) {
+	legacy, ok := parseSelectorGroup("p:before")
+	if !ok || len(legacy) != 1 {
+		t.Fatal("parse p:before")
+	}
+	modern, ok := parseSelectorGroup("p::before")
+	if !ok || len(modern) != 1 {
+		t.Fatal("parse p::before")
+	}
+	if a, b := specificity(legacy[0]), specificity(modern[0]); a != b || b != [3]int{0, 0, 2} {
+		t.Fatalf("specificity(p:before) = %v, specificity(p::before) = %v; want both [0 0 2]", a, b)
+	}
+	viewport := image.Rect(0, 0, 300, 100)
+	// With equal specificity, source order decides in both directions.
+	for _, tc := range []struct{ css, want string }{
+		{`p::before{content:"modern"}p:before{content:"legacy"}`, "legacy|T|"},
+		{`p:before{content:"legacy"}p::before{content:"modern"}`, "modern|T|"},
+		{`p::after{content:"modern"}p:after{content:"legacy"}`, "T|legacy|"},
+		{`p:after{content:"legacy"}p::after{content:"modern"}`, "T|modern|"},
+	} {
+		if got := allText(t, "<style>"+tc.css+"</style><p>T</p>", viewport); got != tc.want {
+			t.Errorf("%s: text = %q, want %q", tc.css, got, tc.want)
+		}
 	}
 }

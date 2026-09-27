@@ -119,40 +119,47 @@ func generatedContent(value string) (string, bool) {
 }
 
 // decodeCSSString unquotes a CSS string token and resolves its escapes,
-// including hex escapes and escaped newlines (line continuations).
+// including hex escapes and escaped newlines (line continuations). It reports
+// ok=false for a bad or unterminated string: one whose closing quote is
+// missing or escaped (`"x\"`), or that contains an unescaped newline (CSS
+// Syntax 3 §4.3.5), since such a declaration is invalid.
 func decodeCSSString(token string) (string, bool) {
 	if len(token) < 2 {
 		return "", false
 	}
 	quote := token[0]
-	if quote != '"' && quote != '\'' || token[len(token)-1] != quote {
-		return "", false // Unterminated string; the declaration is invalid.
+	if quote != '"' && quote != '\'' {
+		return "", false
 	}
-	body := token[1 : len(token)-1]
 	var b strings.Builder
-	for i := 0; i < len(body); {
-		if body[i] != '\\' {
-			r, size := utf8.DecodeRuneInString(body[i:])
+	for i := 1; i < len(token); {
+		c := token[i]
+		switch {
+		case c == quote:
+			// Only a closing quote that ends the token terminates the string.
+			return b.String(), i == len(token)-1
+		case c == '\n' || c == '\r' || c == '\f':
+			return "", false // Unescaped newline: a bad string.
+		case c != '\\':
+			r, size := utf8.DecodeRuneInString(token[i:])
 			b.WriteRune(r)
 			i += size
-			continue
-		}
-		if r, end, ok := colorEscape(body, i); ok {
-			b.WriteRune(r)
-			i = end
-			continue
-		}
-		// A backslash before a newline continues the string without adding a
-		// character; a trailing backslash is dropped.
-		i++
-		if i < len(body) {
-			if body[i] == '\r' && i+1 < len(body) && body[i+1] == '\n' {
+		case i+1 >= len(token):
+			return "", false // Escape at end of input: unterminated.
+		case token[i+1] == '\n' || token[i+1] == '\f':
+			i += 2 // Escaped newline: a line continuation adds nothing.
+		case token[i+1] == '\r':
+			i += 2
+			if i < len(token) && token[i] == '\n' {
 				i++
 			}
-			i++
+		default:
+			r, end, _ := colorEscape(token, i)
+			b.WriteRune(r)
+			i = end
 		}
 	}
-	return b.String(), true
+	return "", false // No closing quote.
 }
 
 // replacedOrVoidElements never have generated children: their rendering is

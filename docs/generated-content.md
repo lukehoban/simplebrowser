@@ -23,12 +23,16 @@ go run ./cmd/simplebrowser -o out.png testdata/generated-content/index.html
 
 * `content: none` and `content: normal` generate no box.
 * `content: <string>+` generates a box containing the concatenated strings,
-  with CSS escapes (`"\201C"`), escaped quotes and line continuations decoded.
+  with CSS escapes (`"\201C"`), escaped quotes and line continuations
+  (a backslash before LF, CRLF, CR or form feed) decoded. A bad string, one
+  whose closing quote is missing or escaped (`"x\"`) or that contains a raw
+  newline, makes the declaration invalid.
 * `content: ""` still generates a box. That is how icon-shaped pseudo-elements
   such as Vector's dropdown chevron are written, and it is why an empty string
   is not treated like `none`.
 * The legacy one-colon spellings `:before` and `:after` are pseudo-elements
-  too, and a pseudo-element adds type-level specificity.
+  too, and a pseudo-element adds type-level specificity in either spelling, so
+  `p:before` and `p::before` tie and source order decides.
 * Generated boxes inherit from their originating element, but never pick up its
   `style` attribute or presentational attributes.
 
