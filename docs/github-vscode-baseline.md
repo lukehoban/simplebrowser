@@ -64,61 +64,53 @@ renderer output needs refreshing.
 
 The reference is pinned to the original capture in PR #264, with SHA-256
 `08d37263f4de629f6d9968590a51210b29b9a7ca89438e9fea3c1a80e2747b9e`.
-Integrating main `c24a989a5b0142bbe74c24b729a30d597bfc8f91` (media-query
-evaluation) left the GitHub baseline byte-identical across two regenerations
-and unchanged from the original PR: this stand-in contains no media queries.
-Integrating main `e3917f8d08751dc91aefc3167d7481303104859d` (overflow
-clipping) also left the baseline byte-identical in a fresh render. Both
-the Chrome reference and current baseline remain individual 800×600 images.
+Earlier refreshes after media-query evaluation and overflow clipping left this
+fixture unchanged. The current images below record the refreshed state after
+main `336d924`; the Chrome reference and renderer diagnostic remain individual
+800×600 images.
 
-## Fixed-viewport comparison after shared flex work (main `e33246e`)
+## Fixed-viewport comparison after shared renderer work (main `336d924`)
 
-On 2026-09-27, `make github-vscode-baseline` on main `e33246e` (after
-#290/#291/#292 and earlier flex changes) reproduced the existing diagnostic
-**byte for byte**: SHA-256
-`e936969ccc40255741a9dbcb48e78ca4a359b30d1bcd27d5f0f5b95249377281`.
-The fixture and Chrome 154 reference are unchanged. No new baseline PNG
-was committed; the diagnostic remains non-blocking.
+On 2026-09-27, `make baselines` regenerated HN, Moon and GitHub outputs on
+main `336d924`. The GitHub fixture and pinned Chrome reference are unchanged;
+the fresh simplebrowser diagnostic has SHA-256
+`297f2a4d92d19fac5aca7d8d277f95df8c7fad04c6ae51770d688e4d0bc21bf3`.
+The screenshot is evidence for this authored stand-in only, not a live-site
+capture or CI golden.
 
-![Pinned Chrome reference beside unchanged main e33246e output](screenshots/github-vscode/comparison-after-e33246e.png)
+![Pinned Chrome reference beside current main 336d924 diagnostic](screenshots/github-vscode/comparison-after-336d924.png)
 
-Approximate landmarks at the fixed 800×600 viewport (Chrome → simplebrowser,
-pixels measured from the top left; not normative pixel targets), ordered by
-visible impact:
+At the fixed 800×600 viewport, the previously noted sign-in placement,
+first-child styling, rounded corners, and About heading weight now match
+visually: [#315](https://github.com/lukehoban/simplebrowser/issues/315),
+[#324](https://github.com/lukehoban/simplebrowser/issues/324),
+[#316](https://github.com/lukehoban/simplebrowser/issues/316), and
+[#317](https://github.com/lukehoban/simplebrowser/issues/317) are resolved.
+The selector-driven first-column width and first-row background now also agree
+with the explicit-class repro. The fixture's first-column divider is about
+x234 in both images.
 
-1. Topbar **Sign in** begins at x735 → x411. The other links remain near their
-   expected x positions; a small fixed-width and auto-width flex repro confirms
-   unused space is not assigned to the item's `margin-left:auto` ([#315](https://github.com/lukehoban/simplebrowser/issues/315)).
-2. File table's first column ends at x235 → x255 with the same x28 left edge and
-   x520 right edge. The primary cause is that
-   `.file-list td:first-child { width:42% }` does not match because
-   [`:first-child` is unsupported](https://github.com/lukehoban/simplebrowser/issues/324).
-   A two-table repro contrasts that selector with equivalent explicit classes.
-   Once the selector matches, [#310](https://github.com/lukehoban/simplebrowser/issues/310)
-   remains a smaller secondary contribution because specified widths still use
-   content-box sizing despite the fixture's `box-sizing:border-box`.
-   The unsupported selector also drops
-   `.file-list tr:first-child td { background:var(--muted-bg) }`, which accounts
-   for the missing muted background on the first file row.
-3. Tabs rule sits around y196 → y200, branch controls y216 → y220, first table
-   row y260 → y265; the ninth row ends around y557 → y580. Relative row-height
-   drift is independently visible in a two-row padded table
-   ([#318](https://github.com/lukehoban/simplebrowser/issues/318)); its exact
-   interaction with font metrics [#120](https://github.com/lukehoban/simplebrowser/issues/120)
-   and the initial vertical offset has not been diagnosed.
-4. Public pill, buttons and borders have rectangular instead of rounded corners
-   ([#316](https://github.com/lukehoban/simplebrowser/issues/316)).
-   The About heading near x542 y218 is regular instead of bold despite the
-   browser's heading default ([#317](https://github.com/lukehoban/simplebrowser/issues/317)).
+The remaining clear layout difference is vertical: the tabs rule and branch
+controls are about 4px lower in simplebrowser, the table begins around y265
+versus y260 in Chrome, and the ninth row ends around y580 versus y557. The
+same row-height drift appears in the isolated padded-table comparison below
+([#318](https://github.com/lukehoban/simplebrowser/issues/318)); it is not
+diagnosed as solely a font issue. The doubled shared table-border behavior
+is already tracked by [#66](https://github.com/lukehoban/simplebrowser/issues/66),
+and [#120](https://github.com/lukehoban/simplebrowser/issues/120) tracks the
+separate Arial/Helvetica metric limitation. No additional root cause is
+claimed from this composite.
 
 The isolated tests are in
 [`testdata/github-vscode/layout-repros.html`](../testdata/github-vscode/layout-repros.html),
-**not** in the pinned stand-in fixture. The image compares Chrome 154 (left)
-with the renderer at main `e33246e` (right), both at 800×600. In the focused
-table pair, Chrome renders the selector-driven and explicit-class tables alike;
-simplebrowser applies only the explicit classes:
+**not** in the pinned stand-in fixture. Both panels show Chrome 154 versus the
+renderer at main `336d924`, at 800×600. The selector and explicit-class table
+examples now render alike. The independent `box-sizing:border-box` test still
+shows a 118px renderer box where Chrome measures 100px, tracked by
+[#310](https://github.com/lukehoban/simplebrowser/issues/310); this known
+limitation is not a visible first-column mismatch in the refreshed fixture.
 
-![Isolated layout repros, Chrome versus simplebrowser](screenshots/github-vscode/layout-repros-comparison.png)
+![Current isolated layout repros, Chrome versus simplebrowser](screenshots/github-vscode/layout-repros-comparison-after-336d924.png)
 
 General shared follow-ups [#309](https://github.com/lukehoban/simplebrowser/issues/309)
 (block/flex min/max widths), [#304](https://github.com/lukehoban/simplebrowser/issues/304)
