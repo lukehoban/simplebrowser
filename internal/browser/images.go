@@ -111,13 +111,16 @@ func decodeDataImageURL(source string) ([]byte, bool) {
 	}
 
 	mediaType, _, err := mime.ParseMediaType(header)
+	legacySVGUTF8 := false
 	if err != nil {
 		// Accept the historical data:image/svg+xml;utf8 spelling used by
 		// existing pages, while requiring ordinary parameters to be valid MIME.
+		// Some legacy CSS embeds the SVG as raw text, including literal spaces.
 		if !strings.EqualFold(header, "image/svg+xml;utf8") {
 			return nil, false
 		}
 		mediaType = "image/svg+xml"
+		legacySVGUTF8 = true
 	}
 	switch strings.ToLower(mediaType) {
 	case "image/svg+xml", "image/png", "image/jpeg", "image/gif":
@@ -126,7 +129,7 @@ func decodeDataImageURL(source string) ([]byte, bool) {
 	}
 	if base64Encoded {
 		encodedLimit := base64.StdEncoding.EncodedLen(maxDataImageBytes)
-		encoded, ok := percentDecodeBounded(payload, encodedLimit)
+		encoded, ok := percentDecodeBounded(payload, encodedLimit, false)
 		if !ok || len(encoded) > encodedLimit ||
 			base64.StdEncoding.DecodedLen(len(encoded)) > maxDataImageBytes {
 			return nil, false
@@ -138,7 +141,7 @@ func decodeDataImageURL(source string) ([]byte, bool) {
 		}
 		return decoded[:n], true
 	}
-	return percentDecodeBounded(payload, maxDataImageBytes)
+	return percentDecodeBounded(payload, maxDataImageBytes, legacySVGUTF8)
 }
 
 func hasDataURLScheme(source string) bool {
@@ -147,7 +150,7 @@ func hasDataURLScheme(source string) bool {
 
 // percentDecodeBounded validates escapes and computes the decoded length
 // before allocating the output buffer.
-func percentDecodeBounded(source string, limit int) ([]byte, bool) {
+func percentDecodeBounded(source string, limit int, allowSpaces bool) ([]byte, bool) {
 	length := 0
 	for i := 0; i < len(source); i++ {
 		if source[i] == '%' {
@@ -155,8 +158,9 @@ func percentDecodeBounded(source string, limit int) ([]byte, bool) {
 				return nil, false
 			}
 			i += 2
-		} else if source[i] < 0x21 || source[i] > 0x7e {
-			// URL whitespace and non-ASCII bytes must be percent-encoded.
+		} else if (source[i] < 0x21 && !(allowSpaces && source[i] == ' ')) || source[i] > 0x7e {
+			// Control whitespace and non-ASCII bytes must be percent-encoded;
+			// literal spaces are allowed only for legacy UTF-8 SVG payloads.
 			return nil, false
 		}
 		length++

@@ -73,11 +73,23 @@ func TestDecodeImageFormatsAndBounds(t *testing.T) {
 func TestDecodeDataImageURL(t *testing.T) {
 	svg := `<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"/>`
 	esc := strings.NewReplacer("%", "%25", "<", "%3C", ">", "%3E", " ", "%20", `"`, `%22`)
+	// Mirror Vector's raw-space image/svg+xml;utf8 form, including CSS-escaped
+	// attribute quotes, so the normal background URL extraction path is covered.
+	const moonIconCSS = `url("data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\" viewBox=\"0 0 20 20\" fill=\"%23000\"><path d=\"m16.7 8-6 6H9.3l-6-6 1.4-1.4 5.3 5.3 5.3-5.3z\"/></svg>")`
+	moonIconURL := backgroundURL(moonIconCSS)
+	moonIconData, ok := decodeDataImageURL(moonIconURL)
+	if !ok {
+		t.Fatal("failed to decode raw-space SVG URL extracted from Moon CSS")
+	}
+	if decoded := decodeImage(moonIconData); decoded == nil || decoded.Bounds().Size() != image.Pt(20, 20) {
+		t.Fatalf("raw-space Moon SVG decoded image = %v", decoded)
+	}
 	type dataURLCase struct {
 		name, url string
 		size      image.Point
 	}
 	cases := []dataURLCase{{"percent-svg", "data:image/svg+xml;utf8," + esc.Replace(svg), image.Pt(3, 2)},
+		{"raw-svg-spaces", `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="3" height="2"><rect width="3" height="2" fill="%23008000"/></svg>`, image.Pt(3, 2)},
 		{"base64-svg", "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(svg)), image.Pt(3, 2)}}
 	for _, format := range []string{"png", "jpeg", "gif"} {
 		data := encodedTestImage(t, format, image.Rect(0, 0, 2, 3))
@@ -109,6 +121,8 @@ func TestDecodeDataImageURL(t *testing.T) {
 		"data:text/plain,x",
 		"data:image/png,%zz",
 		"data:image/png,raw space",
+		"data:image/svg+xml;utf8,<svg\twidth=\"3\"/>",
+		"data:image/svg+xml;utf8,<svg\nwidth=\"3\"/>",
 	} {
 		if _, ok := decodeDataImageURL(s); ok {
 			t.Errorf("accepted %q", s)
