@@ -11,7 +11,7 @@ records the initial Hacker News rendering milestone.
 *Current render of the checked-in, offline [Hacker News fixture](testdata/hn/news.html);
 not a pixel-perfect browser reference.*
 
-**Compatibility benchmark: [38/38 pinned WPT reference assertions passing](docs/compatibility.md)**
+**Compatibility benchmark: [39/39 pinned WPT reference assertions passing](docs/compatibility.md)**
 ([JSON results](docs/compatibility.json)). The separate diagnostic matrix is
 reported by rendering area in the [current report and graph](docs/compatibility.md).
 This is a small, pinned test set, not a general web-platform conformance score. Run
