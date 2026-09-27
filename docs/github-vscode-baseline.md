@@ -118,24 +118,28 @@ hand-authored `display:flex`, `gap`, `align-items`, flexible sizing, a table,
 and `--...`/`var(...)` declarations to provide a stable local approximation
 of those mechanisms; it is not GitHub's original CSS.
 
-The baseline PNG now shows the fixture's single-line flex rows, gaps and
-flexible main column beside the About panel. Core `flex`/`inline-flex` row and
-column placement, `flex-grow`/`flex-shrink`/`flex-basis`, `gap`,
-`justify-content`, and `align-items` are implemented for this pinned view.
-This is deliberately not a claim of complete flexbox: multi-line wrapping is
-tracked in [#272](https://github.com/lukehoban/simplebrowser/issues/272).
-Custom properties remain unresolved, so theme colors still differ. The table
-and text are visible; this remains a diagnostic, not parity evidence.
+The baseline PNG shows the fixture's single-line flex rows, gaps and flexible
+main column beside the About panel. Core `flex`/`inline-flex` row and column
+placement, flex sizing, `gap`, `justify-content`, and `align-items` are
+implemented for this pinned view. This is deliberately not a claim of complete
+flexbox: multi-line wrapping is tracked in
+[#272](https://github.com/lukehoban/simplebrowser/issues/272). The renderer
+also resolves inherited custom-property theme colors. The table and text are
+visible; this remains a diagnostic, not parity evidence.
 
 The isolated flex repro before and after the formatter:
 
 ![Flex row before and after](screenshots/github-vscode/flex-row-before-after.png)
 
+[The focused `var()` repro after rendering](screenshots/github-vscode/custom-property-after.png)
+shows the resolved blue text; compare the
+[prior red baseline](screenshots/github-vscode/custom-property-baseline.png).
+
 Confirmed follow-ups are tracked separately and have isolated repros and
 current-render visuals:
 
-- [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246),
-  distinct from the SVG-only limitation in #161.
+- [#246 CSS custom properties in ordinary declarations](https://github.com/lukehoban/simplebrowser/issues/246)
+  are implemented here, distinct from the SVG-only limitation in #161.
 - [#247 Flexbox row/column layout](https://github.com/lukehoban/simplebrowser/issues/247)
   implements the core single-line behavior; [#272](https://github.com/lukehoban/simplebrowser/issues/272)
   tracks wrapping outside this viewport's scope.

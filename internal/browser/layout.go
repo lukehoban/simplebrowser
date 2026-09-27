@@ -864,6 +864,34 @@ func (f *floatContext) bottom() int {
 	return bottom
 }
 
+// clearBottom returns the lowest outer (margin-box) bottom edge of the
+// floats on the sides that n's computed clear value names, or 0 when n does
+// not clear any placed float (CSS 2.1 §9.5.2). Logical values map to the
+// physical sides of this renderer's left-to-right inline direction.
+func (f *floatContext) clearBottom(n *StyledNode) int {
+	if f == nil || n == nil || n.Node == nil || n.Node.Type != ElementNode {
+		return 0
+	}
+	var left, right bool
+	switch strings.ToLower(strings.TrimSpace(n.Style["clear"])) {
+	case "left", "inline-start":
+		left = true
+	case "right", "inline-end":
+		right = true
+	case "both":
+		left, right = true, true
+	default:
+		return 0
+	}
+	bottom := 0
+	for _, item := range f.items {
+		if (item.right && right) || (!item.right && left) {
+			bottom = max(bottom, item.outer.Max.Y)
+		}
+	}
+	return bottom
+}
+
 func floatSide(n *StyledNode) string {
 	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
 		return ""
@@ -1022,6 +1050,11 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 				}
 			}
 			top := cursor + pending.value() + margin[0]
+			// A cleared float's top outer edge must also be below the
+			// earlier floats on its cleared sides.
+			if cleared := cb.floats.clearBottom(child); cleared > top-margin[0] {
+				top = cleared + margin[0]
+			}
 			for {
 				left, right, next := cb.floats.bounds(x, top-margin[0], width, 1)
 				if outerWidth <= right-left || next <= top {
@@ -1060,6 +1093,14 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			top += pending.join(topMargin(child, kind, width)).value()
 		}
 		first = false
+		// Clearance: when the hypothetical border-box top (with margins
+		// collapsed as if clear were none) is not below the relevant floats,
+		// the border edge is placed at the lowest cleared float's outer
+		// bottom. The inserted clearance separates the block's top margin
+		// from the preceding margins, so they no longer collapse.
+		if cleared := cb.floats.clearBottom(child); cleared > top {
+			top = cleared
+		}
 		childX, childWidth := x, width
 		if establishesContext(child) && cb.floats != nil {
 			// BFC roots cannot overlap a float's margin box. Auto-width

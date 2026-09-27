@@ -74,10 +74,11 @@ var tests = []benchmark{
 	pinned("colors/colors-007.xht", "Colors", "Modern color syntaxes, profiles, and interpolation."),
 	pinned("colors/color-applies-to-002.xht", "Colors", "Color application outside the element exercised here."),
 	pinned("colors/color-applies-to-003.xht", "Colors", "Color application outside the element exercised here."),
+	// Promoted from the diagnostic matrix once #68 implemented clearance.
+	pinned("floats-clear/clear-001.xht", "Floats and clear", "Right floats, multiple floats, and margin-collapse interactions."),
 
 	{Test: "margin-padding-clear/margin-collapse-003.xht", Area: "Margins", Suite: "WPT", Diagnostic: true, NotCovered: "Floats, clearance, negative margins, and margin trimming."},
-	{Test: "floats-clear/clear-001.xht", Area: "Floats and clear", Suite: "WPT", Diagnostic: true, NotCovered: "Right floats, multiple floats, and margin-collapse interactions."},
-	{Test: "floats-clear/clear-002.xht", Area: "Floats and clear", Suite: "WPT", Diagnostic: true, NotCovered: "Right floats, nested formatting contexts, and negative clearance."},
+	{Test: "floats-clear/clear-002.xht", Area: "Floats and clear", Suite: "WPT", Diagnostic: true, NotCovered: "Nested formatting contexts and negative clearance; the reference needs inline relative offsets.", Issue: "#76"},
 	{Test: "positioning/bottom-offset-percentage-001.xht", Area: "Positioning", Suite: "WPT", Diagnostic: true, NotCovered: "Auto offsets, replaced elements, and indefinite containing-block heights.", Issue: "#216"},
 	{Test: "positioning/position-relative-004.xht", Area: "Positioning", Suite: "WPT", Diagnostic: true, NotCovered: "Writing modes, bidi reordering, and positioned descendants.", Issue: "#76"},
 	{Test: "backgrounds/background-body-001.xht", Area: "Backgrounds", Suite: "WPT", Diagnostic: true, NotCovered: "Background images, repeat, position, size, and multiple layers."},
@@ -85,6 +86,7 @@ var tests = []benchmark{
 
 	{Test: "canvas-background-image.html", Area: "Backgrounds", Suite: "Local", Diagnostic: true, NotCovered: "Positioning, sizing, non-solid tiles, multiple layers, and root-image propagation.", Issue: "#63"},
 	{Test: "float-clearance-margin-collapse.html", Area: "Floats and clear", Suite: "Local", Diagnostic: true, NotCovered: "Right floats, multiple floats, inline wrapping, and negative margins.", Issue: "#68"},
+	{Test: "float-clearance-sides.html", Area: "Floats and clear", Suite: "Local", Diagnostic: true, NotCovered: "Inline wrapping after clearance, negative margins, and clearance on a first child that collapses through its parent (#275).", Issue: "#68"},
 	{Test: "collapsed-border-conflict.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Row/table borders, style precedence, spans, and multi-row conflicts.", Issue: "#66"},
 	{Test: "inline-table-line-edge.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multiple cells, spans, captions, bidi, and vertical alignment variants.", Issue: "#209"},
 }
@@ -421,9 +423,15 @@ func main() {
 	}
 	if *check {
 		readme, e := os.ReadFile("README.md")
-		score := fmt.Sprintf("%d/%d pinned WPT reference assertions passing", r.Blocking.Pass, r.Blocking.Total)
-		if e != nil || !bytes.Contains(readme, []byte(score)) {
-			fmt.Fprintln(os.Stderr, "README compatibility score is stale:", score)
+		artifacts := []string{"docs/compatibility.md", "docs/compatibility.svg", "docs/compatibility.json"}
+		for _, artifact := range artifacts {
+			if e != nil || !bytes.Contains(readme, []byte(artifact)) {
+				fmt.Fprintln(os.Stderr, "README does not link generated compatibility artifact:", artifact)
+				os.Exit(1)
+			}
+		}
+		if bytes.Contains(readme, []byte("pinned WPT reference assertions passing")) {
+			fmt.Fprintln(os.Stderr, "README duplicates the generated compatibility score")
 			os.Exit(1)
 		}
 	}

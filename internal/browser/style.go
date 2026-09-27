@@ -26,6 +26,11 @@ func style(document Document, fetcher *Fetcher) (StyledDocument, error) {
 				d := &sheets[i].Rules[j].Declarations[k]
 				if d.Property == "background" || d.Property == "background-image" {
 					d.Value = resolveBackgroundURL(d.Value, base)
+				} else if strings.HasPrefix(d.Property, "--") {
+					// A custom property retains the URL's declaration base when
+					// substituted on another element or into a fallback. Resolve
+					// each url() before the token stream enters inheritance.
+					d.Value = resolveCustomPropertyURLs(d.Value, base)
 				}
 			}
 		}
@@ -81,10 +86,11 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 }
 
 type winningDeclaration struct {
-	d                 Declaration
-	important, inline bool
-	origin, order     int
-	spec              [3]int
+	d                         Declaration
+	important, inline         bool
+	validateAfterSubstitution bool
+	origin, order             int
+	spec                      [3]int
 }
 
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
@@ -99,6 +105,11 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 			values[p] = parent[p]
 		}
 	}
+	for p, v := range parent {
+		if strings.HasPrefix(p, "--") {
+			values[p] = v
+		}
+	}
 	// The document language is metadata inherited from HTML, not a CSS
 	// declaration. Invalid or empty tags explicitly reset it to Unicode root.
 	if attr, ok := n.Attribute("lang"); ok {
@@ -108,12 +119,44 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	winners := map[string]winningDeclaration{}
 	order := 0
+	var candidates []winningDeclaration
 	add := func(d Declaration, spec [3]int, origin int, isInline bool) {
-		for _, expanded := range expandDeclaration(d) {
-			if expanded.Property == "color" && !strings.EqualFold(expanded.Value, "inherit") {
+		order++
+		candidates = append(candidates, winningDeclaration{
+			d: d, important: d.Important, inline: isInline, origin: origin, order: order, spec: spec,
+		})
+	}
+	consider := func(candidate winningDeclaration) {
+		if candidate.validateAfterSubstitution && candidate.d.Property == "background" &&
+			candidate.d.Value != invalidVariable && cssWideKeyword(candidate.d.Value) == "" &&
+			!validBackground(candidate.d.Value) {
+			candidate.d.Value = invalidVariable
+		}
+		expandedDeclarations := []Declaration(nil)
+		if keyword := cssWideKeyword(candidate.d.Value); keyword != "" {
+			expandedDeclarations = expandCSSWideDeclaration(candidate.d, keyword)
+		} else {
+			expandedDeclarations = expandDeclaration(candidate.d)
+		}
+		// A substituted invalid font shorthand is still the cascade winner.
+		// expandFont rejects malformed shorthands by returning no longhands;
+		// represent that winner as invalid for every longhand instead.
+		if candidate.validateAfterSubstitution && candidate.d.Property == "font" &&
+			len(expandedDeclarations) == 0 {
+			expandedDeclarations = invalidLonghands(candidate.d,
+				"font-size", "font-family", "font-style", "font-variant", "font-weight", "line-height")
+		}
+		for _, expanded := range expandedDeclarations {
+			invalid := expanded.Value == invalidVariable
+			if candidate.validateAfterSubstitution && !invalid &&
+				!validSubstitutedDeclaration(expanded.Property, expanded.Value) {
+				expanded.Value = invalidVariable
+				invalid = true
+			}
+			if !candidate.validateAfterSubstitution && expanded.Property == "color" && !strings.EqualFold(expanded.Value, "inherit") {
 				// Invalid color tokens must not win the cascade and then paint
 				// black; leave the lower-priority declaration or inherited value.
-				if _, ok := parseColor(strings.ToLower(expanded.Value)); !ok {
+				if _, ok := parseColor(strings.ToLower(expanded.Value)); !ok && !invalid {
 					continue
 				}
 			}
@@ -121,15 +164,14 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 			if expanded.Property == "lang" {
 				continue
 			}
-			if expanded.Property == "font-variant" {
+			if !candidate.validateAfterSubstitution && expanded.Property == "font-variant" && !invalid {
 				switch strings.ToLower(strings.TrimSpace(expanded.Value)) {
 				case "normal", "small-caps", "inherit":
 				default:
 					continue
 				}
 			}
-			order++
-			candidate := winningDeclaration{expanded, d.Important, isInline, origin, order, spec}
+			candidate.d = expanded
 			old, ok := winners[expanded.Property]
 			if ok && !beats(candidate, old) {
 				continue
@@ -160,16 +202,74 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	for _, d := range inline {
 		add(d, [3]int{1, 0, 0}, 1, true)
 	}
-	for property, winner := range winners {
-		value := winner.d.Value
-		if strings.EqualFold(value, "inherit") {
-			if parent != nil {
-				value = parent[property]
+	// Custom properties cascade first, but retain their raw token streams:
+	// a child may replace a variable referenced by an inherited declaration.
+	for _, candidate := range candidates {
+		if strings.HasPrefix(candidate.d.Property, "--") {
+			consider(candidate)
+		}
+	}
+	for p, winner := range winners {
+		switch winner.d.Value {
+		case "inherit", "unset":
+			// The inherited computed token stream was copied above.
+		case "initial":
+			values[p] = invalidVariable
+		default:
+			values[p] = winner.d.Value
+		}
+	}
+	// Custom properties inherit their computed (already substituted) values,
+	// not their unresolved declarations. Compute them before ordinary values.
+	rawCustom := cloneStyle(values)
+	for p, v := range values {
+		if strings.HasPrefix(p, "--") {
+			resolved, ok := substituteVars(v, rawCustom, map[string]bool{p: true})
+			if !ok {
+				values[p] = invalidVariable
 			} else {
-				continue
+				values[p] = resolved
 			}
 		}
-		values[property] = value
+	}
+	clear(winners)
+	for _, candidate := range candidates {
+		if strings.HasPrefix(candidate.d.Property, "--") {
+			continue
+		}
+		if containsVarFunction(candidate.d.Value) {
+			candidate.validateAfterSubstitution = true
+			resolved, ok := substituteVars(candidate.d.Value, values, nil)
+			if ok && strings.TrimSpace(resolved) != "" {
+				candidate.d.Value = strings.TrimSpace(resolved)
+				candidate.d.Values = parseValues(candidate.d.Value)
+			} else {
+				candidate.d.Value = invalidVariable
+			}
+		}
+		consider(candidate)
+	}
+	for property, winner := range winners {
+		value := winner.d.Value
+		if value == invalidVariable {
+			// Invalid at computed-value time behaves as unset. The inherited
+			// value or compact initial representation is already in values.
+			continue
+		}
+		keyword := cssWideKeyword(value)
+		switch keyword {
+		case "inherit":
+			inheritComputedValue(values, parent, property)
+		case "initial":
+			setInitialComputedValue(values, property)
+		case "unset", "revert", "revert-layer":
+			// Revert keywords are not implemented; treat them as invalid at
+			// computed-value time rather than exposing the keyword. Invalid
+			// substituted values have the same unset behavior.
+			unsetComputedValue(values, parent, property)
+		default:
+			values[property] = value
+		}
 	}
 	parentFontSize := 16.0
 	if parent != nil {
@@ -185,6 +285,100 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	resolveFontRelativeValues(values, rootFontSize)
 	return values
+}
+
+// validSubstitutedDeclaration applies the same grammar used by @supports to
+// values whose var() references have been resolved. Unsupported properties
+// remain outside this renderer's validation surface, as they do in @supports.
+func validSubstitutedDeclaration(property, value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "inherit", "initial", "unset":
+		return true
+	}
+	if validate, ok := supportValidators[property]; ok {
+		return validate(strings.TrimSpace(value))
+	}
+	return true
+}
+
+func cssWideKeyword(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "inherit", "initial", "unset", "revert", "revert-layer":
+		return strings.ToLower(strings.TrimSpace(value))
+	}
+	return ""
+}
+
+// expandCSSWideDeclaration preserves a CSS-wide keyword until it reaches each
+// longhand. Shorthand parsers normally reject or consume these as ordinary
+// tokens, but CSS-wide keywords apply atomically to every shorthand component.
+func expandCSSWideDeclaration(d Declaration, keyword string) []Declaration {
+	var properties []string
+	switch d.Property {
+	case "font":
+		properties = []string{"font-style", "font-variant", "font-weight", "font-size", "line-height", "font-family"}
+	case "background":
+		properties = []string{"background-color", "background-image", "background-repeat", "background-position", "background-size"}
+	case "margin", "padding", "border-width", "border-color", "border-style":
+		properties = []string{d.Property + "-top", d.Property + "-right", d.Property + "-bottom", d.Property + "-left"}
+	case "border":
+		properties = []string{"border-top", "border-right", "border-bottom", "border-left"}
+	default:
+		properties = []string{d.Property}
+	}
+	if keyword == "revert" || keyword == "revert-layer" {
+		return invalidLonghands(d, properties...)
+	}
+	result := make([]Declaration, 0, len(properties))
+	for _, property := range properties {
+		result = append(result, Declaration{Property: property, Value: keyword, Important: d.Important})
+	}
+	return result
+}
+
+var inheritedCSSProperties = map[string]bool{
+	"border-spacing": true, "color": true, "font-family": true, "font-size": true,
+	"font-style": true, "font-variant": true, "font-weight": true, "line-height": true,
+	"text-align": true,
+}
+
+var initialComputedValues = map[string]string{
+	"display": "inline", "color": "black", "font-family": "serif", "font-size": "16px",
+	"font-style": "normal", "font-variant": "normal", "font-weight": "normal",
+	"line-height": "normal", "text-align": "start", "background-color": "transparent",
+	"background-image": "none", "background-repeat": "repeat", "background-position": "0% 0%",
+	"background-size": "auto",
+}
+
+func setInitialComputedValue(values ComputedStyle, property string) {
+	if value, ok := initialComputedValues[property]; ok {
+		values[property] = value
+	} else {
+		delete(values, property)
+	}
+}
+
+func inheritComputedValue(values ComputedStyle, parent ComputedStyle, property string) {
+	if parent != nil {
+		if value, ok := parent[property]; ok {
+			values[property] = value
+			return
+		}
+	}
+	setInitialComputedValue(values, property)
+}
+
+func unsetComputedValue(values ComputedStyle, parent ComputedStyle, property string) {
+	if inheritedCSSProperties[property] {
+		inheritComputedValue(values, parent, property)
+		return
+	}
+	setInitialComputedValue(values, property)
+}
+
+func validFontFamilyValue(value string) bool {
+	tokens, ok := tokenizeFont(value)
+	return ok && validFontFamily(tokens)
 }
 
 // mediaQueryMatches deliberately implements the fixed rendering environment:
@@ -367,6 +561,9 @@ func formatPixels(value float64) string {
 // font-relative computed lengths.
 func resolveViewportRelativeValues(values ComputedStyle, viewport image.Point) {
 	for property, text := range values {
+		if strings.HasPrefix(property, "--") {
+			continue
+		}
 		values[property] = resolveLengthTokens(property, text, func(v CSSValue) (string, bool) {
 			basis, ok := viewportLengthBasis(v.Unit, viewport)
 			if !ok {
@@ -454,7 +651,7 @@ func resolveFontRelativeValues(values ComputedStyle, rootSize float64) {
 	fontSize := computedFontSize(values)
 	ratios := ratiosFor(values)
 	for property, text := range values {
-		if property == "font-size" {
+		if property == "font-size" || strings.HasPrefix(property, "--") {
 			continue
 		}
 		values[property] = resolveLengthTokens(property, text, func(v CSSValue) (string, bool) {
@@ -710,6 +907,8 @@ func matchesPart(n *Node, p SelectorPart) bool {
 // selector can only style fewer elements, never more.
 func matchesPseudoClass(n *Node, pseudo string) bool {
 	switch pseudo {
+	case "root":
+		return n.Parent == nil || n.Parent.Type != ElementNode
 	case "last-child":
 		if n.Type != ElementNode {
 			return false
@@ -734,9 +933,18 @@ func matchesPseudoClass(n *Node, pseudo string) bool {
 }
 
 func expandDeclaration(d Declaration) []Declaration {
+	if d.Value == invalidVariable {
+		switch d.Property {
+		case "background":
+			return invalidLonghands(d, "background-color", "background-image", "background-repeat", "background-position", "background-size")
+		case "font":
+			return invalidLonghands(d, "font-size", "font-family", "font-style", "font-variant", "font-weight", "line-height")
+		}
+	}
 	if d.Property == "background" {
 		return expandBackground(d)
 	}
+
 	if d.Property == "font" {
 		return expandFont(d)
 	}
@@ -747,6 +955,7 @@ func expandDeclaration(d Declaration) []Declaration {
 		}
 		return result
 	}
+
 	if d.Property != "margin" && d.Property != "padding" && d.Property != "border-width" &&
 		d.Property != "border-color" && d.Property != "border-style" {
 		return []Declaration{d}
@@ -768,6 +977,14 @@ func expandDeclaration(d Declaration) []Declaration {
 	result := make([]Declaration, 4)
 	for i := range result {
 		result[i] = Declaration{Property: names[i], Value: parts[i], Important: d.Important}
+	}
+	return result
+}
+
+func invalidLonghands(d Declaration, names ...string) []Declaration {
+	result := make([]Declaration, 0, len(names))
+	for _, name := range names {
+		result = append(result, Declaration{Property: name, Value: invalidVariable, Important: d.Important})
 	}
 	return result
 }

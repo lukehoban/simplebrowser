@@ -6,37 +6,30 @@ An educational browser built from scratch in Go: render a URL or local HTML file
 to a PNG. The completed [browser epic (#2)](https://github.com/lukehoban/simplebrowser/issues/2)
 records the initial Hacker News rendering milestone.
 
-![Hacker News offline fixture rendered by simplebrowser](docs/screenshots/hn-fixture.png)
+<p align="center">
+  <img src="docs/screenshots/hn-fixture.png" width="560" alt="Hacker News offline fixture rendered by simplebrowser">
+</p>
 
 *Current render of the checked-in, offline [Hacker News fixture](testdata/hn/news.html);
 not a pixel-perfect browser reference.*
 
-**Compatibility benchmark: [38/38 pinned WPT reference assertions passing](docs/compatibility.md)**
-([JSON results](docs/compatibility.json)). The separate diagnostic matrix is
-reported by rendering area in the [current report and graph](docs/compatibility.md).
-This is a small, pinned test set, not a general web-platform conformance score. Run
-`make compatibility` to regenerate the report and inspect failure diagnostics
-in `artifacts/wpt/`.
+**What works:** HTTP(S) and local-file loading, HTML parsing, CSS cascade,
+block/inline/table layout, and PNG painting of text, borders, backgrounds,
+images, and a practical SVG subset. CI tests the renderer and verifies the
+committed HN golden.
 
-**What works:** HTTP(S) and local-file loading; HTML parsing; CSS cascade; block,
-inline, and table layout; PNG painting of text, borders, images, and a subset of
-SVG. Raster CSS backgrounds paint in layers, and local SVG `<defs>`/`<use>`
-references are supported. Bounded two-color CSS `linear-gradient()` backgrounds
-support directions, angles, percentage stops, and multiple interpolation
-hints. SVG strokes support bounded dash arrays and offsets with CSS lengths
-and percentages; basic shapes and stroke widths resolve font-relative
-`ex`/`ch` lengths using embedded face metrics. The offline HN
-fixture is rendered in CI, with the result available as a
-[workflow artifact](https://github.com/lukehoban/simplebrowser/actions/workflows/ci.yml).
+**What's next:** improve the bounded
+[Wikipedia Moon](docs/wikipedia-moon-baseline.md) and
+[GitHub repository-page](docs/github-vscode-baseline.md) views. Those checked-in
+baseline/reference pairs document the current output, reproduction commands,
+and evidence-backed gaps; the live [site epics (#243)](https://github.com/lukehoban/simplebrowser/issues/243)
+and [(#242)](https://github.com/lukehoban/simplebrowser/issues/242) track work.
 
-**What's next:** Track [renderer follow-ups (#154)](https://github.com/lukehoban/simplebrowser/issues/154)
-and the [per-area benchmark matrix (#240)](https://github.com/lukehoban/simplebrowser/issues/240)
-for current scope and live checklists. The bounded
-[Wikipedia Moon target (#243)](https://github.com/lukehoban/simplebrowser/issues/243)
-has an [offline baseline, reference and gap inventory](docs/wikipedia-moon-baseline.md).
-[GitHub repository-page target (#242)](https://github.com/lukehoban/simplebrowser/issues/242)
-has an [offline Chrome reference, diagnostic baseline and evidence
-notes](docs/github-vscode-baseline.md).
+**Compatibility:** see the generated [coverage report](docs/compatibility.md),
+[pass/fail graph](docs/compatibility.svg), and
+[machine-readable results](docs/compatibility.json). They describe a small,
+pinned reference set—not a general web-platform conformance score—and are
+verified by CI rather than copied into this README.
 
 ## Usage
 
@@ -75,5 +68,6 @@ the pinned [compatibility report](docs/compatibility.md) and inspect mismatch
 images under `artifacts/wpt/`, run `make compatibility`. After an intentional
 rendering change, run `make baselines` to refresh the blocking HN golden plus
 the non-blocking Moon and GitHub VS Code diagnostic baselines. The individual
-targets remain available; `make image-boxes` refreshes the HN
+targets are `make screenshot`, `make moon-baseline`, and
+`make github-vscode-baseline`; `make image-boxes` refreshes the HN
 [image-box diagnostic](docs/screenshots/hn-image-boxes.png).
