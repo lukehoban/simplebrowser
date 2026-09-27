@@ -290,6 +290,8 @@ type svgExpansion struct {
 	// marks a currently resolving or unsupported pattern.
 	patterns      map[*svgNode]*svgPattern
 	patternPixels int64
+	// patternBudget bounds lazily scaled pattern tiles for the document.
+	patternBudget *svgPatternBudget
 	// colors memoizes computed color values for non-rendered gradient trees.
 	colors   map[*svgNode]color.NRGBA
 	elements int

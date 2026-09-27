@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="80" viewBox="0 0 180 80">
+  <rect width="180" height="80" fill="#f5f1e8"/>
+  <defs>
+    <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="10" cy="10" r="8" fill="#16a34a"/>
+    </pattern>
+    <pattern id="tilted" width="20" height="20" patternUnits="userSpaceOnUse" patternTransform="rotate(20) scale(1.25)">
+      <circle cx="10" cy="10" r="8" fill="#2563eb"/>
+    </pattern>
+  </defs>
+  <rect x="10" y="10" width="75" height="60" fill="url(#dots) #64748b"/>
+  <rect x="95" y="10" width="75" height="60" fill="url(#tilted) #64748b"/>
+</svg>
