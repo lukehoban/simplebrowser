@@ -93,6 +93,57 @@ func TestTableCaptionSideOrdersRealTableCaptions(t *testing.T) {
 	}
 }
 
+func TestCaptionsSpanGridOutsideBorder(t *testing.T) {
+	for _, tc := range []struct {
+		name, tableStyle string
+		width            int
+	}{
+		{"intrinsic", "border-spacing:0", 164},
+		{"explicit fixed", "border-spacing:0;width:220px;table-layout:fixed", 220},
+		{"explicit auto", "border-spacing:0;width:220px", 224},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := `<body style="margin:0"><table style="border:2px solid black;` + tc.tableStyle + `">` +
+				`<caption style="caption-side:bottom;background:yellow;text-align:center;height:12px">BELOW</caption>` +
+				`<tr><td style="width:40px;height:16px;padding:0;background:red">A</td>` +
+				`<td style="width:120px;padding:0;background:blue">B</td></tr>` +
+				`<caption style="background:yellow;text-align:center;height:12px">ABOVE</caption></table>` +
+				`<div style="height:5px;background:green">next</div></body>`
+			doc := styledForLayout(t, source)
+			got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 100))
+			if err != nil {
+				t.Fatal(err)
+			}
+			table := collectBoxes(got.Root, "table")[0]
+			above := boxWithText(t, got.Root, "caption", "ABOVE")
+			below := boxWithText(t, got.Root, "caption", "BELOW")
+			a := boxWithText(t, got.Root, "td", "A")
+			b := boxWithText(t, got.Root, "td", "B")
+			next := boxWithText(t, got.Root, "div", "next")
+			if above.Rect != image.Rect(0, 0, tc.width, 12) ||
+				table.Rect.Min.Y != 12 || table.Rect.Dx() != tc.width ||
+				below.Rect != image.Rect(0, table.Rect.Max.Y, tc.width, table.Rect.Max.Y+12) ||
+				next.Rect.Min.Y != below.Rect.Max.Y {
+				t.Fatalf("above %v, grid %v, below %v, next %v: captions must span outside border",
+					above.Rect, table.Rect, below.Rect, next.Rect)
+			}
+			if a.Rect.Min.X != 2 || b.Rect.Min.X < a.Rect.Max.X || b.Rect.Max.X > tc.width-2 {
+				t.Fatalf("grid columns moved: %v %v", a.Rect, b.Rect)
+			}
+			img := painted(t, source, image.Rect(0, 0, 300, 100))
+			pixel(t, img, tc.width-1, 5, color.RGBA{255, 255, 0, 255})
+			pixel(t, img, tc.width-1, table.Rect.Max.Y+5, color.RGBA{255, 255, 0, 255})
+			pixel(t, img, 0, table.Rect.Min.Y+2, color.RGBA{0, 0, 0, 255})
+			pixel(t, img, 0, next.Rect.Min.Y, color.RGBA{0, 128, 0, 255})
+			for _, caption := range []*Box{above, below} {
+				if ink := textRunBounds(caption); ink.Min.X <= a.Rect.Max.X {
+					t.Fatalf("centered caption text %v should not be confined to first column %v", ink, a.Rect)
+				}
+			}
+		})
+	}
+}
+
 // Consecutive misparented cells share one anonymous row, while ordinary
 // siblings and whitespace around them stay in normal flow.
 func TestAnonymousTableGroupsConsecutiveCells(t *testing.T) {
