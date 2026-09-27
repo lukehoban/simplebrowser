@@ -199,7 +199,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 	if root == nil {
 		return nil, errUnsupportedSVG
 	}
-	state := svgExpansion{img: img, ids: ids, active: make(map[*svgNode]bool)}
+	state := svgExpansion{img: img, root: root, ids: ids, active: make(map[*svgNode]bool)}
 	if err := state.walk(root, svgDefaultFrame(), false, 0); err != nil {
 		return nil, err
 	}
@@ -216,18 +216,19 @@ func decodeSVG(data []byte) (*svgImage, error) {
 // references and exponentially branching references cannot bypass it.
 type svgExpansion struct {
 	img      *svgImage
+	root     *svgNode
 	ids      map[string]*svgNode
 	active   map[*svgNode]bool
 	elements int
 	segments int
 }
 
-func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, depth int) error {
+func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
 	s.elements++
 	if s.elements > maxSVGElements {
 		return errUnsupportedSVG
 	}
-	if depth > maxSVGUseDepth || !node.valid {
+	if useDepth > maxSVGUseDepth || !node.valid {
 		return nil
 	}
 	name := node.name
@@ -236,7 +237,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, dep
 	}
 	// Only the document root SVG is rendered; referenced groups/shapes work,
 	// but a referenced nested SVG requires viewport semantics we do not support.
-	if name == "svg" && depth != 0 {
+	if name == "svg" && node != s.root {
 		return nil
 	}
 	current := parent
@@ -292,7 +293,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, dep
 		}
 		current.transform = (svgAffine{a: 1, d: 1, e: x, f: y}).then(current.transform)
 		s.active[target] = true
-		err := s.walk(target, current, true, depth+1)
+		err := s.walk(target, current, true, useDepth+1)
 		delete(s.active, target)
 		return err
 	}
@@ -333,7 +334,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, dep
 		}
 	}
 	for _, child := range node.children {
-		if err := s.walk(child, current, false, depth+1); err != nil {
+		if err := s.walk(child, current, false, useDepth); err != nil {
 			return err
 		}
 	}

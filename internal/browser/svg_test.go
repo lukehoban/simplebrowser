@@ -971,6 +971,19 @@ func TestSVGUseNestedReferencesAndOverrides(t *testing.T) {
 }
 
 func TestSVGUseExpansionLimits(t *testing.T) {
+	// Ordinary source-tree nesting is not reference recursion and must not
+	// consume the use-depth budget.
+	deep := `<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1">` +
+		strings.Repeat(`<g>`, maxSVGUseDepth+10) + `<rect width="1" height="1"/>` +
+		strings.Repeat(`</g>`, maxSVGUseDepth+10) + `</svg>`
+	img, err := decodeSVG([]byte(deep))
+	if err != nil {
+		t.Fatalf("deep non-reference tree: %v", err)
+	}
+	if got := img.RGBAAt(0, 0); got.A == 0 {
+		t.Error("ordinary nesting incorrectly consumed use-depth budget")
+	}
+
 	// A short, exponentially expanding graph must not evade the source
 	// element cap. It should fail before rasterizing the image.
 	var b strings.Builder
