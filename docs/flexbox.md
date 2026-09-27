@@ -47,7 +47,17 @@ its second item must stay inside the 180px container.
   for positive and negative free space in row and column containers.
 - Intrinsic (shrink-to-fit) widths: a row's max-content width is its items
   plus gaps on one line; its min-content width is the widest item when
-  wrapping, else the sum of items.
+  wrapping, else the sum of items. Each row item's contribution is clamped by
+  an inflexible *definite length* flex base size and then by length
+  `min-width`/`max-width`
+  ([#291](https://github.com/lukehoban/simplebrowser/issues/291)). Percentage
+  bases — including the `0%` implied by `flex:<number>` and
+  `flex:<number> <number>`, and mixed `calc()` — are indefinite while the
+  container is being measured, so those items keep their content
+  contribution; an explicit `flex:0 0 0px` stays definite.
+  [Implied 0% basis: before](screenshots/flex/unitless-basis-intrinsic-before.png)
+  · [after](screenshots/flex/unitless-basis-intrinsic-after.png)
+  ([`testdata/flex/unitless-basis-intrinsic.html`](../testdata/flex/unitless-basis-intrinsic.html)).
 - Direct text children become anonymous flex items, including NBSP-only runs
   ([#278](https://github.com/lukehoban/simplebrowser/issues/278)).
 
