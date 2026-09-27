@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  body { margin: 24px; color: #172033; font: 20px sans-serif; background: #f5f7fb }
+  h1 { margin: 0 0 18px; font-size: 27px }
+  .row { height: 74px; white-space: nowrap; border-top: 1px solid #b8c4d8 }
+  .label { display: inline-block; width: 116px; color: #475569; vertical-align: baseline }
+  table { display: inline-table; width: 108px; border: 3px solid #2563eb;
+          border-spacing: 0; background: #dbeafe }
+  td { height: 36px; text-align: center }
+  .guide { color: #be123c }
+</style>
+</head>
+<body>
+<h1>Inline-table vertical alignment</h1>
+<div class="row"><span class="label">baseline</span><span class="guide">Text · </span><table style="vertical-align:baseline"><tr><td>table</td></tr></table><span class="guide"> · baseline</span></div>
+<div class="row"><span class="label">top</span><span class="guide">Text · </span><table style="vertical-align:top"><tr><td>table</td></tr></table><span class="guide"> · top</span></div>
+<div class="row"><span class="label">middle</span><span class="guide">Text · </span><table style="vertical-align:middle"><tr><td>table</td></tr></table><span class="guide"> · middle</span></div>
+<div class="row"><span class="label">bottom</span><span class="guide">Text · </span><table style="vertical-align:bottom"><tr><td>table</td></tr></table><span class="guide"> · bottom</span></div>
+<div class="row"><span class="label">text-top</span><span class="guide">Text · </span><table style="vertical-align:text-top"><tr><td>table</td></tr></table><span class="guide"> · text top</span></div>
+<div class="row"><span class="label">+12px</span><span class="guide">Text · </span><table style="vertical-align:12px"><tr><td>table</td></tr></table><span class="guide"> · raised</span></div>
+</body>
+</html>

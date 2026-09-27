@@ -33,6 +33,18 @@ func firstRun(b *Box, want string) (TextRun, bool) {
 	return TextRun{}, false
 }
 
+func boxParent(root, target *Box) *Box {
+	for _, child := range root.Children {
+		if child == target {
+			return root
+		}
+		if parent := boxParent(child, target); parent != nil {
+			return parent
+		}
+	}
+	return nil
+}
+
 func TestInlineTablesShareOneLine(t *testing.T) {
 	root := layoutMarkup(t, `<body style="margin:0;width:400px">`+
 		`<table style="display:inline-table;border:2px solid red"><tr><td>A</td></tr></table>`+
@@ -94,6 +106,118 @@ func TestInlineTableSitsBetweenSurroundingText(t *testing.T) {
 		t.Errorf("cell text at y %d, want the surrounding baseline at %d",
 			cell.Rect.Min.Y, before.Rect.Min.Y)
 	}
+}
+
+func TestInlineTableVerticalAlignments(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		align string
+		check func(t *testing.T, line, table *Box, baseline, ascent, descent int)
+	}{
+		{"baseline", "baseline", func(t *testing.T, _ *Box, table *Box, baseline, _, _ int) {
+			cell, ok := firstRun(table, "cell")
+			if !ok {
+				t.Fatal("missing cell text")
+			}
+			faces := newFaceSet()
+			defer faces.close()
+			cellAscent, _ := faces.metrics(cell.Style).lineMetrics()
+			if got := cell.Rect.Min.Y + cellAscent; got != baseline {
+				t.Fatalf("first-row baseline = %d, want surrounding baseline %d", got, baseline)
+			}
+		}},
+		{"top", "top", func(t *testing.T, line, table *Box, _, _, _ int) {
+			if table.Rect.Min.Y != line.Rect.Min.Y {
+				t.Fatalf("table top = %d, line top = %d", table.Rect.Min.Y, line.Rect.Min.Y)
+			}
+		}},
+		{"middle", "middle", func(t *testing.T, _ *Box, table *Box, baseline, _, _ int) {
+			if got := table.Rect.Min.Y + table.Rect.Dy()/2; got != baseline-4 {
+				t.Fatalf("table midpoint = %d, want %d", got, baseline-4)
+			}
+		}},
+		{"bottom", "bottom", func(t *testing.T, line, table *Box, _, _, _ int) {
+			if table.Rect.Max.Y != line.Rect.Max.Y {
+				t.Fatalf("table bottom = %d, line bottom = %d", table.Rect.Max.Y, line.Rect.Max.Y)
+			}
+		}},
+		{"text-top", "text-top", func(t *testing.T, _ *Box, table *Box, baseline, ascent, _ int) {
+			if table.Rect.Min.Y != baseline-ascent {
+				t.Fatalf("table top = %d, parent text top = %d", table.Rect.Min.Y, baseline-ascent)
+			}
+		}},
+		{"text-bottom", "text-bottom", func(t *testing.T, _ *Box, table *Box, baseline, _, descent int) {
+			if table.Rect.Max.Y != baseline+descent {
+				t.Fatalf("table bottom = %d, parent text bottom = %d", table.Rect.Max.Y, baseline+descent)
+			}
+		}},
+		{"length", "12px", func(t *testing.T, _ *Box, table *Box, baseline, _, _ int) {
+			cell, ok := firstRun(table, "cell")
+			if !ok {
+				t.Fatal("missing cell text")
+			}
+			faces := newFaceSet()
+			defer faces.close()
+			cellAscent, _ := faces.metrics(cell.Style).lineMetrics()
+			if got := cell.Rect.Min.Y + cellAscent; got != baseline-12 {
+				t.Fatalf("raised first-row baseline = %d, want %d", got, baseline-12)
+			}
+		}},
+		{"percentage", "50%", func(t *testing.T, _ *Box, table *Box, baseline, ascent, descent int) {
+			cell, ok := firstRun(table, "cell")
+			if !ok {
+				t.Fatal("missing cell text")
+			}
+			faces := newFaceSet()
+			defer faces.close()
+			cellAscent, _ := faces.metrics(cell.Style).lineMetrics()
+			want := baseline - int(float64(ascent+descent)*0.5+0.5)
+			if got := cell.Rect.Min.Y + cellAscent; got != want {
+				t.Fatalf("percentage-shifted baseline = %d, want %d", got, want)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			markup := `<body style="margin:0;font:16px sans-serif"><div>A` +
+				`<table style="display:inline-table;vertical-align:` + tc.align +
+				`;border:2px solid red;border-spacing:0"><tr><td style="height:28px">cell</td></tr></table>z</div></body>`
+			root := layoutMarkup(t, markup, image.Rect(0, 0, 300, 120))
+			tables := collectBoxes(root, "table")
+			if len(tables) != 1 {
+				t.Fatalf("got %d tables, want 1", len(tables))
+			}
+			line := boxParent(root, tables[0])
+			if line == nil {
+				t.Fatal("missing containing line box")
+			}
+			run, ok := firstRun(line, "A")
+			if !ok {
+				t.Fatal("missing surrounding text")
+			}
+			faces := newFaceSet()
+			ascent, descent := faces.metrics(run.Style).lineMetrics()
+			faces.close()
+			tc.check(t, line, tables[0], run.Rect.Min.Y+ascent, ascent, descent)
+		})
+	}
+}
+
+func TestPaintInlineTableVerticalAlignTop(t *testing.T) {
+	const markup = `<body style="margin:0;font:16px sans-serif">A` +
+		`<table style="display:inline-table;vertical-align:top;border:4px solid red;border-spacing:0">` +
+		`<tr><td style="height:32px">cell</td></tr></table>z</body>`
+	viewport := image.Rect(0, 0, 240, 100)
+	root := layoutMarkup(t, markup, viewport)
+	tables := collectBoxes(root, "table")
+	if len(tables) != 1 {
+		t.Fatalf("got %d tables, want 1", len(tables))
+	}
+	line := boxParent(root, tables[0])
+	if line == nil {
+		t.Fatal("missing containing line box")
+	}
+	img := painted(t, markup, viewport)
+	pixel(t, img, tables[0].Rect.Min.X+1, line.Rect.Min.Y+1, color.RGBA{255, 0, 0, 255})
 }
 
 func TestInlineTableWrapsWhenLineIsFull(t *testing.T) {
