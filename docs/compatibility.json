@@ -2,20 +2,20 @@
   "wpt_revision": "647d3bdf133159739b57cfb7afa0be3f5d76b9db",
   "viewport": "800x600",
   "blocking_wpt": {
-    "total": 38,
-    "pass": 38,
+    "total": 39,
+    "pass": 39,
     "fail": 0,
     "error": 0
   },
   "diagnostic_wpt": {
-    "total": 7,
+    "total": 6,
     "pass": 3,
-    "fail": 4,
+    "fail": 3,
     "error": 0
   },
   "diagnostic_local": {
-    "total": 4,
-    "pass": 2,
+    "total": 5,
+    "pass": 3,
     "fail": 2,
     "error": 0
   },
@@ -80,8 +80,8 @@
       "suite": "WPT",
       "area": "Floats and clear",
       "total": 2,
-      "pass": 0,
-      "fail": 2,
+      "pass": 1,
+      "fail": 1,
       "error": 0
     },
     {
@@ -103,8 +103,8 @@
     {
       "suite": "Local",
       "area": "Floats and clear",
-      "total": 1,
-      "pass": 1,
+      "total": 2,
+      "pass": 2,
       "fail": 0,
       "error": 0
     },
@@ -537,6 +537,17 @@
       "different_pixels": 0
     },
     {
+      "test": "floats-clear/clear-001.xht",
+      "reference": "floats-clear/clear-001-ref.xht",
+      "relation": "match",
+      "suite": "WPT",
+      "area": "Floats and clear",
+      "diagnostic": false,
+      "not_covered": "Right floats, multiple floats, and margin-collapse interactions.",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
       "test": "margin-padding-clear/margin-collapse-003.xht",
       "reference": "margin-padding-clear/margin-collapse-003-ref.xht",
       "relation": "match",
@@ -548,24 +559,14 @@
       "different_pixels": 0
     },
     {
-      "test": "floats-clear/clear-001.xht",
-      "reference": "floats-clear/clear-001-ref.xht",
-      "relation": "match",
-      "suite": "WPT",
-      "area": "Floats and clear",
-      "diagnostic": true,
-      "not_covered": "Right floats, multiple floats, and margin-collapse interactions.",
-      "status": "fail",
-      "different_pixels": 9216
-    },
-    {
       "test": "floats-clear/clear-002.xht",
       "reference": "floats-clear/clear-002-ref.xht",
       "relation": "match",
       "suite": "WPT",
       "area": "Floats and clear",
       "diagnostic": true,
-      "not_covered": "Right floats, nested formatting contexts, and negative clearance.",
+      "not_covered": "Nested formatting contexts and negative clearance; the reference needs inline relative offsets.",
+      "issue": "#76",
       "status": "fail",
       "different_pixels": 36864
     },
@@ -635,6 +636,18 @@
       "area": "Floats and clear",
       "diagnostic": true,
       "not_covered": "Right floats, multiple floats, inline wrapping, and negative margins.",
+      "issue": "#68",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "float-clearance-sides.html",
+      "reference": "float-clearance-sides-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Floats and clear",
+      "diagnostic": true,
+      "not_covered": "Inline wrapping after clearance, negative margins, and clearance on a first child that collapses through its parent (#275).",
       "issue": "#68",
       "status": "pass",
       "different_pixels": 0
