@@ -230,6 +230,22 @@ func TestLayoutLineHeightGeometry(t *testing.T) {
 	}
 }
 
+func TestLayoutFontShorthandGeometry(t *testing.T) {
+	doc := styledForLayout(t, `<p style='margin:0;font:20px/2 "Go Mono", monospace'>first<br>second</p>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 300, 200))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := got.Root.Children[0].Children[0]
+	if line.Rect.Dy() != 80 || len(line.Text) != 2 ||
+		line.Text[1].Rect.Min.Y-line.Text[0].Rect.Min.Y != 40 {
+		t.Fatalf("font shorthand line geometry = rect %v, runs %+v", line.Rect, line.Text)
+	}
+	if got := line.Text[0].Style["font-family"]; got != `"Go Mono", monospace` {
+		t.Fatalf("font shorthand family = %q", got)
+	}
+}
+
 func TestLayoutEmMarginUsesElementsOwnFontSize(t *testing.T) {
 	doc := styledForLayout(t, `<div style="font-size:10px;margin-left:2em;padding:0;width:30px;height:1px"></div>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 20))

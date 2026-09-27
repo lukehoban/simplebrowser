@@ -55,6 +55,19 @@ func TestPaintPerSideBordersAndTransparentBackground(t *testing.T) {
 	pixel(t, img, 5, 3, color.RGBA{0, 128, 0, 255})
 }
 
+func TestPaintFontShorthandMatchesLonghands(t *testing.T) {
+	viewport := image.Rect(0, 0, 260, 100)
+	shorthand := painted(t, `<p style="margin:0;font:italic bold 24px/1.5 monospace">Shorthand text</p>`, viewport)
+	longhands := painted(t, `<p style="margin:0;font-style:italic;font-weight:bold;font-size:24px;line-height:1.5;font-family:monospace">Shorthand text</p>`, viewport)
+	defaults := painted(t, `<p style="margin:0">Shorthand text</p>`, viewport)
+	if !bytes.Equal(shorthand.Pix, longhands.Pix) {
+		t.Fatal("font shorthand pixels differ from equivalent longhands")
+	}
+	if bytes.Equal(shorthand.Pix, defaults.Pix) {
+		t.Fatal("font shorthand did not affect painted pixels")
+	}
+}
+
 func TestCanvasBackgroundUsesRootAndBodyPropagation(t *testing.T) {
 	viewport := image.Rect(0, 0, 800, 600)
 	tests := []struct {
