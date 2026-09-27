@@ -97,3 +97,106 @@ func TestPercentageHeightPaint(t *testing.T) {
 	pixel(t, img, 20, 60, yellow)
 	pixel(t, img, 20, 100, blue) // yellow is 50px, not the parent's 100px
 }
+
+func TestPercentageHeightInlineBlockContainingBlocks(t *testing.T) {
+	for _, tc := range []struct {
+		name, parentHeight, boxHeight string
+		wantBox, wantChild            int
+	}{
+		{"definite percentage chain", "200px", "50%", 100, 50},
+		{"explicit inline-block height", "auto", "100px", 100, 50},
+		{"indefinite percentage chain", "auto", "50%", 20, 20},
+		{"auto interrupts definite chain", "200px", "auto", 20, 20},
+		{"definite zero", "0px", "50%", 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			boxes := percentHeightLayout(t, `<body style="margin:0"><section style="height:`+tc.parentHeight+`">
+<span><div id="atomic" style="display:inline-block;width:80px;height:`+tc.boxHeight+`;padding:5px">
+<div id="child" style="height:50%"><div style="height:20px">text</div></div>
+</div></span></section></body>`, "atomic", "child")
+			if got := boxes["atomic"].Content.Dy(); got != tc.wantBox {
+				t.Errorf("inline-block content height = %d, want %d", got, tc.wantBox)
+			}
+			if got := boxes["child"].Content.Dy(); got != tc.wantChild {
+				t.Errorf("child height = %d, want %d", got, tc.wantChild)
+			}
+		})
+	}
+}
+
+func TestPercentageHeightEmptyInlineBlock(t *testing.T) {
+	for _, tc := range []struct {
+		parentHeight string
+		want         int
+	}{{"200px", 100}, {"auto", 0}, {"0px", 0}} {
+		t.Run(tc.parentHeight, func(t *testing.T) {
+			boxes := percentHeightLayout(t, `<body style="margin:0"><section style="height:`+tc.parentHeight+`">
+<span id="empty" style="display:inline-block;width:40px;height:50%;padding:5px"></span>
+</section></body>`, "empty")
+			if got := boxes["empty"].Content.Dy(); got != tc.want {
+				t.Fatalf("empty inline-block content height = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPercentageHeightNestedInlineBlockPaint(t *testing.T) {
+	const markup = `<body style="margin:0"><section style="height:200px;line-height:0">` +
+		`<span id="outer" style="display:inline-block;width:80px;height:50%;background:blue">` +
+		`<span id="inner" style="display:inline-block;width:40px;height:50%;background:yellow"></span>` +
+		`</span></section></body>`
+	boxes := percentHeightLayout(t, markup, "outer", "inner")
+	if boxes["outer"].Content.Dy() != 100 || boxes["inner"].Content.Dy() != 50 {
+		t.Fatalf("nested inline-block heights = %d, %d; want 100, 50",
+			boxes["outer"].Content.Dy(), boxes["inner"].Content.Dy())
+	}
+	img := painted(t, markup, image.Rect(0, 0, 400, 400))
+	outer, inner := boxes["outer"].Content, boxes["inner"].Content
+	pixel(t, img, inner.Min.X+1, inner.Min.Y+1, color.RGBA{255, 255, 0, 255})
+	pixel(t, img, inner.Min.X+1, inner.Max.Y-1, color.RGBA{255, 255, 0, 255})
+	pixel(t, img, outer.Max.X-1, outer.Max.Y-1, color.RGBA{0, 0, 255, 255})
+}
+
+func TestPercentageHeightInlineBlockPositionedChildAndBaseline(t *testing.T) {
+	const markup = `<body style="margin:0"><section style="height:200px;line-height:20px">before` +
+		`<div id="atomic" style="display:inline-block;position:relative;width:100px;height:50%;padding:5px">` +
+		`first<br>last<div id="abs" style="position:absolute;left:0;top:0;width:10px;height:50%">` +
+		`<div id="nested" style="height:50%"></div><div>out</div></div></div>after</section></body>`
+	layout, err := LayoutWithViewport(styledForLayout(t, markup), image.Rect(0, 0, 400, 400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "atomic", "abs", "nested")
+	if got := boxes["atomic"].Content.Dy(); got != 100 {
+		t.Fatalf("inline-block height = %d, want 100", got)
+	}
+	if got := boxes["abs"].Content.Dy(); got != 55 {
+		t.Fatalf("absolute height = %d, want half of 110px padding box", got)
+	}
+	if got := boxes["nested"].Content.Dy(); got != 27 {
+		t.Fatalf("nested height = %d, want 27", got)
+	}
+	if boxes["abs"].Rect.Min != boxes["atomic"].Rect.Min {
+		t.Errorf("positioned child origin = %v, want %v", boxes["abs"].Rect.Min, boxes["atomic"].Rect.Min)
+	}
+	runs := map[string]TextRun{}
+	var collect func(*Box)
+	collect = func(b *Box) {
+		for _, run := range b.Text {
+			runs[run.Text] = run
+		}
+		for _, child := range b.Children {
+			collect(child)
+		}
+	}
+	collect(layout.Root)
+	for _, text := range []string{"before", "last", "after"} {
+		if _, ok := runs[text]; !ok {
+			t.Fatalf("missing text run %q", text)
+		}
+	}
+	if runs["before"].Rect.Min.Y != runs["last"].Rect.Min.Y ||
+		runs["after"].Rect.Min.Y != runs["last"].Rect.Min.Y {
+		t.Fatalf("last in-flow line must supply baseline, ignoring positioned text: %v", runs)
+	}
+}
