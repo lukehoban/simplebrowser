@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Inline-block shrink-to-fit against remaining line width</title>
+<style>
+  body { margin: 24px; font: 18px/1.5 sans-serif; color: #16324c; background: #f1f5f9 }
+  h1 { font-size: 22px }
+  .demo { width: 300px; margin: 16px 0; padding: 16px; background: white; border: 1px solid #ccd6e0 }
+  .chip { display: inline-block; padding: 4px; border: 2px solid #2177bf; background: #ddf0ff }
+  .wide { display: inline-block; border: 2px solid #c0392b; background: #fde2de }
+</style>
+<body>
+  <h1>Inline-block shrinks to the remaining line (#219)</h1>
+  <div class="demo">Leading text <span class="chip">a fairly long phrase that wraps inside</span></div>
+  <div class="demo">Too narrow: <span class="wide">unbreakable-long-token</span></div>
+  <div class="demo">Fits as is <span class="chip">short</span> after</div>
+</body>

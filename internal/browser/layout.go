@@ -616,13 +616,22 @@ func emptyAtomicContent(n *StyledNode) bool {
 // inlineBlockPart creates a shrink-to-fit block formatting context at the
 // origin. Explicit widths still resolve against the parent containing block.
 func inlineBlockPart(n *StyledNode, available int, faces *faceSet, parentCB containingBlock) inlinePart {
+	return inlineBlockPartFit(n, available, available, faces, parentCB)
+}
+
+// inlineBlockPartFit lays out an inline-block whose auto width shrinks to fit
+// fit pixels of line space (CSS 2.1 §10.3.5), while percentages and the
+// block's own layout still resolve against the containing width available.
+func inlineBlockPartFit(n *StyledNode, available, fit int, faces *faceSet, parentCB containingBlock) inlinePart {
 	margin := boxEdges(n, "margin", float64(available))
 	inner := inlineInnerEdges(n, available)
-	contentAvailable := max(0, available-margin[1]-margin[3]-inner[1]-inner[3])
+	contentAvailable := max(0, fit-margin[1]-margin[3]-inner[1]-inner[3])
 	used := n
+	autoWidth, minOuter := false, 0
 	if w := strings.TrimSpace(n.Style["width"]); w == "" || strings.EqualFold(w, "auto") {
 		minimum, preferred := contentIntrinsicWidths(n, faces)
 		contentWidth := min(max(minimum, contentAvailable), preferred)
+		autoWidth, minOuter = true, minimum+margin[1]+margin[3]+inner[1]+inner[3]
 		style := cloneStyle(n.Style)
 		style["width"] = strconv.Itoa(max(0, contentWidth)) + "px"
 		used = &StyledNode{Node: n.Node, Style: style, Children: n.Children}
@@ -650,7 +659,9 @@ func inlineBlockPart(n *StyledNode, available int, faces *faceSet, parentCB cont
 	return inlinePart{node: n.Node, style: n.Style, table: box,
 		tableW:        max(0, box.Rect.Max.X+margin[1]),
 		tableH:        max(0, box.Rect.Max.Y+margin[2]),
-		tableBaseline: baseline, isTable: true}
+		tableBaseline: baseline, isTable: true,
+		shrink: autoWidth, shrinkNode: n, shrinkAvailable: available,
+		shrinkMin: minOuter, shrinkCB: parentCB}
 }
 
 // The last line box supplies the inline-block baseline. Nested inline atomic
@@ -1211,6 +1222,14 @@ type inlinePart struct {
 	tableH        int
 	tableBaseline int // distance from the fragment's top margin edge
 	isTable       bool
+	// shrink marks an auto-width inline-block that was measured against the
+	// whole line. Placement re-lays it out against the remaining line space
+	// when its minimum outer width (shrinkMin) still fits there.
+	shrink          bool
+	shrinkNode      *StyledNode
+	shrinkAvailable int
+	shrinkMin       int
+	shrinkCB        containingBlock
 }
 
 // atomic reports whether a part is laid out as an unbreakable unit.
@@ -1434,6 +1453,14 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			var gap fixed.Int26_6
 			if space != nil && len(line.parts) != 0 {
 				gap = faces.metrics(space.style).advance(" ")
+			}
+			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(width) &&
+				part.shrink {
+				// Shrink-to-fit uses the width available at the box's actual
+				// line position, so retry against the remaining space.
+				if remaining := (fixed.I(width) - line.width - gap).Floor(); part.shrinkMin <= remaining {
+					part = inlineBlockPartFit(part.shrinkNode, part.shrinkAvailable, remaining, faces, part.shrinkCB)
+				}
 			}
 			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(width) {
 				finalize(&line)
