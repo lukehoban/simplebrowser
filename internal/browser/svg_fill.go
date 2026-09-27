@@ -90,7 +90,13 @@ func svgFillRulesEquivalent(paths []svgSubpath) bool {
 		return false
 	}
 	points := paths[0].points
+	if len(points) > 1 && points[0] == points[len(points)-1] {
+		points = points[:len(points)-1]
+	}
 	n := len(points)
+	if n < 3 {
+		return false
+	}
 	for i := 0; i < n; i++ {
 		a, b := points[i], points[(i+1)%n]
 		if !finiteSVGPoint(a) || !finiteSVGPoint(b) || a == b {
