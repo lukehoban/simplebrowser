@@ -41,7 +41,7 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 | Feature | Observed above the fold | Current renderer |
 |---|---|---|
 | `@media` | Vector and TemplateStyles rules (the infobox float sits in `@media (min-width:640px)`; some print rules hide screen UI) | viewport media conditions and nested rules supported → [#250](https://github.com/lukehoban/simplebrowser/issues/250) |
-| `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | not evaluated → [#251](https://github.com/lukehoban/simplebrowser/issues/251) |
+| `@supports` | icon `mask-image` vs `background-image` fallback, `round()` image width | evaluated against the features this engine actually renders → [#251](https://github.com/lukehoban/simplebrowser/issues/251); `mask-image`, `grid` and `round()` report unsupported, so icon fallbacks are selected, but their `data:` SVG backgrounds are not decoded yet → [#268](https://github.com/lukehoban/simplebrowser/issues/268) |
 | Flexbox | header, logo, user links, title bar, tab toolbar, indicators, dropdown buttons (36 flex and 9 inline-flex boxes) | [#247](https://github.com/lukehoban/simplebrowser/issues/247) (shared with #242) |
 | Floats | infobox `right`, language button `right`, indicators `right`, logo `left` | left/right placement and line wrapping implemented → [#252](https://github.com/lukehoban/simplebrowser/issues/252); `clear` → [#68](https://github.com/lukehoban/simplebrowser/issues/68) |
 | Custom properties | 134 `var()` uses: link colors, font sizes, borders, image size | [#246](https://github.com/lukehoban/simplebrowser/issues/246) (shared with #242) |
@@ -56,8 +56,9 @@ Chrome computed styles for elements that intersect the 800×600 viewport:
 
 1. [#266](https://github.com/lukehoban/simplebrowser/issues/266) unresolved
    `var()` font-size fallback. Today it hides the lead text and infobox.
-2. [#251](https://github.com/lukehoban/simplebrowser/issues/251) `@supports`,
-   which selects the icon fallbacks, then [#246](https://github.com/lukehoban/simplebrowser/issues/246) custom
+2. [#268](https://github.com/lukehoban/simplebrowser/issues/268) `data:` URL
+   backgrounds for the icon fallbacks that `@supports` (#251) now selects,
+   then [#246](https://github.com/lukehoban/simplebrowser/issues/246) custom
    properties and [#254](https://github.com/lukehoban/simplebrowser/issues/254)
    `calc()`: colors, sizes and the image width.
 3. [#68](https://github.com/lukehoban/simplebrowser/issues/68) float
