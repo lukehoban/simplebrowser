@@ -1,0 +1,4 @@
+body { margin: 0; background: #eee; }
+div { display: inline-block; width: 24px; height: 24px; margin: 4px; background-color: #fff; }
+.paren { background: url("../assets/tile(1).png") no-repeat center / 16px 16px #fff; }
+.quote { background-image: url('../assets/tile\'"2).png'); background-repeat: no-repeat; background-position: center; background-size: 16px 16px; }

@@ -7,11 +7,73 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func TestExternalStylesheetQuotedBackgroundURLs(t *testing.T) {
+	const root = "../../testdata/background-quoted-url"
+	var paren, quote atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/assets/tile(1).png":
+			paren.Add(1)
+		case `/assets/tile'"2).png`:
+			quote.Add(1)
+		}
+		http.FileServer(http.Dir(root)).ServeHTTP(w, r)
+	}))
+	defer server.Close()
+
+	// Also exercise single and double quoted strings, escape parity, and
+	// adjacent declarations: only the complete URL function is rewritten.
+	for _, tc := range []struct{ css, want string }{
+		{`url("tile(1).png") no-repeat`, `url("https://example.org/css/tile(1).png") no-repeat`},
+		{`url('tile\'"2).png') no-repeat`, `url("https://example.org/css/tile'%222).png") no-repeat`},
+		{`url("tile\"(1).png") center`, `url("https://example.org/css/tile%22(1).png") center`},
+		{`url(tile\)1.png) no-repeat`, `url("https://example.org/css/tile)1.png") no-repeat`},
+		{`linear-gradient(red,blue), url('tile(1).png') no-repeat`, `linear-gradient(red,blue), url("https://example.org/css/tile(1).png") no-repeat`},
+	} {
+		if got := resolveBackgroundURL(tc.css, "https://example.org/css/site.css"); got != tc.want {
+			t.Errorf("resolve %s = %s, want %s", tc.css, got, tc.want)
+		}
+	}
+
+	// The fixture's CSS is fetched as an external sheet, then backgrounds
+	// resolve against its URL rather than the document URL.
+	source, err := os.ReadFile(filepath.Join(root, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := parse(Resource{URL: server.URL + "/index.html", Body: source})
+	if err != nil {
+		t.Fatal(err)
+	}
+	styled, err := style(doc, &Fetcher{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paren.Load() != 1 || quote.Load() != 1 {
+		t.Fatalf("PNG fetches: paren=%d quote=%d; want one each", paren.Load(), quote.Load())
+	}
+	layout, err := LayoutWithViewport(styled, image.Rect(0, 0, 80, 80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := paint(layout, &out, renderOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(&out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pixel(t, img.(*image.RGBA), 12, 12, color.RGBA{225, 49, 58, 255})
+	pixel(t, img.(*image.RGBA), 12, 44, color.RGBA{35, 96, 210, 255})
+}
 
 func TestBackgroundLayerParsingAndShorthand(t *testing.T) {
 	input := `url("a,b).png") center/4px 4px no-repeat, linear-gradient(red, blue), url('c.png') right bottom/2px 2px repeat-x #123456`

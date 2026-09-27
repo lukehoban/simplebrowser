@@ -4,7 +4,9 @@ import (
 	"image"
 	"image/draw"
 	"math"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // backgroundLayers splits top-level commas, preserving commas and parentheses
@@ -36,10 +38,28 @@ func backgroundLayers(s string) []string {
 	return append(layers, strings.TrimSpace(s[start:]))
 }
 
-// backgroundURL extracts the URL from one layer, respecting quoted ')' and
-// escaped characters rather than relying on a naive closing parenthesis.
-func backgroundURL(layer string) string {
+// backgroundURLToken locates a URL function outside strings and returns its
+// complete bounds and decoded argument. A ')' inside a quoted or escaped
+// filename is not the end of the function.
+func backgroundURLToken(layer string) (start, end int, value string) {
+	var outerQuote byte
 	for i := 0; i+4 <= len(layer); i++ {
+		if outerQuote != 0 {
+			if layer[i] == '\\' && i+1 < len(layer) {
+				i++
+			} else if layer[i] == outerQuote {
+				outerQuote = 0
+			}
+			continue
+		}
+		if layer[i] == '"' || layer[i] == '\'' {
+			outerQuote = layer[i]
+			continue
+		}
+		if layer[i] == '\\' && i+1 < len(layer) {
+			i++
+			continue
+		}
 		if !strings.EqualFold(layer[i:i+4], "url(") || (i > 0 && (cssIdent(layer[i-1]) || layer[i-1] == '-')) {
 			continue
 		}
@@ -52,49 +72,79 @@ func backgroundURL(layer string) string {
 				} else if layer[j] == quote {
 					quote = 0
 				}
+			case layer[j] == '\\' && j+1 < len(layer):
+				j++
 			case layer[j] == '"' || layer[j] == '\'':
 				quote = layer[j]
 			case layer[j] == ')':
-				return strings.Trim(strings.TrimSpace(layer[i+4:j]), `"'`)
+				arg := strings.TrimSpace(layer[i+4 : j])
+				if len(arg) >= 2 && (arg[0] == '"' || arg[0] == '\'') && arg[len(arg)-1] == arg[0] {
+					arg = arg[1 : len(arg)-1]
+				}
+				return i, j + 1, unescapeBackgroundURL(arg)
 			}
 		}
+		return 0, 0, ""
 	}
-	return ""
+	return 0, 0, ""
+}
+
+// CSS escapes in url() refer to filename characters, not URL percent escapes.
+func unescapeBackgroundURL(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 == len(s) {
+			b.WriteByte(s[i])
+			continue
+		}
+		i++
+		start := i
+		for i < len(s) && i-start < 6 && (s[i] >= '0' && s[i] <= '9' || s[i] >= 'a' && s[i] <= 'f' || s[i] >= 'A' && s[i] <= 'F') {
+			i++
+		}
+		if i > start {
+			n, _ := strconv.ParseInt(s[start:i], 16, 32)
+			if n == 0 || !utf8.ValidRune(rune(n)) {
+				n = utf8.RuneError
+			}
+			b.WriteRune(rune(n))
+			if i < len(s) && cssSpace(s[i]) {
+				// A space after a hex escape terminates the escape.
+			} else {
+				i--
+			}
+			continue
+		}
+		if s[i] != '\n' && s[i] != '\r' {
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
+func backgroundURL(layer string) string {
+	_, _, url := backgroundURLToken(layer)
+	return url
+}
+
+func quotedBackgroundURL(url string) string {
+	return `url("` + strings.ReplaceAll(strings.ReplaceAll(url, `\`, `\\`), `"`, `\"`) + `")`
 }
 
 func resolveBackgroundURL(value, base string) string {
 	layers := backgroundLayers(value)
 	for i, layer := range layers {
-		url := backgroundURL(layer)
+		start, end, url := backgroundURLToken(layer)
 		if url == "" {
 			continue
 		}
-		resolved, err := ResolveCSSURL(base, url)
+		// url.Parse rejects literal quotes; escape these as URL path characters
+		// after interpreting CSS escapes but before resolving the reference.
+		resolved, err := ResolveCSSURL(base, strings.ReplaceAll(url, `"`, "%22"))
 		if err != nil {
 			continue
 		}
-		start := strings.Index(strings.ToLower(layer), "url(")
-		// Find the end by matching the extracted URL's quoted closing
-		// delimiter, which may include ')' inside the URL itself.
-		quote := byte(0)
-		end := -1
-		for j := start + 4; j < len(layer); j++ {
-			if quote != 0 {
-				if layer[j] == '\\' && j+1 < len(layer) {
-					j++
-				} else if layer[j] == quote {
-					quote = 0
-				}
-			} else if layer[j] == '"' || layer[j] == '\'' {
-				quote = layer[j]
-			} else if layer[j] == ')' {
-				end = j
-				break
-			}
-		}
-		if end >= 0 {
-			layers[i] = layer[:start] + `url("` + resolved + `")` + layer[end+1:]
-		}
+		layers[i] = layer[:start] + quotedBackgroundURL(resolved) + layer[end:]
 	}
 	return strings.Join(layers, ", ")
 }
@@ -108,7 +158,7 @@ func expandBackground(d Declaration) []Declaration {
 		repeat, position, size := "repeat", "", ""
 		imageValue := "none"
 		if url := backgroundURL(layer); url != "" {
-			imageValue = `url("` + url + `")`
+			imageValue = quotedBackgroundURL(url)
 		}
 		afterSlash := false
 		sizeValues := 0
