@@ -95,8 +95,9 @@ func TestGridTemplateAreasSupportsMatchesLayout(t *testing.T) {
 		{`"leading . trailing"`, false},
 		{`". text trailing"`, false},
 		{`"a a b"`, false},
-		{`"a b A"`, false},
+		{`"a b A"`, true},
 		{`"leading text text"`, false},
+		{"\"a\u00a0b c\"", false},
 		{`"a b c" "d e f"`, false},
 		{`"a b c d"`, false},
 		{`leading text trailing`, false},
@@ -134,6 +135,72 @@ func TestGridInvalidAreaNameFallsBackToFlow(t *testing.T) {
 					name, first.Rect, second.Rect, third.Rect)
 			}
 		})
+	}
+}
+
+func TestGridAreaNamesAreCaseSensitive(t *testing.T) {
+	t.Run("distinct case variants use named tracks", func(t *testing.T) {
+		doc := styledForLayout(t, `<body style="margin:0"><div style="display:grid;width:160px;grid-template-columns:min-content minmax(0,auto) min-content;grid-template-areas:'a b A'"><div id="third" style="grid-area:A">T</div><div id="second" style="grid-area:b">M</div><div id="first" style="grid-area:a">L</div></div></body>`)
+		layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))
+		if err != nil {
+			t.Fatal(err)
+		}
+		boxes := boxesByID(layout.Root, "first", "second", "third")
+		first, second, third := boxes["first"], boxes["second"], boxes["third"]
+		if first == nil || second == nil || third == nil {
+			t.Fatalf("case-distinct area lost a child: %+v", boxes)
+		}
+		if !(first.Rect.Min.X < second.Rect.Min.X && second.Rect.Min.X < third.Rect.Min.X) {
+			t.Errorf("case-distinct names should override DOM order: first=%v second=%v third=%v",
+				first.Rect, second.Rect, third.Rect)
+		}
+	})
+
+	t.Run("case mismatch preserves DOM-order fallback", func(t *testing.T) {
+		doc := styledForLayout(t, `<body style="margin:0"><div style="display:grid;width:160px;grid-template-columns:min-content minmax(0,auto) min-content;grid-template-areas:'a b c'"><div id="first" style="grid-area:C">FIRST</div><div id="second" style="grid-area:A">SECOND</div><div id="third" style="grid-area:B">THIRD</div></div></body>`)
+		layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 160))
+		if err != nil {
+			t.Fatal(err)
+		}
+		boxes := boxesByID(layout.Root, "first", "second", "third")
+		first, second, third := boxes["first"], boxes["second"], boxes["third"]
+		if first == nil || second == nil || third == nil {
+			t.Fatalf("case-mismatch fallback lost a child: %+v", boxes)
+		}
+		if !(first.Rect.Min.Y < second.Rect.Min.Y && second.Rect.Min.Y < third.Rect.Min.Y) {
+			t.Errorf("case mismatch should retain DOM-order block flow: first=%v second=%v third=%v",
+				first.Rect, second.Rect, third.Rect)
+		}
+	})
+}
+
+func TestGridTemplateAreasUsesOnlyCSSWhitespace(t *testing.T) {
+	if names, ok := parseGridTemplateAreas("\"a\tb\nc\""); !ok ||
+		len(names) != 3 || names[0] != "a" || names[1] != "b" || names[2] != "c" {
+		t.Fatalf("CSS whitespace was not tokenized: names=%q, ok=%v", names, ok)
+	}
+
+	areas := "\"a\u00a0b c\""
+	if names, ok := parseGridTemplateAreas(areas); ok || names != nil {
+		t.Fatalf("NBSP must remain inside a two-cell template: names=%q, ok=%v", names, ok)
+	}
+	if supportsConditionMatches("(grid-template-areas: " + areas + ")") {
+		t.Fatal("@supports must reject the unsupported two-cell NBSP template")
+	}
+
+	doc := styledForLayout(t, `<body style="margin:0"><div style="display:grid;width:160px;grid-template-columns:min-content minmax(0,auto) min-content;grid-template-areas:'a b c'"><div id="first" style="grid-area:a b">FIRST</div><div id="second" style="grid-area:c">SECOND</div><div id="third">THIRD</div></div></body>`)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 160))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "first", "second", "third")
+	first, second, third := boxes["first"], boxes["second"], boxes["third"]
+	if first == nil || second == nil || third == nil {
+		t.Fatalf("NBSP fallback lost a child: %+v", boxes)
+	}
+	if !(first.Rect.Min.Y < second.Rect.Min.Y && second.Rect.Min.Y < third.Rect.Min.Y) {
+		t.Errorf("NBSP two-cell template should retain DOM-order block flow: first=%v second=%v third=%v",
+			first.Rect, second.Rect, third.Rect)
 	}
 }
 

@@ -12,7 +12,7 @@ func isGridContainer(n *StyledNode) bool {
 }
 
 func gridTemplateSupported(style ComputedStyle) bool {
-	columns := strings.Fields(strings.TrimSpace(style["grid-template-columns"]))
+	columns := cssWhitespaceFields(style["grid-template-columns"])
 	if len(columns) != 3 || columns[0] != "min-content" ||
 		columns[1] != "minmax(0,auto)" || columns[2] != "min-content" {
 		return false
@@ -26,31 +26,62 @@ func gridTemplateSupported(style ComputedStyle) bool {
 // and multiple rows would fall back to normal flow, so they are rejected here
 // and by @supports, which shares this validator.
 func parseGridTemplateAreas(value string) ([]string, bool) {
-	v := strings.TrimSpace(value)
+	v := trimCSSWhitespace(value)
 	if len(v) < 2 || (v[0] != '"' && v[0] != '\'') || v[len(v)-1] != v[0] {
 		return nil, false
 	}
-	names := strings.Fields(v[1 : len(v)-1])
+	names := cssWhitespaceFields(v[1 : len(v)-1])
 	if len(names) != 3 {
 		return nil, false
 	}
 	seen := make(map[string]bool, len(names))
 	for _, name := range names {
-		lower := strings.ToLower(name)
-		if !cssIdentString(name) || seen[lower] {
+		if !cssIdentString(name) || seen[name] {
 			return nil, false
 		}
-		seen[lower] = true
+		seen[name] = true
 	}
 	return names, true
 }
 
-func gridAreaNames(style ComputedStyle) []string {
-	area := strings.TrimSpace(style["grid-template-areas"])
-	if len(area) < 2 {
-		return nil
+func isCSSWhitespace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r', '\f':
+		return true
+	default:
+		return false
 	}
-	return strings.Fields(area[1 : len(area)-1])
+}
+
+func trimCSSWhitespace(value string) string {
+	start, end := 0, len(value)
+	for start < end && isCSSWhitespace(value[start]) {
+		start++
+	}
+	for end > start && isCSSWhitespace(value[end-1]) {
+		end--
+	}
+	return value[start:end]
+}
+
+// cssWhitespaceFields splits CSS component values without treating other
+// Unicode spaces as separators. In particular, NBSP is valid identifier
+// content and must remain part of the surrounding name.
+func cssWhitespaceFields(value string) []string {
+	var fields []string
+	for i := 0; i < len(value); {
+		for i < len(value) && isCSSWhitespace(value[i]) {
+			i++
+		}
+		start := i
+		for i < len(value) && !isCSSWhitespace(value[i]) {
+			i++
+		}
+		if start < i {
+			fields = append(fields, value[start:i])
+		}
+	}
+	return fields
 }
 
 func gridGap(style ComputedStyle, width int) int {
@@ -62,12 +93,14 @@ func gridGap(style ComputedStyle, width int) int {
 }
 
 func layoutGrid(parent *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) ([]*Box, int) {
-	names := gridAreaNames(parent.Style)
+	names, ok := parseGridTemplateAreas(parent.Style["grid-template-areas"])
+	if !ok {
+		return layoutGridFlowFallback(parent, x, y, width, faces, cb)
+	}
 	gap := gridGap(parent.Style, width)
 	items, outOfFlow := flexChildren(parent)
 	columns := make(map[string]int, len(names))
 	for i, name := range names {
-		name = strings.ToLower(name)
 		if name == "." {
 			return layoutGridFlowFallback(parent, x, y, width, faces, cb)
 		}
@@ -85,7 +118,7 @@ func layoutGrid(parent *StyledNode, x, y, width int, faces *faceSet, cb containi
 	itemColumns := make([]int, len(items))
 	seen := make(map[string]bool, len(items))
 	for i, item := range items {
-		area := strings.ToLower(strings.TrimSpace(item.Style["grid-area"]))
+		area := trimCSSWhitespace(item.Style["grid-area"])
 		column, ok := columns[area]
 		if !ok || seen[area] {
 			return layoutGridFlowFallback(parent, x, y, width, faces, cb)
