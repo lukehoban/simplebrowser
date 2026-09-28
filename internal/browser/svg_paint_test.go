@@ -681,6 +681,36 @@ func patternCircleSVG(transform string) string {
 	</defs><rect width="20" height="20" fill="url(#p) #ffffff"/></svg>`
 }
 
+// BenchmarkSVGPatternFillBounds measures the reported high-device-scale
+// workload. Each small rect is intentionally separated so the paint bounds
+// optimization is exercised instead of hiding behind one large shape.
+func BenchmarkSVGPatternFillBounds(b *testing.B) {
+	var pattern strings.Builder
+	pattern.WriteString(svgOpen + `width="400" height="400"><defs><pattern id="p" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#16a34a"/></pattern></defs>`)
+	for i := 0; i < 100; i++ {
+		fmt.Fprintf(&pattern, `<rect x="%d" y="%d" width="40" height="40" fill="url(#p)"/>`, (i%10)*40, (i/10)*40)
+	}
+	pattern.WriteString(`</svg>`)
+	solid := strings.ReplaceAll(pattern.String(), `fill="url(#p)"`, `fill="red"`)
+	for _, tc := range []struct {
+		name, source string
+	}{{"solid", solid}, {"pattern", pattern.String()}} {
+		b.Run(tc.name, func(b *testing.B) {
+			img, err := decodeSVG([]byte(tc.source))
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportMetric(4096, "device-pixels")
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if img.rasterize(4096, 4096) == nil {
+					b.Fatal("rasterize returned nil")
+				}
+			}
+		})
+	}
+}
+
 // A magnified pattern should look like its content drawn at the output
 // resolution, not like an upscaled low-resolution tile.
 func TestSVGPatternTileFollowsDeviceScale(t *testing.T) {
