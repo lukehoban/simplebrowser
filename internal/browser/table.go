@@ -91,6 +91,7 @@ type tableGrid struct {
 	columns                     int
 	columnBorders               []*collapsedTableBorder
 	rowBorders                  []*collapsedTableBorder
+	rowBorderSegments           [][]*collapsedTableBorder
 	outerBorders                [4]*collapsedTableBorder
 	hspacing                    int    // horizontal border-spacing between/around columns
 	vspacing                    int    // vertical border-spacing between/around rows
@@ -650,44 +651,121 @@ func (g *tableGrid) collapsedGapBefore(i int) int {
 	return gap
 }
 
-// resolveSingleColumnRowBorders handles the unspanned, one-cell-per-row
-// subset of collapsed row edges. It is intentionally bounded: the full grid
-// conflict algorithm must segment borders at cell/span boundaries.
-func (g *tableGrid) resolveSingleColumnRowBorders() {
+// resolveRowBorderSegments resolves every column of every internal horizontal
+// grid edge independently. A single winner for a whole row is incorrect when
+// a spanning cell or a neighbouring cell changes the conflict at a column
+// boundary. rowBorders retains the widest segment for gap geometry; the
+// segments are used by painting so each winner is painted exactly once.
+func (g *tableGrid) resolveRowBorderSegments() {
+	g.rowBorderSegments = make([][]*collapsedTableBorder, len(g.rows))
 	g.rowBorders = make([]*collapsedTableBorder, len(g.rows))
-	if !g.collapse || g.columns != 1 || len(g.rows) < 2 {
+	if !g.collapse || len(g.rows) < 2 || g.columns == 0 {
 		return
 	}
-	for i := 1; i < len(g.rows); i++ {
-		previous, current := g.rows[i-1], g.rows[i]
-		if len(previous.cells) != 1 || len(current.cells) != 1 {
-			continue
-		}
-		before, after := previous.cells[0], current.cells[0]
-		if before.col != 0 || after.col != 0 || before.colspan != 1 ||
-			after.colspan != 1 || before.rowspan != 1 || after.rowspan != 1 {
-			continue
-		}
-		candidates := []collapsedTableBorder{
-			tableBorderCandidate(before.node, "bottom"),
-			tableBorderCandidate(after.node, "top"),
-		}
-		if previous.node != nil {
-			candidates = append(candidates, tableBorderCandidate(previous.node, "bottom"))
-		}
-		if current.node != nil {
-			candidates = append(candidates, tableBorderCandidate(current.node, "top"))
-		}
-		if previous.group != current.group {
-			if previous.group != nil {
-				candidates = append(candidates, tableBorderCandidate(previous.group.node, "bottom"))
-			}
-			if current.group != nil {
-				candidates = append(candidates, tableBorderCandidate(current.group.node, "top"))
+	complex := false
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			if cell.colspan != 1 || cell.rowspan != 1 {
+				complex = true
+				break
 			}
 		}
-		g.rowBorders[i] = resolveCollapsedBorder(candidates...)
+		if complex {
+			break
+		}
 	}
+	// Preserve the established cell-owned painting for the regular grid.
+	// Segmentation is needed when spans make the adjacent cell grid
+	// non-uniform; the regular grid has no paint-only edge fragments.
+	if !complex {
+		if g.columns == 1 {
+			for boundary := 1; boundary < len(g.rows); boundary++ {
+				above, below := g.rows[boundary-1], g.rows[boundary]
+				if len(above.cells) != 1 || len(below.cells) != 1 ||
+					above.cells[0].rowspan != 1 || below.cells[0].rowspan != 1 {
+					continue
+				}
+				candidates := []collapsedTableBorder{
+					tableBorderCandidate(above.cells[0].node, "bottom"),
+					tableBorderCandidate(below.cells[0].node, "top"),
+				}
+				if above.node != nil {
+					candidates = append(candidates, tableBorderCandidate(above.node, "bottom"))
+				}
+				if below.node != nil {
+					candidates = append(candidates, tableBorderCandidate(below.node, "top"))
+				}
+				if above.group != below.group {
+					if above.group != nil {
+						candidates = append(candidates, tableBorderCandidate(above.group.node, "bottom"))
+					}
+					if below.group != nil {
+						candidates = append(candidates, tableBorderCandidate(below.group.node, "top"))
+					}
+				}
+				g.rowBorders[boundary] = resolveCollapsedBorder(candidates...)
+			}
+		}
+		return
+	}
+	for boundary := 1; boundary < len(g.rows); boundary++ {
+		segments := make([]*collapsedTableBorder, g.columns)
+		above, below := g.rows[boundary-1], g.rows[boundary]
+		// Empty rows are bridged by bridgeEmptyRows, which preserves the
+		// continuous vertical cell borders through their full height.
+		if len(above.cells) == 0 || len(below.cells) == 0 {
+			g.rowBorderSegments[boundary] = segments
+			continue
+		}
+		for col := 0; col < g.columns; col++ {
+			candidates := make([]collapsedTableBorder, 0, 6)
+			for _, cell := range above.cells {
+				if cell.col <= col && col < cell.col+cell.colspan && cell.row+cell.rowspan == boundary {
+					candidates = append(candidates, tableBorderCandidate(cell.node, "bottom"))
+				}
+			}
+			for _, cell := range below.cells {
+				if cell.col <= col && col < cell.col+cell.colspan && cell.row == boundary {
+					candidates = append(candidates, tableBorderCandidate(cell.node, "top"))
+				}
+			}
+			if above.node != nil {
+				candidates = append(candidates, tableBorderCandidate(above.node, "bottom"))
+			}
+			if below.node != nil {
+				candidates = append(candidates, tableBorderCandidate(below.node, "top"))
+			}
+			if above.group != below.group {
+				if above.group != nil {
+					candidates = append(candidates, tableBorderCandidate(above.group.node, "bottom"))
+				}
+				if below.group != nil {
+					candidates = append(candidates, tableBorderCandidate(below.group.node, "top"))
+				}
+			}
+			segments[col] = resolveCollapsedBorder(candidates...)
+			if edge := segments[col]; edge != nil &&
+				(g.rowBorders[boundary] == nil || winsCollapsedBorder(edge, g.rowBorders[boundary])) {
+				g.rowBorders[boundary] = edge
+			}
+		}
+		g.rowBorderSegments[boundary] = segments
+	}
+}
+
+func (g *tableGrid) hasRowBorderAt(boundary int) bool {
+	if boundary <= 0 || boundary >= len(g.rowBorderSegments) {
+		return false
+	}
+	if g.rowBorders[boundary] != nil {
+		return true
+	}
+	for _, edge := range g.rowBorderSegments[boundary] {
+		if edge != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveSingleRowCellBorders handles shared vertical edges in one row when
@@ -862,6 +940,14 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 func (g *tableGrid) collapsedCellBorderWidths(cell *tableCellBox, border [4]int) [4]int {
 	if !g.collapse {
 		return border
+	}
+	// Internal horizontal edges are painted by row-border fragments. Remove
+	// the cell's copy even when the edge crosses a colspan or rowspan.
+	if g.hasRowBorderAt(cell.row) {
+		border[0] = 0
+	}
+	if g.hasRowBorderAt(cell.row + cell.rowspan) {
+		border[2] = 0
 	}
 	if cell.colspan == 1 && cell.rowspan == 1 {
 		if cell.row == 0 && cell.row < len(g.rows) && g.rows[cell.row].cells != nil &&
@@ -1392,7 +1478,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	available := max(0, width-margin[1]-margin[3]-border[1]-border[3])
 
 	grid := buildTableGrid(n)
-	grid.resolveSingleColumnRowBorders()
+	grid.resolveRowBorderSegments()
 	grid.resolveSingleRowCellBorders()
 	grid.resolveOuterBorders(n)
 	// Keep the table's outer half of a collapsed perimeter edge in its
@@ -1685,37 +1771,51 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		// rows. Suppress the participating row borders here as well, or
 		// transparent cells expose a second copy inside the row box.
 		if grid.collapse && row.node != nil &&
-			((rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil) ||
-				(rowIndex+1 < len(grid.rowBorders) && grid.rowBorders[rowIndex+1] != nil)) {
+			(grid.hasRowBorderAt(rowIndex) || grid.hasRowBorderAt(rowIndex+1)) {
 			widths := [4]int{
 				borderWidth(row.node.Style, "top"),
 				borderWidth(row.node.Style, "right"),
 				borderWidth(row.node.Style, "bottom"),
 				borderWidth(row.node.Style, "left"),
 			}
-			if rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil {
+			if grid.hasRowBorderAt(rowIndex) {
 				widths[0] = 0
 			}
-			if rowIndex+1 < len(grid.rowBorders) && grid.rowBorders[rowIndex+1] != nil {
+			if grid.hasRowBorderAt(rowIndex + 1) {
 				widths[2] = 0
 			}
 			rowBox.BorderWidths = &widths
 		}
-		if rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil {
-			edge := grid.rowBorders[rowIndex]
+		if grid.hasRowBorderAt(rowIndex) {
 			gapTop := grid.rows[rowIndex-1].y + grid.rows[rowIndex-1].height
-			widths := [4]int{edge.width, 0, 0, 0}
-			colors := [4]color.RGBA{}
-			colors[0] = borderColor(edge.node.Style, edge.side)
-			styles := [4]string{}
-			styles[0] = edge.style
-			rowBox.Children = append(rowBox.Children, &Box{
-				Node:         rowBox.Node,
-				Rect:         image.Rect(rowBox.Rect.Min.X, gapTop, rowBox.Rect.Max.X, row.y),
-				Content:      image.Rect(rowBox.Rect.Min.X, gapTop, rowBox.Rect.Max.X, row.y),
-				BorderWidths: &widths, BorderColors: &colors,
-				BorderStyles: &styles, BorderOnly: true,
-			})
+			if len(grid.rowBorderSegments[rowIndex]) == 0 {
+				edge := grid.rowBorders[rowIndex]
+				widths := [4]int{edge.width, 0, 0, 0}
+				colors := [4]color.RGBA{borderColor(edge.node.Style, edge.side), color.RGBA{}, color.RGBA{}, color.RGBA{}}
+				styles := [4]string{edge.style, "", "", ""}
+				rowBox.Children = append(rowBox.Children, &Box{
+					Node:         rowBox.Node,
+					Rect:         image.Rect(rowBox.Rect.Min.X, gapTop, rowBox.Rect.Max.X, row.y),
+					Content:      image.Rect(rowBox.Rect.Min.X, gapTop, rowBox.Rect.Max.X, row.y),
+					BorderWidths: &widths, BorderColors: &colors,
+					BorderStyles: &styles, BorderOnly: true,
+				})
+			}
+			for col, edge := range grid.rowBorderSegments[rowIndex] {
+				if edge == nil || col+1 >= len(columnX) {
+					continue
+				}
+				widths := [4]int{edge.width, 0, 0, 0}
+				colors := [4]color.RGBA{borderColor(edge.node.Style, edge.side), color.RGBA{}, color.RGBA{}, color.RGBA{}}
+				styles := [4]string{edge.style, "", "", ""}
+				rowBox.Children = append(rowBox.Children, &Box{
+					Node:         rowBox.Node,
+					Rect:         image.Rect(columnX[col], gapTop, columnX[col+1], row.y),
+					Content:      image.Rect(columnX[col], gapTop, columnX[col+1], row.y),
+					BorderWidths: &widths, BorderColors: &colors,
+					BorderStyles: &styles, BorderOnly: true,
+				})
+			}
 		}
 		for col := 1; col < len(grid.columnBorders)-1; col++ {
 			edge := grid.columnBorders[col]
