@@ -961,7 +961,32 @@ func floatSide(n *StyledNode) string {
 // It reports false when the height is auto, including a percentage whose
 // containing block height is not definite.
 func specifiedHeight(n *StyledNode, basis int, definite bool) (int, bool) {
-	h := strings.TrimSpace(n.Style["height"])
+	return resolveHeightValue(n.Style["height"], basis, definite)
+}
+
+// heightConstraints resolves min-height and max-height (CSS 2.1 §10.7)
+// with the same definite-basis rule as height: a percentage against an
+// indefinite basis computes to min-height:0 and max-height:none. hasMax is
+// false for max-height:none.
+func heightConstraints(n *StyledNode, basis int, definite bool) (minimum, maximum int, hasMax bool) {
+	minimum, _ = resolveHeightValue(n.Style["min-height"], basis, definite)
+	if v := strings.TrimSpace(n.Style["max-height"]); !strings.EqualFold(v, "none") {
+		maximum, hasMax = resolveHeightValue(v, basis, definite)
+	}
+	return minimum, maximum, hasMax
+}
+
+// clampHeight applies §10.7's order: max-height first, then min-height, so
+// min-height wins when it exceeds max-height.
+func clampHeight(h, minimum, maximum int, hasMax bool) int {
+	if hasMax {
+		h = min(h, maximum)
+	}
+	return max(h, minimum)
+}
+
+func resolveHeightValue(h string, basis int, definite bool) (int, bool) {
+	h = strings.TrimSpace(h)
 	if h == "" || strings.EqualFold(h, "auto") {
 		return 0, false
 	}
@@ -1235,6 +1260,10 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	contentY := y + border[0] + padding[0]
 	basis, basisDefinite := percentageHeightBasis(n, cb)
 	usedHeight, definite := specifiedHeight(n, basis, basisDefinite)
+	minHeight, maxHeight, hasMaxHeight := heightConstraints(n, basis, basisDefinite)
+	if definite {
+		usedHeight = clampHeight(usedHeight, minHeight, maxHeight, hasMaxHeight)
+	}
 	collapseBottom := collapsesThroughBottom(n, width, !definite)
 	childCB := cb
 	if strings.EqualFold(strings.TrimSpace(n.Style["position"]), "relative") || positioned(n) {
@@ -1271,6 +1300,16 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	height := childBottom - contentY
 	if definite {
 		height = usedHeight
+	} else if clamped := clampHeight(height, minHeight, maxHeight, hasMaxHeight); clamped != height {
+		// When min/max-height changes an auto height, the last child's
+		// bottom margin no longer adjoins the box's bottom margin (matching
+		// browsers); keep it inside the content before clamping.
+		if collapseBottom {
+			collapseBottom = false
+			height = clampHeight(height+trailing.value(), minHeight, maxHeight, hasMaxHeight)
+		} else {
+			height = clamped
+		}
 	}
 
 	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+height)
