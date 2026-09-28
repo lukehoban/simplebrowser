@@ -10,9 +10,15 @@ three-area controls:
 This is not general CSS Grid. Other track definitions, multiple rows, spans,
 implicit tracks, and Grid auto-placement remain unsupported. The implementation
 therefore does not claim broad `(display: grid)` support through `@supports`.
-The deterministic fixture is `testdata/grid-three-area-button.html`. Its
-`column-gap: 8px` is the sole inter-item spacing; adding an 8px right margin to
-the first two items would double each intended gap.
+The deterministic fixture is `testdata/grid-three-area-button.html`. It
+deliberately isolates the Grid formatting context in a fixed-size control
+surrogate: it does not include the production button's outer flex layout or
+browser-native button styling. That broader control composition remains outside
+this Grid subset. The fixture's outer control is 88×32px at (16, 16) in both
+renders, so the comparison checks the supported Grid child ordering, placement,
+and single 8px `column-gap` without implying that the original button's outer
+layout is supported. The `column-gap` is the sole inter-item spacing; adding
+8px right margins to the first two items would double each intended gap.
 
 The fixture render is compared with Chrome at the same 800×600 viewport:
 
