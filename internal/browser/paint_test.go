@@ -53,6 +53,58 @@ func TestPaintOverflowClipsDescendantsButNotBorder(t *testing.T) {
 	pixel(t, img, 10, 29, white)
 }
 
+func TestPaintTextOverflowEllipsis(t *testing.T) {
+	render := func(text, width, value string) *image.RGBA {
+		t.Helper()
+		return painted(t, `<body style="margin:0"><div style="box-sizing:border-box;width:`+width+
+			`;height:24px;font:14px monospace;white-space:nowrap;overflow:hidden;text-overflow:`+value+
+			`;color:black">`+text+`</div></body>`, image.Rect(0, 0, 240, 40))
+	}
+	same := func(a, b *image.RGBA) bool {
+		if a.Bounds() != b.Bounds() {
+			return false
+		}
+		for y := a.Bounds().Min.Y; y < a.Bounds().Max.Y; y++ {
+			for x := a.Bounds().Min.X; x < a.Bounds().Max.X; x++ {
+				if a.RGBAAt(x, y) != b.RGBAAt(x, y) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+
+	t.Run("fitting text is unchanged", func(t *testing.T) {
+		if !same(render("short.txt", "120px", "clip"), render("short.txt", "120px", "ellipsis")) {
+			t.Fatal("ellipsis changed a line that fits")
+		}
+	})
+	t.Run("overflow paints marker within the clip", func(t *testing.T) {
+		clipped := render("a-very-long-filename.txt", "120px", "clip")
+		ellipsized := render("a-very-long-filename.txt", "120px", "ellipsis")
+		if same(clipped, ellipsized) {
+			t.Fatal("overflowing text did not gain an ellipsis marker")
+		}
+		darkPixels := 0
+		for y := 0; y < ellipsized.Bounds().Max.Y; y++ {
+			for x := 106; x < 120; x++ {
+				c := ellipsized.RGBAAt(x, y)
+				if c.R < 80 && c.G < 80 && c.B < 80 {
+					darkPixels++
+				}
+			}
+		}
+		if darkPixels == 0 {
+			t.Fatal("ellipsis marker did not paint near the clipped trailing edge")
+		}
+	})
+	t.Run("marker is omitted when it cannot fit", func(t *testing.T) {
+		if !same(render("abcdef", "4px", "clip"), render("abcdef", "4px", "ellipsis")) {
+			t.Fatal("marker painted despite having insufficient inline space")
+		}
+	})
+}
+
 func TestPaintNestedOverflowAndAbsoluteClipRect(t *testing.T) {
 	img := painted(t, `<body style="margin:0">
 		<div style="position:relative;width:30px;height:30px;overflow:hidden">

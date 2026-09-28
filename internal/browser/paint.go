@@ -718,7 +718,7 @@ func (p *painter) paintContent(box *Box) {
 	for _, fragment := range box.InlineBackgrounds {
 		p.paintInlineBackground(fragment)
 	}
-	for _, run := range box.Text {
+	for _, run := range p.textRuns(box) {
 		if visibilityHidden(run.Style) {
 			continue
 		}
@@ -734,6 +734,102 @@ func (p *painter) paintContent(box *Box) {
 			drawImageBox(p.canvas, picture)
 		}
 	}
+}
+
+// textRuns applies text-overflow at paint time so the marker never changes
+// inline layout or the existing overflow clip. Runs are grouped by line so
+// each horizontal line is handled independently.
+func (p *painter) textRuns(box *Box) []TextRun {
+	if box == nil {
+		return nil
+	}
+	if box.Node == nil {
+		return box.Text
+	}
+	style := p.document.Styles[box.Node]
+	if style == nil || strings.TrimSpace(strings.ToLower(style["text-overflow"])) != "ellipsis" {
+		return box.Text
+	}
+	overflow := strings.ToLower(strings.TrimSpace(style["overflow"]))
+	if overflow != "hidden" && overflow != "clip" {
+		return box.Text
+	}
+	if len(box.Text) == 0 {
+		return box.Text
+	}
+	widths := [4]int{borderWidth(style, "top"), borderWidth(style, "right"),
+		borderWidth(style, "bottom"), borderWidth(style, "left")}
+	if box.BorderWidths != nil {
+		widths = *box.BorderWidths
+	}
+	right := box.Rect.Max.X - widths[1]
+
+	result := make([]TextRun, 0, len(box.Text)+1)
+	for start := 0; start < len(box.Text); {
+		end := start + 1
+		for end < len(box.Text) && box.Text[end].Rect.Min.Y == box.Text[start].Rect.Min.Y {
+			end++
+		}
+		result = append(result, p.ellipsisLine(box.Text[start:end], right)...)
+		start = end
+	}
+	return result
+}
+
+func (p *painter) ellipsisLine(runs []TextRun, right int) []TextRun {
+	if len(runs) == 0 {
+		return runs
+	}
+	last := runs[len(runs)-1]
+	if (last.PenX + p.faces.metrics(last.Style).advance(last.Text)).Ceil() <= right {
+		return runs
+	}
+	markerWidth := p.faces.metrics(last.Style).advance("…")
+	start := runs[0].PenX
+	available := fixed.I(right) - start
+	if markerWidth <= 0 || available < markerWidth {
+		// Leave the existing normal clip in place if the marker itself cannot fit.
+		return runs
+	}
+	textAvailable := available - markerWidth
+	pen := start
+	result := make([]TextRun, 0, len(runs)+1)
+	var markerSource TextRun
+	for _, run := range runs {
+		m := p.faces.metrics(run.Style)
+		var kept strings.Builder
+		for _, r := range run.Text {
+			next := m.advance(string(r))
+			if pen-start+next > textAvailable {
+				if kept.Len() != 0 {
+					keptRun := run
+					keptRun.Text = kept.String()
+					keptRun.Rect.Max.X = min(keptRun.Rect.Max.X, pen.Ceil())
+					result = append(result, keptRun)
+				}
+				markerSource = run
+				goto marker
+			}
+			kept.WriteRune(r)
+			pen += next
+		}
+		if kept.Len() != 0 {
+			keptRun := run
+			keptRun.Text = kept.String()
+			result = append(result, keptRun)
+		}
+		markerSource = run
+	}
+
+marker:
+	markerSource.Text = "…"
+	markerSource.PenX = pen
+	markerSource.Rect.Min.X = pen.Floor()
+	markerSource.Rect.Max.X = min(right, (pen + markerWidth).Ceil())
+	if markerSource.Rect.Max.X > markerSource.Rect.Min.X {
+		result = append(result, markerSource)
+	}
+	return result
 }
 
 // paintInlineBackground paints the background layers for one line fragment.

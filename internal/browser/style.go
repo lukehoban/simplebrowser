@@ -453,7 +453,8 @@ var inheritedCSSProperties = map[string]bool{
 var initialComputedValues = map[string]string{
 	"display": "inline", "color": "black", "font-family": "serif", "font-size": "16px",
 	"font-style": "normal", "font-variant": "normal", "font-weight": "normal",
-	"line-height": "normal", "text-align": "start", "visibility": "visible", "white-space": "normal", "background-color": "transparent",
+	"line-height": "normal", "text-align": "start", "visibility": "visible", "white-space": "normal",
+	"text-overflow": "clip", "background-color": "transparent",
 	"background-image": "none", "background-repeat": "repeat", "background-position": "0% 0%",
 	"background-size": "auto", "mask-image": "none", "mask-repeat": "repeat", "mask-position": "0% 0%",
 	"mask-size": "auto",
