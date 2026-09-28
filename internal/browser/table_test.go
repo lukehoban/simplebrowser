@@ -938,6 +938,36 @@ func TestCollapsedRowBordersResolveEachSpanSegment(t *testing.T) {
 	}
 }
 
+func TestCollapsedPerimeterBordersResolveEachSpanSegment(t *testing.T) {
+	node := func(name, top string) *StyledNode {
+		return &StyledNode{
+			Node:  &Node{Type: ElementNode, Name: name},
+			Style: ComputedStyle{"display": "table-cell", "border-top": top},
+		}
+	}
+	left := &tableCellBox{node: node("td", "5px solid red"), col: 0, colspan: 1, rowspan: 1, row: 0}
+	right := &tableCellBox{node: node("td", "2px solid blue"), col: 1, colspan: 1, rowspan: 1, row: 0}
+	span := &tableCellBox{node: node("td", ""), col: 0, colspan: 2, rowspan: 1, row: 1}
+	table := &StyledNode{
+		Node:  &Node{Type: ElementNode, Name: "table"},
+		Style: ComputedStyle{"border-top": "1px solid black"},
+	}
+	grid := &tableGrid{
+		collapse: true, columns: 2,
+		rows: []*tableRowBox{
+			{cells: []*tableCellBox{left, right}},
+			{cells: []*tableCellBox{span}},
+		},
+	}
+	grid.resolveOuterBorders(table)
+	if got := grid.outerBorderAt(0, 0); got == nil || got.width != 5 || got.node != left.node {
+		t.Fatalf("left perimeter winner = %#v, want 5px left cell", got)
+	}
+	if got := grid.outerBorderAt(0, 1); got == nil || got.width != 2 || got.node != right.node {
+		t.Fatalf("right perimeter winner = %#v, want 2px right cell", got)
+	}
+}
+
 func TestTableCollapsedHiddenBorderSuppressesSharedEdge(t *testing.T) {
 	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
 		`<tr><td style="padding:0;width:40px;height:20px;border-right:10px solid red"></td>`+
