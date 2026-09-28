@@ -19,8 +19,7 @@ func radiusParts(value string) ([]string, bool) {
 		return nil, false
 	}
 	for _, part := range parts {
-		v := classifyValue(part)
-		if v.Number < 0 || (v.Kind != "length" && !(v.Kind == "number" && v.Number == 0) && v.Kind != "percentage") {
+		if !validRadiusComponent(part) {
 			return nil, false
 		}
 	}
@@ -35,9 +34,48 @@ func radiusParts(value string) ([]string, bool) {
 	return parts, true
 }
 
+// splitRadiusHalves finds only the top-level slash separating horizontal and
+// vertical radii. A slash inside calc(), such as calc(20px / 2), belongs to
+// the math expression instead.
+func splitRadiusHalves(value string) ([]string, bool) {
+	depth, slash := 0, -1
+	var quote byte
+	for i := 0; i < len(value); i++ {
+		switch {
+		case quote != 0:
+			if value[i] == '\\' {
+				i++
+			} else if value[i] == quote {
+				quote = 0
+			}
+		case value[i] == '"' || value[i] == '\'':
+			quote = value[i]
+		case value[i] == '(':
+			depth++
+		case value[i] == ')':
+			depth--
+			if depth < 0 {
+				return nil, false
+			}
+		case value[i] == '/' && depth == 0:
+			if slash >= 0 {
+				return nil, false
+			}
+			slash = i
+		}
+	}
+	if depth != 0 || quote != 0 {
+		return nil, false
+	}
+	if slash < 0 {
+		return []string{value}, true
+	}
+	return []string{value[:slash], value[slash+1:]}, true
+}
+
 func expandRadius(d Declaration) []Declaration {
-	halves := strings.Split(d.Value, "/")
-	if len(halves) > 2 {
+	halves, ok := splitRadiusHalves(d.Value)
+	if !ok {
 		return nil
 	}
 	x, ok := radiusParts(halves[0])
@@ -58,14 +96,22 @@ func expandRadius(d Declaration) []Declaration {
 	return result
 }
 
+func validRadiusComponent(part string) bool {
+	if startsWithMathFunction(part) {
+		return validSingleCalc("border-radius", part)
+	}
+	v := classifyValue(part)
+	return v.Number >= 0 &&
+		(v.Kind == "length" || v.Kind == "percentage" || v.Kind == "number" && v.Number == 0)
+}
+
 func validCornerRadius(value string) bool {
 	parts, ok := splitCSSComponents(value)
 	if !ok || len(parts) < 1 || len(parts) > 2 {
 		return false
 	}
 	for _, part := range parts {
-		v := classifyValue(part)
-		if v.Number < 0 || (v.Kind != "length" && !(v.Kind == "number" && v.Number == 0) && v.Kind != "percentage") {
+		if !validRadiusComponent(part) {
 			return false
 		}
 	}
@@ -76,8 +122,8 @@ func usedRadii(style ComputedStyle, rect image.Rectangle) [4]cornerRadius {
 	var result [4]cornerRadius
 	w, h := float64(rect.Dx()), float64(rect.Dy())
 	for i, corner := range radiusCorners {
-		parts := strings.Fields(style["border-"+corner+"-radius"])
-		if len(parts) == 0 {
+		parts, ok := splitCSSComponents(style["border-"+corner+"-radius"])
+		if !ok || len(parts) == 0 {
 			continue
 		}
 		result[i].x = max(0, px(parts[0], w, 0))
