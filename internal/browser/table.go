@@ -1308,7 +1308,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			contentNode.Node = nil
 			children, height := layoutChildren(&contentNode, contentX, 0, innerWidth, faces,
 				containingBlock{x: contentX, width: innerWidth,
-					inlinePenX: fixed.I(contentX) + columnPhase[min(cell.col, grid.columns)], hasInlinePenX: true})
+					inlinePenPhase: columnPhase[min(cell.col, grid.columns)], hasInlinePenPhase: true})
 			if value := strings.TrimSpace(cell.node.Style["height"]); value != "" && !strings.EqualFold(value, "auto") {
 				height = max(height, int(math.Max(0, px(value, 0, float64(height)))))
 			}
