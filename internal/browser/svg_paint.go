@@ -354,40 +354,56 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 	if s.img.hasViewBox {
 		vw, vh = s.img.viewBox[2], s.img.viewBox[3]
 	}
-	coord := func(name, def string, basis float64) float64 {
-		if v, ok := attr(name, true); ok {
-			if n, ok := svgGradientLength(v, basis, g.userSpace); ok {
-				return n
+	// Coordinates resolve through svgPaintLength so bare units, calc() and
+	// var() use the computed font and custom properties of the gradient
+	// that supplies each value, as pattern geometry does.
+	length := func(name string, basis float64, axis svgAxis) (float64, bool) {
+		for _, n := range chain {
+			if (n.name == "radialGradient") != radial {
+				continue
 			}
+			if v, ok := n.attrs[name]; ok {
+				if !g.userSpace {
+					// objectBoundingBox coordinates are box fractions, so
+					// percentages in CSS math are fractions of 1.
+					basis = 1
+				}
+				if containsVarFunction(v) {
+					// Populate the custom-property snapshot for this node.
+					s.cascadedAttributes(n)
+				}
+				return s.svgPaintLength(v, n, basis, g.userSpace, axis)
+			}
+		}
+		return 0, false
+	}
+	coord := func(name, def string, basis float64, axis svgAxis) float64 {
+		if n, ok := length(name, basis, axis); ok {
+			return n
 		}
 		n, _ := svgGradientLength(def, basis, g.userSpace)
 		return n
 	}
+	diagonal := math.Hypot(vw, vh) / math.Sqrt2
 	if radial {
-		g.x1 = coord("cx", "50%", vw)
-		g.y1 = coord("cy", "50%", vh)
-		g.r = coord("r", "50%", math.Hypot(vw, vh)/math.Sqrt2)
-		if v, ok := attr("fr", true); ok {
-			if n, ok := svgGradientLength(v, math.Hypot(vw, vh)/math.Sqrt2, g.userSpace); ok {
-				g.fr = math.Max(0, n)
-			}
+		g.x1 = coord("cx", "50%", vw, svgHorizontal)
+		g.y1 = coord("cy", "50%", vh, svgVertical)
+		g.r = coord("r", "50%", diagonal, svgDiagonal)
+		if n, ok := length("fr", diagonal, svgDiagonal); ok {
+			g.fr = math.Max(0, n)
 		}
 		g.fx, g.fy = g.x1, g.y1
-		if v, ok := attr("fx", true); ok {
-			if n, ok := svgGradientLength(v, vw, g.userSpace); ok {
-				g.fx = n
-			}
+		if n, ok := length("fx", vw, svgHorizontal); ok {
+			g.fx = n
 		}
-		if v, ok := attr("fy", true); ok {
-			if n, ok := svgGradientLength(v, vh, g.userSpace); ok {
-				g.fy = n
-			}
+		if n, ok := length("fy", vh, svgVertical); ok {
+			g.fy = n
 		}
 	} else {
-		g.x1 = coord("x1", "0%", vw)
-		g.y1 = coord("y1", "0%", vh)
-		g.x2 = coord("x2", "100%", vw)
-		g.y2 = coord("y2", "0%", vh)
+		g.x1 = coord("x1", "0%", vw, svgHorizontal)
+		g.y1 = coord("y1", "0%", vh, svgVertical)
+		g.x2 = coord("x2", "100%", vw, svgHorizontal)
+		g.y2 = coord("y2", "0%", vh, svgVertical)
 	}
 	// Stops come from the first element in the chain that has any.
 	for _, n := range chain {
