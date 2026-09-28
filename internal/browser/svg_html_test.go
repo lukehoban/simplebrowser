@@ -38,7 +38,21 @@ func TestInlineSVGInheritsHTMLCurrentColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("style document: %v", err)
 	}
-	svgNode := styled.StyleRoot.Children[0].Children[0]
+	var svgNode *StyledNode
+	var find func(*StyledNode)
+	find = func(node *StyledNode) {
+		if node == nil || svgNode != nil {
+			return
+		}
+		if node.Node != nil && node.Node.Type == ElementNode && node.Node.Name == "svg" {
+			svgNode = node
+			return
+		}
+		for _, child := range node.Children {
+			find(child)
+		}
+	}
+	find(styled.StyleRoot)
 	img, ok := inlineSVGImage(svgNode).(*svgImage)
 	if !ok || img == nil {
 		t.Fatal("inlineSVGImage() did not decode the SVG")
@@ -145,6 +159,38 @@ func TestInlineSVGHostCSSFixtureRendersBluePath(t *testing.T) {
 	}
 	if bluePixels < 20 {
 		t.Fatalf("blue host-styled inline SVG pixels = %d, want a painted icon", bluePixels)
+	}
+}
+
+func TestInlineSVGHostCSSCanOverrideSupportedGeometry(t *testing.T) {
+	node := ParseHTML(`<style>.mark path { d: path("M0 0H5V5H0Z"); fill: blue }</style><svg class="mark" width="10" height="10" viewBox="0 0 10 10"><path d="M5 5H10V10H5Z" fill="red"/></svg>`)
+	styled, err := style(Document{Root: node}, &Fetcher{})
+	if err != nil {
+		t.Fatalf("style document: %v", err)
+	}
+	var svgNode *StyledNode
+	var find func(*StyledNode)
+	find = func(node *StyledNode) {
+		if node == nil || svgNode != nil {
+			return
+		}
+		if node.Node != nil && node.Node.Type == ElementNode && node.Node.Name == "svg" {
+			svgNode = node
+			return
+		}
+		for _, child := range node.Children {
+			find(child)
+		}
+	}
+	find(styled.StyleRoot)
+	img, ok := inlineSVGImage(svgNode).(*svgImage)
+	if !ok || img == nil {
+		t.Fatal("inlineSVGImage() did not decode host geometry CSS")
+	}
+	got := color.NRGBAModel.Convert(img.At(2, 2)).(color.NRGBA)
+	want := color.NRGBA{R: 0, G: 0, B: 255, A: 255}
+	if got != want {
+		t.Fatalf("CSS d geometry pixel = %#v, want %#v", got, want)
 	}
 }
 

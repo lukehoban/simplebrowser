@@ -20,6 +20,7 @@ var inlineSVGHostStyleProperties = []string{
 	"stroke-dasharray", "stroke-dashoffset",
 	"font-size", "font-family", "font-style", "font-weight",
 	"opacity", "stop-color", "stop-opacity",
+	"d", "x", "y", "width", "height", "rx", "ry", "cx", "cy", "r",
 }
 
 var inlineSVGHostInheritedProperties = []string{
@@ -189,9 +190,9 @@ func inlineSVGHostInheritedStyle(style ComputedStyle, priorities map[string]Styl
 }
 
 // inlineSVGHostStyle bridges the HTML cascade's final declarations for the
-// presentation properties the bounded SVG decoder understands. They remain
-// stylesheet declarations in that decoder: SVG inline declarations retain
-// inline priority, and presentation attributes remain lower priority.
+// presentation and geometry properties the bounded SVG decoder understands.
+// They remain stylesheet declarations in that decoder: SVG inline declarations
+// retain inline priority, and presentation attributes remain lower priority.
 func inlineSVGHostStyle(style ComputedStyle, priorities map[string]StylePriority) (string, string) {
 	var declarations []string
 	var encodedPriorities []string
@@ -233,7 +234,7 @@ func parseInlineSVGHostPriorities(value string) map[string]StylePriority {
 		valid := true
 		for i, field := range fields {
 			number, err := strconv.Atoi(field)
-			if err != nil || number < 0 || number > maxSVGElements {
+			if err != nil || number < 0 || number > maxSVGBytes {
 				valid = false
 				break
 			}
