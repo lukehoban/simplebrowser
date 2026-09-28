@@ -289,6 +289,30 @@ func TestInlineSVGHostCSSFixtureRendersBluePath(t *testing.T) {
 	}
 }
 
+func TestInlineSVGHostCSSDepthBoundaryFixtureRendersBluePath(t *testing.T) {
+	var output bytes.Buffer
+	fixture := filepath.Join("..", "..", "testdata", "svg", "host-css-depth-boundary.html")
+	if err := RenderWithFetcher(fixture, &output, &Fetcher{}); err != nil {
+		t.Fatalf("RenderWithFetcher() error = %v", err)
+	}
+	img, err := png.Decode(&output)
+	if err != nil {
+		t.Fatalf("decode rendered PNG: %v", err)
+	}
+	bluePixels := 0
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r > 0 && r < 0x3000 && g > 0x4000 && g < 0x7000 && b > 0x8000 {
+				bluePixels++
+			}
+		}
+	}
+	if bluePixels < 20 {
+		t.Fatalf("blue host-styled path pixels at the SVG depth boundary = %d, want a painted icon", bluePixels)
+	}
+}
+
 func TestInlineSVGHostCSSCanOverrideSupportedGeometry(t *testing.T) {
 	node := ParseHTML(`<style>.mark path { d: path("M0 0H5V5H0Z"); fill: blue }</style><svg class="mark" width="10" height="10" viewBox="0 0 10 10"><path d="M5 5H10V10H5Z" fill="red"/></svg>`)
 	styled, err := style(Document{Root: node}, &Fetcher{})
