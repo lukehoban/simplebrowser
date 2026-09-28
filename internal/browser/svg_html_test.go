@@ -63,6 +63,133 @@ func TestInlineSVGInheritsHTMLCurrentColor(t *testing.T) {
 	}
 }
 
+func TestInlineSVGUsesAncestorCustomPropertyForGeometry(t *testing.T) {
+	root := ParseHTML(`<div style="--size:20px"><svg width="40" height="20" viewBox="0 0 40 20"><style>rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg></div>`)
+	styled, err := style(Document{Root: root}, &Fetcher{})
+	if err != nil {
+		t.Fatalf("style document: %v", err)
+	}
+	var svgNode *StyledNode
+	var find func(*StyledNode)
+	find = func(node *StyledNode) {
+		if node == nil || svgNode != nil {
+			return
+		}
+		if node.Node != nil && node.Node.Type == ElementNode && node.Node.Name == "svg" {
+			svgNode = node
+			return
+		}
+		for _, child := range node.Children {
+			find(child)
+		}
+	}
+	find(styled.StyleRoot)
+	img, ok := inlineSVGImage(svgNode).(*svgImage)
+	if !ok || img == nil {
+		t.Fatal("inlineSVGImage() did not decode the SVG")
+	}
+	if got := color.NRGBAModel.Convert(img.At(10, 10)).(color.NRGBA); got.R < 240 || got.G > 20 || got.B > 20 {
+		t.Fatalf("resolved geometry pixel = %#v, want red", got)
+	}
+	if got := color.NRGBAModel.Convert(img.At(30, 10)).(color.NRGBA); got.A != 0 {
+		t.Fatalf("pixel outside var() width = %#v, want transparent", got)
+	}
+}
+
+func TestInlineSVGCustomPropertyHostPriorityPixels(t *testing.T) {
+	tests := []struct {
+		name, html string
+		width      int
+	}{
+		{
+			name:  "review repro: host important defeats SVG root selector",
+			html:  `<style>svg { --size: 30px !important }</style><svg width="40" height="20"><style>svg { --size: 10px } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 30,
+		},
+		{
+			name:  "SVG important defeats normal host declaration",
+			html:  `<style>svg { --size: 30px }</style><svg width="40" height="20"><style>svg { --size: 10px !important } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 10,
+		},
+		{
+			name:  "more specific host declaration defeats SVG selector",
+			html:  `<style>#icon { --size: 30px }</style><svg id="icon" width="40" height="20"><style>svg { --size: 10px } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 30,
+		},
+		{
+			name:  "more specific SVG declaration defeats host selector",
+			html:  `<style>svg { --size: 30px }</style><svg id="icon" width="40" height="20"><style>#icon { --size: 10px } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 10,
+		},
+		{
+			name:  "later SVG rule wins equal specificity",
+			html:  `<style>svg { --size: 30px }</style><svg width="40" height="20"><style>svg { --size: 10px } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 10,
+		},
+		{
+			name:  "later host rule wins equal specificity",
+			html:  `<svg width="40" height="20"><style>svg { --size: 10px } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg><style>svg { --size: 30px }</style>`,
+			width: 30,
+		},
+		{
+			name:  "inherited host stream does not outrank SVG root declaration",
+			html:  `<div style="--size:30px"><svg width="40" height="20"><style>svg { --size: 10px } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg></div>`,
+			width: 10,
+		},
+		{
+			name:  "earlier important host layer defeats SVG layer",
+			html:  `<style>@layer base, theme; @layer base { svg { --size: 30px !important } }</style><svg width="40" height="20"><style>@layer theme { svg { --size: 10px !important } } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 30,
+		},
+		{
+			name:  "later normal SVG layer defeats host layer",
+			html:  `<style>@layer base, theme; @layer base { svg { --size: 30px } }</style><svg width="40" height="20"><style>@layer theme { svg { --size: 10px } } rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 10,
+		},
+		{
+			name:  "child host important defeats child SVG style",
+			html:  `<style>rect { --size: 30px !important }</style><svg width="40" height="20"><style>rect { --size: 10px; width: var(--size); height: 20px; fill: red }</style><rect/></svg>`,
+			width: 30,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			styled, err := style(Document{Root: ParseHTML(tc.html)}, &Fetcher{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var svgNode *StyledNode
+			var find func(*StyledNode)
+			find = func(node *StyledNode) {
+				if node == nil || svgNode != nil {
+					return
+				}
+				if node.Node != nil && node.Node.Name == "svg" {
+					svgNode = node
+					return
+				}
+				for _, child := range node.Children {
+					find(child)
+				}
+			}
+			find(styled.StyleRoot)
+			img := inlineSVGImage(svgNode)
+			if img == nil {
+				t.Fatal("inline SVG did not decode")
+			}
+			for _, x := range []int{tc.width - 2, tc.width + 2} {
+				got := color.NRGBAModel.Convert(img.At(x, 10)).(color.NRGBA)
+				if x < tc.width && (got.R < 240 || got.G > 20 || got.B > 20 || got.A < 240) {
+					t.Errorf("inside pixel at %d = %#v, want red", x, got)
+				}
+				if x > tc.width && got.A != 0 {
+					t.Errorf("outside pixel at %d = %#v, want transparent", x, got)
+				}
+			}
+		})
+	}
+}
+
 func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 	tests := []struct {
 		name string
@@ -142,6 +269,11 @@ func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 		{
 			name: "SVG root presentation attribute overrides inherited host fill",
 			html: `<div style="fill: blue"><svg fill="red" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z"/></svg></div>`,
+			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
+		},
+		{
+			name: "ancestor custom property resolves SVG geometry",
+			html: `<div style="--size: 20px"><svg width="40" height="20" viewBox="0 0 40 20"><style>rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg></div>`,
 			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
 		},
 	}
