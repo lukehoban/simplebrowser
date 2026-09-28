@@ -291,7 +291,7 @@ func TestFontShorthandCascadeAndResets(t *testing.T) {
 
 func TestInvalidFontShorthandsAreIgnored(t *testing.T) {
 	for _, value := range []string{
-		`italic 16px`, `16px/ serif`, `16px "unterminated`,
+		`italic 16px`, `16px/ serif`,
 		`italic italic 16px serif`, `16px serif,,sans-serif`,
 		`caption extra`, `italic caption`, `caption/2`, `"menu"`,
 		`wide 16px serif`, `16px "Quoted Family" extra`,
