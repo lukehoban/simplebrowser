@@ -1422,6 +1422,26 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		rowBox.Rect = image.Rect(originX+grid.hspacing, row.y,
 			max(originX+grid.hspacing, columnX[grid.columns]-grid.hspacing), row.y+max(0, rowHeight))
 		rowBox.Content = rowBox.Rect
+		// The resolved collapsed edge is painted once in the gap between
+		// rows. Suppress the participating row borders here as well, or
+		// transparent cells expose a second copy inside the row box.
+		if grid.collapse && row.node != nil &&
+			((rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil) ||
+				(rowIndex+1 < len(grid.rowBorders) && grid.rowBorders[rowIndex+1] != nil)) {
+			widths := [4]int{
+				borderWidth(row.node.Style, "top"),
+				borderWidth(row.node.Style, "right"),
+				borderWidth(row.node.Style, "bottom"),
+				borderWidth(row.node.Style, "left"),
+			}
+			if rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil {
+				widths[0] = 0
+			}
+			if rowIndex+1 < len(grid.rowBorders) && grid.rowBorders[rowIndex+1] != nil {
+				widths[2] = 0
+			}
+			rowBox.BorderWidths = &widths
+		}
 		if rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil {
 			edge := grid.rowBorders[rowIndex]
 			gapTop := grid.rows[rowIndex-1].y + grid.rows[rowIndex-1].height

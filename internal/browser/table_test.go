@@ -616,6 +616,38 @@ func TestTableCollapsedRowCellBorderConflict(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedRowCellBorderConflictWithTransparentCells(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	test := read("collapsed-row-cell-transparent-border.html")
+	reference := read("collapsed-row-cell-transparent-border-ref.html")
+	viewport := image.Rect(0, 0, 80, 50)
+	got, want := painted(t, test, viewport), painted(t, reference, viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("transparent-cell collapsed edge differs from explicit reference at %d pixels", differing)
+	}
+	// The losing row border must not paint inside the upper cell. Only the
+	// resolved three-pixel edge is black.
+	for y := 17; y < 20; y++ {
+		pixel(t, got, 10, y, color.RGBA{255, 255, 255, 255})
+	}
+	for y := 20; y < 23; y++ {
+		pixel(t, got, 10, y, color.RGBA{0, 0, 0, 255})
+	}
+}
+
 func TestTableCollapsedAdjacentCellsMatchReference(t *testing.T) {
 	read := func(name string) string {
 		t.Helper()
