@@ -11,3 +11,7 @@ This is not general CSS Grid. Other track definitions, multiple rows, spans,
 implicit tracks, and Grid auto-placement remain unsupported. The implementation
 therefore does not claim broad `(display: grid)` support through `@supports`.
 The deterministic fixture is `testdata/grid-three-area-button.html`.
+
+Current renderer output:
+
+![Three-area Grid fixture rendered by simplebrowser](screenshots/grid-three-area-button.png)

@@ -124,12 +124,15 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	inline []Declaration, viewport image.Point, pseudo string) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-variant": "normal", "font-weight": "normal",
-		"lang": language.Und.String(), "line-height": "normal", "text-align": "start", "visibility": "visible"}
+		"lang": language.Und.String(), "line-height": "normal", "text-align": "start", "visibility": "visible",
+		"white-space": "normal"}
 	// border-spacing is inherited (CSS 2.1 §17.6.1); the UA table rule sets 2px.
 	// visibility is inherited (CSS 2.1 §11.2), so a hidden subtree stays hidden
-	// unless a descendant sets visibility:visible.
+	// unless a descendant sets visibility:visible. white-space is inherited
+	// (CSS Text 3 §3), so nowrap reaches text inside nested inline elements.
 	for _, p := range []string{"border-spacing", "color", "font-family", "font-size",
-		"font-style", "font-variant", "font-weight", "lang", "line-height", "text-align", "visibility"} {
+		"font-style", "font-variant", "font-weight", "lang", "line-height", "text-align", "visibility",
+		"white-space"} {
 		if parent != nil {
 			values[p] = parent[p]
 		}
@@ -444,13 +447,13 @@ func expandCSSWideDeclaration(d Declaration, keyword string) []Declaration {
 var inheritedCSSProperties = map[string]bool{
 	"border-spacing": true, "color": true, "font-family": true, "font-size": true,
 	"font-style": true, "font-variant": true, "font-weight": true, "line-height": true,
-	"text-align": true, "visibility": true,
+	"text-align": true, "visibility": true, "white-space": true,
 }
 
 var initialComputedValues = map[string]string{
 	"display": "inline", "color": "black", "font-family": "serif", "font-size": "16px",
 	"font-style": "normal", "font-variant": "normal", "font-weight": "normal",
-	"line-height": "normal", "text-align": "start", "visibility": "visible", "background-color": "transparent",
+	"line-height": "normal", "text-align": "start", "visibility": "visible", "white-space": "normal", "background-color": "transparent",
 	"background-image": "none", "background-repeat": "repeat", "background-position": "0% 0%",
 	"background-size": "auto", "mask-image": "none", "mask-repeat": "repeat", "mask-position": "0% 0%",
 	"mask-size": "auto",
