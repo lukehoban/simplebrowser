@@ -40,6 +40,10 @@ type Tokenizer struct {
 	pos   int
 	raw   string
 	xhtml bool
+	// foreignDepth tracks the SVG/MathML foreign-content scope in HTML
+	// mode. CDATA sections are text only in that scope; outside it, the
+	// existing HTML declaration recovery remains unchanged.
+	foreignDepth int
 }
 
 func NewTokenizer(input string) *Tokenizer { return &Tokenizer{input: input} }
@@ -84,7 +88,7 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	s = t.input[t.pos:]
-	if t.xhtml && strings.HasPrefix(s, "<![CDATA[") {
+	if (t.xhtml || t.foreignDepth > 0) && strings.HasPrefix(s, "<![CDATA[") {
 		return t.cdataToken(s)
 	}
 	if s[0] != '<' {
@@ -151,6 +155,9 @@ func (t *Tokenizer) Next() Token {
 			i++
 		}
 		t.pos += i
+		if isForeignRoot(token.Name) && t.foreignDepth > 0 {
+			t.foreignDepth--
+		}
 		return token
 	}
 	seen := map[string]bool{}
@@ -213,6 +220,9 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	t.pos += i
+	if isForeignRoot(token.Name) && !token.SelfClosing {
+		t.foreignDepth++
+	}
 	if token.Name == "script" || token.Name == "style" {
 		if !token.SelfClosing {
 			t.raw = token.Name
@@ -221,12 +231,13 @@ func (t *Tokenizer) Next() Token {
 	return token
 }
 
-// nextRawCDATA splits XHTML raw text at a CDATA opener so the next call can
-// consume it without exposing the delimiters to the style or script content.
+// nextRawCDATA splits raw text at a CDATA opener so the next call can consume
+// it without exposing the delimiters to the style or script content.
 func (t *Tokenizer) nextRawCDATA(s string, before int) (Token, bool) {
-	if !t.xhtml {
+	if !t.xhtml && t.foreignDepth == 0 {
 		return Token{}, false
 	}
+
 	i := strings.Index(s[:before], "<![CDATA[")
 	if i < 0 {
 		return Token{}, false
@@ -248,6 +259,10 @@ func (t *Tokenizer) cdataToken(s string) Token {
 	}
 	t.pos += len(opener) + end + len("]]>")
 	return Token{Type: TextToken, Data: content[:end]}
+}
+
+func isForeignRoot(name string) bool {
+	return name == "svg" || name == "math"
 }
 
 func isSpace(b byte) bool  { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' }

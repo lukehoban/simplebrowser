@@ -21,6 +21,9 @@ func TestTokenizer(t *testing.T) {
 			[]Token{{Type: StartTagToken, Name: "script"}, {Type: TextToken, Data: `if (a < b && x) { s = "&amp;"; }`},
 				{Type: EndTagToken, Name: "script"}, {Type: StartTagToken, Name: "style"},
 				{Type: TextToken, Data: `a::before{content:"<b>"}`}, {Type: EndTagToken, Name: "style"}}},
+		{"foreign CDATA", `<svg><![CDATA[<path> &amp;]]></svg><![CDATA[outside]]>`,
+			[]Token{{Type: StartTagToken, Name: "svg"}, {Type: TextToken, Data: `<path> &amp;`},
+				{Type: EndTagToken, Name: "svg"}, {Type: CommentToken, Data: "[CDATA[outside]]"}}},
 		{"unterminated raw", `<script>x < b &amp;`, []Token{{Type: StartTagToken, Name: "script"}, {Type: TextToken, Data: "x < b &amp;"}}},
 		{"ambiguous references", `<a href="?a=1&amp;b=2" title="&copy= &copy; &#65; &bogus;">&amp &bogus; &#x110000;</a>`,
 			[]Token{{Type: StartTagToken, Name: "a", Attributes: []Attribute{{Name: "href", Value: "?a=1&b=2"}, {Name: "title", Value: "&copy= © A &bogus;"}}},
@@ -137,6 +140,7 @@ func TestParseHTML(t *testing.T) {
 		{"document nodes", `<!doctype html><!--hi--><html><body>x</body></html>`,
 			`#document(<!doctype html>,<!--hi-->,html(body("x")))`},
 	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			root := ParseHTML(tt.input)
@@ -154,6 +158,15 @@ func TestParseHTML(t *testing.T) {
 			}
 			visit(root)
 		})
+	}
+}
+
+func TestParseHTMLForeignCDATA(t *testing.T) {
+	root := ParseHTML(`<svg><style><![CDATA[#shape { fill: blue }]]></style><path id=shape/></svg>`)
+	svg := root.Children[0]
+	style := svg.Children[0]
+	if got := style.Children[0].Data; got != "#shape { fill: blue }" {
+		t.Fatalf("CDATA style text = %q, want stylesheet text", got)
 	}
 }
 
