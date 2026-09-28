@@ -2,6 +2,7 @@ package browser
 
 import (
 	"image"
+	"image/color"
 	"math"
 	"strconv"
 	"strings"
@@ -46,6 +47,8 @@ type Box struct {
 	// BorderWidths overrides the widths from the node's computed style when
 	// table border collapsing allocates a shared edge to another box.
 	BorderWidths *[4]int // top, right, bottom, left
+	// BorderColors overrides colors on paint-only collapsed-border fragments.
+	BorderColors *[4]color.RGBA
 	// BorderOnly marks a paint-only fragment of another box's collapsed
 	// border: it paints no background and has no content of its own.
 	BorderOnly bool

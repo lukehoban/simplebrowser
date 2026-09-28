@@ -14,9 +14,9 @@
     "error": 0
   },
   "diagnostic_local": {
-    "total": 5,
-    "pass": 3,
-    "fail": 2,
+    "total": 6,
+    "pass": 5,
+    "fail": 1,
     "error": 0
   },
   "areas": [
@@ -111,9 +111,9 @@
     {
       "suite": "Local",
       "area": "Tables",
-      "total": 2,
-      "pass": 0,
-      "fail": 2,
+      "total": 3,
+      "pass": 2,
+      "fail": 1,
       "error": 0
     }
   ],
@@ -660,8 +660,20 @@
       "diagnostic": true,
       "not_covered": "Row/table borders, style precedence, spans, and multi-row conflicts.",
       "issue": "#66",
-      "status": "fail",
-      "different_pixels": 240
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "collapsed-row-cell-border.html",
+      "reference": "collapsed-row-cell-border-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Tables",
+      "diagnostic": true,
+      "not_covered": "Multi-row segmentation, table edges, row groups, border styles, and spanning cells.",
+      "issue": "#66",
+      "status": "pass",
+      "different_pixels": 0
     },
     {
       "test": "inline-table-line-edge.html",
