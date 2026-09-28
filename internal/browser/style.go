@@ -162,6 +162,7 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	consider := func(candidate winningDeclaration) {
 		candidate.d.Property = canonicalMaskProperty(candidate.d.Property)
+		candidate.d.Property = canonicalLogicalSizeProperty(candidate.d.Property)
 		// Box shorthands are a single declaration: an invalid component must
 		// not apply its valid siblings to the cascade.
 		switch candidate.d.Property {
@@ -384,6 +385,19 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	resolveFontRelativeValues(values, rootFontSize)
 	normalizeCalcValues(values, viewport.X, viewport.Y, rootFontSize)
 	return values
+}
+
+// The current layout engine only supports horizontal writing modes, where
+// the logical size properties map to their physical counterparts.
+func canonicalLogicalSizeProperty(property string) string {
+	switch property {
+	case "inline-size":
+		return "width"
+	case "block-size":
+		return "height"
+	default:
+		return property
+	}
 }
 
 // validSubstitutedDeclaration applies the same grammar used by @supports to
