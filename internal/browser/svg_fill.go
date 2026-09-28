@@ -12,7 +12,14 @@ import (
 // svgFillSubSamples sub-scanlines whose parity spans are accumulated with
 // analytic horizontal coverage.
 
-const svgFillSubSamples = 16
+const (
+	svgFillSubSamples        = 16
+	svgFillQualitySubSamples = 128
+	// Quality sampling is only selected when this conservative estimate of
+	// edge visits, crossing-sort work, and covered pixel visits remains
+	// bounded. Larger inputs retain the 16-sample fallback.
+	maxSVGQualitySampleWork = 1 << 24
+)
 
 // The exact even-odd rasterizer splits the path into y-monotone trapezoids.
 // These caps keep intersection discovery and per-pixel clipping bounded;
@@ -422,7 +429,16 @@ func clipSVGPolygonX(in [6]svgPoint, n int, x float64, keepGreater bool) ([6]svg
 
 // svgEvenOddSampledMask is the bounded fallback used when exact arrangement
 // construction would exceed its explicit edge, event, or pixel-work budget.
+// Moderately sized inputs receive higher-quality sampling; large inputs keep
+// the original 16-sample ceiling.
 func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
+	return svgEvenOddSampledMaskWithSamples(paths, w, h, 0)
+}
+
+// svgEvenOddSampledMaskWithSamples uses the requested sample count, or picks
+// the higher-quality bounded fallback when samples is zero. Explicit sample
+// counts are useful for pixel-accuracy regression references.
+func svgEvenOddSampledMaskWithSamples(paths []svgSubpath, w, h, samples int) *image.Alpha {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
@@ -460,6 +476,16 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 	if yEnd > h {
 		yEnd = h
 	}
+	if samples <= 0 {
+		samples = svgFillSubSamples
+		// Each edge can be visited once per overlapping row. Sorting the
+		// crossings at a row costs O(k log k), where k is the active crossing
+		// count; the row histogram bounds that work before selecting a sample
+		// count. Parity spans visit no more than the visible row width per
+		// sample. This estimate bounds the dominant loops without relaxing
+		// the exact rasterizer's hostile-input safeguards.
+		samples = svgEvenOddFallbackSampleCountForEdges(edges, w, yStart, yEnd)
+	}
 	cov := make([]float64, w)
 	var xs []float64
 	next := 0
@@ -478,8 +504,8 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 			}
 		}
 		active = kept
-		for s := 0; s < svgFillSubSamples; s++ {
-			sy := float64(y) + (float64(s)+0.5)/svgFillSubSamples
+		for s := 0; s < samples; s++ {
+			sy := float64(y) + (float64(s)+0.5)/float64(samples)
 			xs = xs[:0]
 			for _, e := range active {
 				if sy >= e.y0 && sy < e.y1 {
@@ -491,7 +517,7 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 			}
 			sort.Float64s(xs)
 			for i := 0; i+1 < len(xs); i += 2 {
-				addSVGSpan(cov, xs[i], xs[i+1], 1.0/svgFillSubSamples)
+				addSVGSpan(cov, xs[i], xs[i+1], 1.0/float64(samples))
 			}
 		}
 		row := mask.Pix[y*mask.Stride : y*mask.Stride+w]
@@ -506,6 +532,73 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 		}
 	}
 	return mask
+}
+
+func svgEvenOddFallbackSampleCountForEdges(edges []svgEdge, width, yStart, yEnd int) int {
+	if yStart >= yEnd {
+		return svgFillSubSamples
+	}
+	activeDelta := make([]int64, yEnd-yStart+1)
+	for _, e := range edges {
+		first := max(yStart, int(math.Floor(e.y0)))
+		last := min(yEnd, int(math.Ceil(e.y1)))
+		if last > first {
+			activeDelta[first-yStart]++
+			activeDelta[last-yStart]--
+		}
+	}
+	var edgeRows, sortingWork, active int64
+	for row := 0; row < yEnd-yStart; row++ {
+		active += activeDelta[row]
+		edgeRows = svgAccumulateQualityWork(edgeRows, active)
+		// Budget room for both comparison and movement work at each level,
+		// not just the asymptotic number of comparison levels.
+		sortFactor := 2 * int64(svgCeilLog2(active))
+		if sortFactor > 0 && active > int64(maxSVGQualitySampleWork/svgFillQualitySubSamples)/sortFactor {
+			sortingWork = int64(maxSVGQualitySampleWork/svgFillQualitySubSamples) + 1
+		} else {
+			sortingWork = svgAccumulateQualityWork(sortingWork, active*sortFactor)
+		}
+	}
+	return svgEvenOddFallbackSampleCount(edgeRows, sortingWork, width, yEnd-yStart)
+}
+
+func svgEvenOddFallbackSampleCount(edgeRows, sortingWork int64, width, rows int) int {
+	// Compare before multiplying so pathological dimensions or edge counts
+	// cannot overflow the work estimate and accidentally select 128 samples.
+	perSampleLimit := int64(maxSVGQualitySampleWork / svgFillQualitySubSamples)
+	if edgeRows < 0 || sortingWork < 0 || width < 0 || rows < 0 {
+		return svgFillSubSamples
+	}
+	if edgeRows > perSampleLimit || sortingWork > perSampleLimit-edgeRows {
+		return svgFillSubSamples
+	}
+	work := edgeRows + sortingWork
+	if width != 0 && int64(rows) > (perSampleLimit-work)/int64(width) {
+		return svgFillSubSamples
+	}
+	return svgFillQualitySubSamples
+}
+
+func svgAccumulateQualityWork(work, added int64) int64 {
+	limit := int64(maxSVGQualitySampleWork / svgFillQualitySubSamples)
+	if added < 0 || work > limit || added > limit-work {
+		return limit + 1
+	}
+	return work + added
+}
+
+func svgCeilLog2(value int64) int {
+	if value <= 1 {
+		return 0
+	}
+	value--
+	log := 0
+	for value > 0 {
+		log++
+		value >>= 1
+	}
+	return log
 }
 
 // addSVGSpan adds weight*coverage for the horizontal span [x0,x1) to cov,
