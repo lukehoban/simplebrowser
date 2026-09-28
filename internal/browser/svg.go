@@ -168,6 +168,13 @@ func svgDefaultFrame() svgFrame {
 }
 
 func decodeSVG(data []byte) (*svgImage, error) {
+	return decodeSVGWithInheritedColor(data, color.NRGBA{A: 255})
+}
+
+// decodeSVGWithInheritedColor is used for inline SVG, whose currentColor can
+// inherit from the surrounding HTML element. Standalone image documents keep
+// the ordinary initial black color through decodeSVG.
+func decodeSVGWithInheritedColor(data []byte, inherited color.NRGBA) (*svgImage, error) {
 	if len(data) > maxSVGBytes {
 		return nil, errUnsupportedSVG
 	}
@@ -263,6 +270,7 @@ func decodeSVG(data []byte) (*svgImage, error) {
 		return nil, err
 	}
 	frame := svgDefaultFrame()
+	frame.color = inherited
 	frame.userWidth, frame.userHeight, frame.dashBasis = img.userWidth, img.userHeight, img.dashBasis
 	if err := state.walk(root, frame, false, 0); err != nil {
 		return nil, err

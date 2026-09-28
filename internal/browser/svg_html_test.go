@@ -1,0 +1,50 @@
+package browser
+
+import (
+	"bytes"
+	"image/color"
+	"image/png"
+	"path/filepath"
+	"testing"
+)
+
+func TestInlineSVGHTMLRendersCurrentColorAtInlineSize(t *testing.T) {
+	root := filepath.Join("..", "..", "testdata", "svg")
+	var output bytes.Buffer
+	if err := RenderWithFetcher(filepath.Join(root, "inline-html.html"), &output, &Fetcher{}); err != nil {
+		t.Fatalf("RenderWithFetcher() error = %v", err)
+	}
+	img, err := png.Decode(&output)
+	if err != nil {
+		t.Fatalf("decode rendered PNG: %v", err)
+	}
+	redPixels := 0
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r > 0x7000 && g < 0x5000 && b < 0x5000 {
+				redPixels++
+			}
+		}
+	}
+	if redPixels < 20 {
+		t.Fatalf("red inline SVG pixels = %d, want a painted icon", redPixels)
+	}
+}
+
+func TestInlineSVGInheritsHTMLCurrentColor(t *testing.T) {
+	node := ParseHTML(`<span style="color: rgb(20, 80, 160)"><svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M0 0H10V10H0Z"/></svg></span>`)
+	styled, err := style(Document{Root: node}, &Fetcher{})
+	if err != nil {
+		t.Fatalf("style document: %v", err)
+	}
+	svgNode := styled.StyleRoot.Children[0].Children[0]
+	img, ok := inlineSVGImage(svgNode).(*svgImage)
+	if !ok || img == nil {
+		t.Fatal("inlineSVGImage() did not decode the SVG")
+	}
+	got := color.NRGBAModel.Convert(img.At(5, 5)).(color.NRGBA)
+	if got.R != 20 || got.G != 80 || got.B != 160 || got.A != 255 {
+		t.Fatalf("SVG currentColor pixel = %#v, want opaque rgb(20, 80, 160)", got)
+	}
+}
