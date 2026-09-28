@@ -2,6 +2,7 @@ package browser
 
 import (
 	"image"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -86,6 +87,16 @@ func layerCount(sheets []Stylesheet, viewport image.Point) int {
 	return len(seen)
 }
 
+// layerOrders exposes the same document-wide layer ranks used by the host
+// cascade to renderers that perform a second cascade over a subtree. Every
+// declared layer is included, even one without rules, so that the subtree
+// can merge its own declarations into the complete host registry.
+func layerOrders(sheets []Stylesheet, viewport image.Point) map[string]int {
+	orders, unlayered := layerRanks(sheets, viewport)
+	orders[""] = unlayered
+	return orders
+}
+
 func joinLayerName(parent, child string) string {
 	if parent == "" {
 		return child
@@ -117,6 +128,22 @@ func (s *Stylesheet) declareLayer(name, media string) {
 // layers have higher normal precedence. A parent layer's own declarations
 // occupy its implicit final sublayer, after its explicitly nested layers.
 func assignLayerOrder(sheets []Stylesheet, viewport image.Point) {
+	rank, unlayered := layerRanks(sheets, viewport)
+	for i := range sheets {
+		for j := range sheets[i].Rules {
+			rule := &sheets[i].Rules[j]
+			if rule.Layer == "" {
+				rule.LayerOrder = unlayered
+			} else if value, ok := rank[rule.Layer]; ok {
+				rule.LayerOrder = value
+			}
+		}
+	}
+}
+
+// layerRanks returns the rank of every layer declared (under matching media)
+// by sheets, taken in order, and the rank of unlayered declarations.
+func layerRanks(sheets []Stylesheet, viewport image.Point) (map[string]int, int) {
 	children := map[string][]string{"": nil}
 	known := map[string]bool{}
 	for _, sheet := range sheets {
@@ -150,17 +177,31 @@ func assignLayerOrder(sheets []Stylesheet, viewport image.Point) {
 		}
 	}
 	visit("")
-	unlayered := next
-	for i := range sheets {
-		for j := range sheets[i].Rules {
-			rule := &sheets[i].Rules[j]
-			if rule.Layer == "" {
-				rule.LayerOrder = unlayered
-			} else if value, ok := rank[rule.Layer]; ok {
-				rule.LayerOrder = value
-			}
+	return rank, next
+}
+
+// hostLayerRegistry rebuilds a declaration sequence equivalent to a document
+// layer order produced by layerOrders. Declaring names in rank (post-order)
+// sequence preserves every sibling's relative order, so re-merging it with
+// later sheets reproduces the host tree before appending their new layers.
+func hostLayerRegistry(orders map[string]int) Stylesheet {
+	names := make([]string, 0, len(orders))
+	for name := range orders {
+		if name != "" {
+			names = append(names, name)
 		}
 	}
+	sort.Slice(names, func(i, j int) bool {
+		if orders[names[i]] != orders[names[j]] {
+			return orders[names[i]] < orders[names[j]]
+		}
+		return names[i] < names[j]
+	})
+	var sheet Stylesheet
+	for _, name := range names {
+		sheet.LayerDeclarations = append(sheet.LayerDeclarations, LayerDeclaration{Name: name})
+	}
+	return sheet
 }
 
 func cloneStylesheetsForLayerOrder(sheets []Stylesheet) []Stylesheet {

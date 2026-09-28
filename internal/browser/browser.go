@@ -49,11 +49,24 @@ type StyledDocument struct {
 // pixels. Layout resolves percentages against their property-specific bases.
 type ComputedStyle map[string]string
 
+// StylePriority records which direct declaration won for a computed property.
+// It is retained for bridges, such as inline SVG, that feed computed values
+// into a second renderer while preserving the original declaration priority.
+type StylePriority struct {
+	Important   bool
+	Inline      bool
+	Specificity [3]int
+	Layer       int
+	Order       int
+}
+
 // StyledNode retains its source DOM node while adding its computed style.
 type StyledNode struct {
-	Node     *Node
-	Style    ComputedStyle
-	Children []*StyledNode
+	Node            *Node
+	Style           ComputedStyle
+	StylePriority   map[string]StylePriority
+	StyleLayerOrder map[string]int
+	Children        []*StyledNode
 	// flexItem marks a flex item being laid out. Flex items establish an
 	// independent formatting context (css-flexbox §4), so their floats
 	// neither escape into the container nor persist across re-layouts.

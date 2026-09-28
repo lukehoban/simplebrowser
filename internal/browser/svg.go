@@ -124,14 +124,16 @@ func looksLikeSVG(data []byte) bool {
 // Keep the small source tree so forward references work. Only elements and
 // attributes are retained; no text, network resources or external URLs.
 type svgNode struct {
-	name     string
-	attrs    map[string]string
-	cssNode  *Node
-	parent   *svgNode
-	style    string
-	href     string
-	valid    bool
-	children []*svgNode
+	name         string
+	attrs        map[string]string
+	cssNode      *Node
+	parent       *svgNode
+	style        string
+	hostStyle    string
+	hostPriority map[string]StylePriority
+	href         string
+	valid        bool
+	children     []*svgNode
 }
 
 type svgFrame struct {
@@ -175,6 +177,11 @@ func decodeSVG(data []byte) (*svgImage, error) {
 // inherit from the surrounding HTML element. Standalone image documents keep
 // the ordinary initial black color through decodeSVG.
 func decodeSVGWithInheritedColor(data []byte, inherited color.NRGBA) (*svgImage, error) {
+	return decodeSVGWithHostStyles(data, inherited, false, nil, nil)
+}
+
+func decodeSVGWithHostStyles(data []byte, inherited color.NRGBA, allowHostStyles bool,
+	inheritedHostStyle map[string]string, hostLayerOrder map[string]int) (*svgImage, error) {
 	if len(data) > maxSVGBytes {
 		return nil, errUnsupportedSVG
 	}
@@ -204,6 +211,18 @@ func decodeSVGWithInheritedColor(data []byte, inherited color.NRGBA) (*svgImage,
 				valid: t.Name.Space == svgNamespace || t.Name.Space == ""}
 			node.cssNode = &Node{Type: ElementNode, Name: node.name}
 			for _, attr := range t.Attr {
+				if attr.Name.Local == inlineSVGHostStyleAttribute && attr.Name.Space == "" {
+					if allowHostStyles {
+						node.hostStyle = attr.Value
+					}
+					continue
+				}
+				if attr.Name.Local == inlineSVGHostPriorityAttribute && attr.Name.Space == "" {
+					if allowHostStyles {
+						node.hostPriority = parseInlineSVGHostPriorities(attr.Value)
+					}
+					continue
+				}
 				if attr.Name.Space == "" || attr.Name.Space == svgNamespace {
 					node.cssNode.Attributes = append(node.cssNode.Attributes, Attribute{Name: attr.Name.Local, Value: attr.Value})
 				}
@@ -264,8 +283,24 @@ func decodeSVGWithInheritedColor(data []byte, inherited color.NRGBA) (*svgImage,
 	if root == nil {
 		return nil, errUnsupportedSVG
 	}
+	// Host and embedded layers share one registry (CSS Cascade 5 §6.4): host
+	// layers keep their document order, and layers declared only inside this
+	// SVG are appended after them rather than ranked among themselves.
+	registry := append([]Stylesheet{hostLayerRegistry(hostLayerOrder)}, sheets...)
+	ranks, unlayered := layerRanks(registry, image.Pt(800, 600))
+	assignLayerOrder(registry, image.Pt(800, 600))
+	hostLayers := make(map[int]int, len(hostLayerOrder))
+	for name, old := range hostLayerOrder {
+		if name == "" {
+			hostLayers[old] = unlayered
+		} else if rank, ok := ranks[name]; ok {
+			hostLayers[old] = rank
+		}
+	}
 	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool),
-		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA)}
+		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA),
+		hostLayers: hostLayers}
+	state.inheritedHostStyle = inheritedHostStyle
 	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
 		return nil, err
 	}
@@ -301,9 +336,12 @@ type svgExpansion struct {
 	// patternBudget bounds lazily scaled pattern tiles for the document.
 	patternBudget *svgPatternBudget
 	// colors memoizes computed color values for non-rendered gradient trees.
-	colors   map[*svgNode]color.NRGBA
-	elements int
-	segments int
+	colors             map[*svgNode]color.NRGBA
+	elements           int
+	segments           int
+	inheritedHostStyle map[string]string
+	// hostLayers maps host cascade layer ranks to the merged host/SVG ranks.
+	hostLayers map[int]int
 }
 
 func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
@@ -734,6 +772,12 @@ func svgUnitInterval(s string) (float64, bool) {
 func svgAttributes(t xml.StartElement) map[string]string {
 	attrs := make(map[string]string, len(t.Attr))
 	for _, a := range t.Attr {
+		if a.Name.Space == "" && a.Name.Local == inlineSVGHostStyleAttribute {
+			continue
+		}
+		if a.Name.Space == "" && a.Name.Local == inlineSVGHostPriorityAttribute {
+			continue
+		}
 		if a.Name.Space != "" && a.Name.Space != svgNamespace {
 			continue
 		}
@@ -894,10 +938,17 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 	for k, v := range node.attrs {
 		attrs[k] = v
 	}
+	if node == s.root {
+		for property, value := range s.inheritedHostStyle {
+			if _, present := attrs[property]; !present {
+				attrs[property] = value
+			}
+		}
+	}
 	winners := make(map[string]winningDeclaration)
 	order := 0
 	geometry := svgGeometryProperties[node.name]
-	add := func(d Declaration, spec [3]int, inline bool) {
+	add := func(d Declaration, spec [3]int, inline bool, layer int, hostPriority ...StylePriority) {
 		if geometry[d.Property] {
 			value, ok := svgGeometryDeclaration(d.Property, d.Value)
 			if !ok {
@@ -908,7 +959,15 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 			return
 		}
 		order++
-		candidate := winningDeclaration{d: d, important: d.Important, inline: inline, origin: 1, order: order, spec: spec}
+		candidateOrder := order
+		if len(hostPriority) > 0 {
+			layer = hostPriority[0].Layer
+			if merged, ok := s.hostLayers[layer]; ok {
+				layer = merged
+			}
+			candidateOrder = hostPriority[0].Order
+		}
+		candidate := winningDeclaration{d: d, important: d.Important, inline: inline, origin: 1, order: candidateOrder, layer: layer, spec: spec}
 		if old, ok := winners[d.Property]; !ok || beats(candidate, old) {
 			winners[d.Property] = candidate
 		}
@@ -923,16 +982,27 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 					continue
 				}
 				for _, d := range rule.Declarations {
-					add(d, specificity(selector), false)
+					add(d, specificity(selector), false, rule.LayerOrder)
 				}
 			}
 		}
+	}
+	for _, d := range ParseDeclarations(node.hostStyle) {
+		priority, ok := node.hostPriority[d.Property]
+		if !ok {
+			continue
+		}
+		// The host tree has already selected the winning declaration. Retain
+		// its author importance, inline status and specificity when comparing
+		// against declarations in an embedded SVG stylesheet.
+		d.Important = priority.Important
+		add(d, priority.Specificity, priority.Inline, priority.Layer, priority)
 	}
 	for _, d := range ParseDeclarations(attrs["style"]) {
 		// The normal cascade uses a single id unit for inline specificity;
 		// SVG's bounded XML tree can contain arbitrary compound selectors.
 		// Keep inline specificity above every stylesheet selector.
-		add(d, [3]int{maxSVGElements + 1, 0, 0}, true)
+		add(d, [3]int{maxSVGElements + 1, 0, 0}, true, 0)
 		if !svgStyleProperties[d.Property] && !geometry[d.Property] {
 			attrs[d.Property] = d.Value // preserve existing inline geometry behavior
 		}
