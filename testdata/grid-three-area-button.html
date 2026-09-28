@@ -1,0 +1,20 @@
+<!doctype html>
+<style>
+body { margin: 16px; font: 14px Arial }
+button {
+  width: 88px; height: 32px; padding: 0 12px;
+  border: 1px solid #d1d9e0; border-radius: 6px; background: white;
+}
+.content {
+  display: grid;
+  grid-template-columns: min-content minmax(0,auto) min-content;
+  grid-template-areas: 'leadingVisual text trailingVisual';
+  column-gap: 8px;
+  align-items: center;
+}
+.content > :not(:last-child) { margin-right: 8px }
+.lead { grid-area: leadingVisual }
+.label { grid-area: text; white-space: nowrap; line-height: 1.5 }
+.trail { grid-area: trailingVisual }
+</style>
+<button><span class="content"><span class="lead">◆</span><span class="label">main</span><span class="trail">▾</span></span></button>

@@ -411,7 +411,8 @@ func displayBlock(n *StyledNode) bool {
 	// margins when laid out inside the table wrapper's caption row.
 	display := n.Style["display"]
 	return strings.EqualFold(display, "block") || strings.EqualFold(display, "list-item") ||
-		strings.EqualFold(display, "table-caption") || strings.EqualFold(display, "flex")
+		strings.EqualFold(display, "table-caption") || strings.EqualFold(display, "flex") ||
+		strings.EqualFold(display, "grid")
 }
 
 func boxEdges(n *StyledNode, name string, basis float64) [4]int {
@@ -1235,6 +1236,8 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	var trailing collapsedMargin
 	if isFlexContainer(n) {
 		children, childBottom = layoutFlex(n, contentX, contentY, contentWidth, usedHeight, definite, faces, childCB)
+	} else if isGridContainer(n) {
+		children, childBottom = layoutGrid(n, contentX, contentY, contentWidth, faces, childCB)
 	} else {
 		children, childBottom, trailing = layoutFlow(n, contentX, contentY, contentWidth, faces,
 			collapsesThroughTop(n, width), collapseBottom, childCB)
