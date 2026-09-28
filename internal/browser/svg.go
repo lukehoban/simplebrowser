@@ -1676,10 +1676,6 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			continue
 		}
 		m := shape.transform.then(view)
-		pt := func(p [2]float64) (float32, float32) {
-			x, y := m.apply(p[0], p[1])
-			return float32(x), float32(y)
-		}
 		if shape.fill.A != 0 {
 			var paths []svgSubpath
 			useParityRasterizer := false
@@ -1690,33 +1686,62 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 			}
 			if useParityRasterizer {
 				if mask := svgEvenOddMask(paths, w, h); mask != nil {
-					src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
-					draw.DrawMask(dst, dst.Bounds(), src, image.Point{}, mask, image.Point{}, draw.Over)
+					bounds := svgDeviceBounds(shape, m, 1, dst.Bounds())
+					src := paint.source(shape.fill, shape.fillServer, m, bounds, fold)
+					draw.DrawMask(dst, bounds, src, bounds.Min, mask, bounds.Min, draw.Over)
 				}
 			} else {
+				bounds := svgDeviceBounds(shape, m, 1, dst.Bounds())
+				if bounds.Empty() {
+					continue
+				}
+				pathM := m
+				pathM.e -= float64(bounds.Min.X)
+				pathM.f -= float64(bounds.Min.Y)
 				r.Reset(w, h)
 				drawn := false
 				for _, seg := range shape.segments {
 					switch seg.op {
 					case 'M':
-						x, y := pt(seg.pts[0])
+						x, y := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[0][0], seg.pts[0][1])
+							return float32(px), float32(py)
+						}()
 						if drawn {
 							r.ClosePath()
 						}
 						r.MoveTo(x, y)
 					case 'L':
-						x, y := pt(seg.pts[0])
+						x, y := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[0][0], seg.pts[0][1])
+							return float32(px), float32(py)
+						}()
 						r.LineTo(x, y)
 						drawn = true
 					case 'Q':
-						x1, y1 := pt(seg.pts[0])
-						x, y := pt(seg.pts[1])
+						x1, y1 := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[0][0], seg.pts[0][1])
+							return float32(px), float32(py)
+						}()
+						x, y := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[1][0], seg.pts[1][1])
+							return float32(px), float32(py)
+						}()
 						r.QuadTo(x1, y1, x, y)
 						drawn = true
 					case 'C':
-						x1, y1 := pt(seg.pts[0])
-						x2, y2 := pt(seg.pts[1])
-						x, y := pt(seg.pts[2])
+						x1, y1 := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[0][0], seg.pts[0][1])
+							return float32(px), float32(py)
+						}()
+						x2, y2 := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[1][0], seg.pts[1][1])
+							return float32(px), float32(py)
+						}()
+						x, y := func() (float32, float32) {
+							px, py := pathM.apply(seg.pts[2][0], seg.pts[2][1])
+							return float32(px), float32(py)
+						}()
 						r.CubeTo(x1, y1, x2, y2, x, y)
 						drawn = true
 					case 'Z':
@@ -1725,17 +1750,24 @@ func (img *svgImage) rasterize(w, h int) *image.RGBA {
 				}
 				if drawn {
 					r.ClosePath()
-					src := paint.source(shape.fill, shape.fillServer, m, svgDeviceBounds(shape, m, 1, dst.Bounds()), fold)
-					r.Draw(dst, dst.Bounds(), src, image.Point{})
+					src := paint.source(shape.fill, shape.fillServer, m, bounds, fold)
+					r.Draw(dst.SubImage(bounds).(*image.RGBA), bounds, src, bounds.Min)
 				}
 			}
 		}
 		if shape.stroke.A != 0 && shape.width > 0 {
-			r.Reset(w, h)
-			strokeSVGPath(r, shape, m)
 			pad := shape.width*math.Max(shape.miterLimit, math.Sqrt2)*svgAffineScale(m)/2 + 2
-			src := paint.source(shape.stroke, shape.strokeServer, m, svgDeviceBounds(shape, m, pad, dst.Bounds()), fold)
-			r.Draw(dst, dst.Bounds(), src, image.Point{})
+			bounds := svgDeviceBounds(shape, m, pad, dst.Bounds())
+			if bounds.Empty() {
+				continue
+			}
+			pathM := m
+			pathM.e -= float64(bounds.Min.X)
+			pathM.f -= float64(bounds.Min.Y)
+			r.Reset(w, h)
+			strokeSVGPath(r, shape, pathM)
+			src := paint.source(shape.stroke, shape.strokeServer, m, bounds, fold)
+			r.Draw(dst.SubImage(bounds).(*image.RGBA), bounds, src, bounds.Min)
 		}
 	}
 	return dst
