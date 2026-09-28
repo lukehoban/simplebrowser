@@ -271,6 +271,10 @@ func drawBorders(dst *image.RGBA, rect image.Rectangle, style ComputedStyle) {
 }
 
 func drawBordersWithWidths(dst *image.RGBA, rect image.Rectangle, style ComputedStyle, widths [4]int) {
+	drawBordersWithColors(dst, rect, style, widths, nil)
+}
+
+func drawBordersWithColors(dst *image.RGBA, rect image.Rectangle, style ComputedStyle, widths [4]int, colors *[4]color.RGBA) {
 	if rect.Empty() {
 		return
 	}
@@ -278,10 +282,17 @@ func drawBordersWithWidths(dst *image.RGBA, rect image.Rectangle, style Computed
 	right := min(rect.Dx(), widths[1])
 	bottom := min(rect.Dy(), widths[2])
 	left := min(rect.Dx(), widths[3])
-	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+top), borderColor(style, "top"))
-	fill(dst, image.Rect(rect.Min.X, rect.Max.Y-bottom, rect.Max.X, rect.Max.Y), borderColor(style, "bottom"))
-	fill(dst, image.Rect(rect.Min.X, rect.Min.Y+top, rect.Min.X+left, rect.Max.Y-bottom), borderColor(style, "left"))
-	fill(dst, image.Rect(rect.Max.X-right, rect.Min.Y+top, rect.Max.X, rect.Max.Y-bottom), borderColor(style, "right"))
+	borderColors := [4]color.RGBA{
+		borderColor(style, "top"), borderColor(style, "right"),
+		borderColor(style, "bottom"), borderColor(style, "left"),
+	}
+	if colors != nil {
+		borderColors = *colors
+	}
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+top), borderColors[0])
+	fill(dst, image.Rect(rect.Min.X, rect.Max.Y-bottom, rect.Max.X, rect.Max.Y), borderColors[2])
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y+top, rect.Min.X+left, rect.Max.Y-bottom), borderColors[3])
+	fill(dst, image.Rect(rect.Max.X-right, rect.Min.Y+top, rect.Max.X, rect.Max.Y-bottom), borderColors[1])
 }
 
 func decorated(run TextRun, styles map[*Node]ComputedStyle, keyword string) bool {
@@ -648,7 +659,9 @@ func (p *painter) paintBackground(box *Box) {
 		if box.BorderOnly {
 			if box.BorderWidths != nil {
 				r := usedRadii(style, box.Rect)
-				if hasRadius(r) {
+				if box.BorderColors != nil {
+					drawBordersWithColors(p.canvas, box.Rect, style, *box.BorderWidths, box.BorderColors)
+				} else if hasRadius(r) {
 					paintRoundedBox(p.canvas, box.Rect, style, *box.BorderWidths, r, func(*image.RGBA) {})
 				} else {
 					drawBordersWithWidths(p.canvas, box.Rect, style, *box.BorderWidths)

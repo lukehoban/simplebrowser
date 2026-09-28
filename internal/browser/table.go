@@ -2,6 +2,7 @@ package browser
 
 import (
 	"image"
+	"image/color"
 	"math"
 	"strings"
 	"unicode"
@@ -34,9 +35,12 @@ import (
 //   - `border-collapse: collapse` is partial: border-spacing is dropped,
 //     outer cell borders contribute their trailing half-width when aligning
 //     the anonymous wrapper with a caption, and row-group top/bottom borders
-//     collapse (wider wins) into gaps between rows. Rows without cells are
-//     bridged by the outer halves of the adjacent cells' borders. Conflicts
-//     between cell, row and table borders still use the separated model.
+//     collapse (wider wins) into gaps between rows. A single unspanned row
+//     resolves cell shared vertical edges; unspanned one-column rows also
+//     resolve cell/row shared horizontal edges by border width.
+//     Rows without cells are bridged by the outer halves of adjacent cell
+//     borders. Multi-column segmentation and table-edge conflicts remain
+//     unsupported.
 //   - The first header group renders first and the first footer group last.
 //   - `rowspan` is honored for geometry: a spanning cell covers its rows and
 //     any extra height it needs is added to the last row it spans.
@@ -84,11 +88,19 @@ type tableGrid struct {
 	groups                      []*tableGroupBox
 	cols                        []*StyledNode // expanded <col>/<colgroup> definitions, in grid order
 	columns                     int
+	columnBorders               []*collapsedTableBorder
+	rowBorders                  []*collapsedTableBorder
 	hspacing                    int    // horizontal border-spacing between/around columns
 	vspacing                    int    // vertical border-spacing between/around rows
 	collapse                    bool   // border-collapse: collapse
 	caption                     bool   // a direct caption participates in the anonymous wrapper
 	padding                     [4]int // default cell padding contributed by cellpadding
+}
+
+type collapsedTableBorder struct {
+	node  *StyledNode
+	side  string
+	width int
 }
 
 func displayIs(n *StyledNode, values ...string) bool {
@@ -525,6 +537,9 @@ func (g *tableGrid) collapsedGapBefore(i int) int {
 	if !g.collapse {
 		return 0
 	}
+	if i > 0 && i < len(g.rowBorders) && g.rowBorders[i] != nil {
+		return g.rowBorders[i].width
+	}
 	row := g.rows[i]
 	if i > 0 && g.rows[i-1].group == row.group {
 		return 0
@@ -534,6 +549,152 @@ func (g *tableGrid) collapsedGapBefore(i int) int {
 		gap = max(gap, groupBorder(g.rows[i-1].group, "bottom"))
 	}
 	return gap
+}
+
+// resolveSingleColumnRowBorders handles the unspanned, one-cell-per-row
+// subset of collapsed row edges. It is intentionally bounded: the full grid
+// conflict algorithm must segment borders at cell/span boundaries and account
+// for columns, row groups, and table edges.
+func (g *tableGrid) resolveSingleColumnRowBorders() {
+	g.rowBorders = make([]*collapsedTableBorder, len(g.rows))
+	if !g.collapse || g.columns != 1 || len(g.rows) < 2 {
+		return
+	}
+	for i := 1; i < len(g.rows); i++ {
+		previous, current := g.rows[i-1], g.rows[i]
+		if previous.group != current.group ||
+			len(previous.cells) != 1 || len(current.cells) != 1 {
+			continue
+		}
+		before, after := previous.cells[0], current.cells[0]
+		if before.col != 0 || after.col != 0 || before.colspan != 1 ||
+			after.colspan != 1 || before.rowspan != 1 || after.rowspan != 1 {
+			continue
+		}
+		candidates := []collapsedTableBorder{
+			{node: before.node, side: "bottom", width: borderWidth(before.node.Style, "bottom")},
+			{node: after.node, side: "top", width: borderWidth(after.node.Style, "top")},
+		}
+		if previous.node != nil {
+			candidates = append(candidates, collapsedTableBorder{
+				node: previous.node, side: "bottom", width: borderWidth(previous.node.Style, "bottom"),
+			})
+		}
+		if current.node != nil {
+			candidates = append(candidates, collapsedTableBorder{
+				node: current.node, side: "top", width: borderWidth(current.node.Style, "top"),
+			})
+		}
+		// CSS 2.1 §17.6.2.1 gives the wider visible border precedence. For
+		// equal widths, the cell wins over its row; stable order then makes
+		// the previous side win an otherwise equal row/cell tie.
+		var winner *collapsedTableBorder
+		for j := range candidates {
+			candidate := &candidates[j]
+			if candidate.width == 0 {
+				continue
+			}
+			if winner == nil || candidate.width > winner.width ||
+				(candidate.width == winner.width &&
+					borderOriginRank(candidate.node) > borderOriginRank(winner.node)) {
+				winner = candidate
+			}
+		}
+		if winner != nil {
+			copy := *winner
+			g.rowBorders[i] = &copy
+		}
+	}
+}
+
+// resolveSingleRowCellBorders handles shared vertical edges in one row when
+// every grid column has exactly one unspanned cell. More complex grids need
+// independently segmented candidates for each row and span.
+func (g *tableGrid) resolveSingleRowCellBorders() {
+	g.columnBorders = make([]*collapsedTableBorder, g.columns+1)
+	if !g.collapse || len(g.rows) != 1 || g.columns < 2 {
+		return
+	}
+	row := g.rows[0]
+	if len(row.cells) != g.columns {
+		return
+	}
+	cells := make([]*tableCellBox, g.columns)
+	for _, cell := range row.cells {
+		if cell.colspan != 1 || cell.rowspan != 1 || cell.col < 0 || cell.col >= g.columns ||
+			cells[cell.col] != nil {
+			return
+		}
+		cells[cell.col] = cell
+	}
+	for col := 1; col < g.columns; col++ {
+		left, right := cells[col-1], cells[col]
+		if left == nil || right == nil {
+			return
+		}
+		candidates := []collapsedTableBorder{
+			{node: left.node, side: "right", width: borderWidth(left.node.Style, "right")},
+			{node: right.node, side: "left", width: borderWidth(right.node.Style, "left")},
+		}
+		winner := &candidates[0]
+		if candidates[1].width > winner.width {
+			winner = &candidates[1]
+		}
+		if winner.width > 0 {
+			copy := *winner
+			g.columnBorders[col] = &copy
+		}
+	}
+}
+
+func borderOriginRank(node *StyledNode) int {
+	if node == nil || node.Node == nil {
+		return 0
+	}
+	switch strings.ToLower(node.Node.Name) {
+	case "td", "th":
+		return 2
+	case "tr":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func (g *tableGrid) collapsedCellBorderWidths(cell *tableCellBox, border [4]int) [4]int {
+	if !g.collapse || cell.colspan != 1 || cell.rowspan != 1 {
+		return border
+	}
+	if cell.row == 0 && cell.row < len(g.rows) && g.rows[cell.row].cells != nil &&
+		g.columnBorders != nil {
+		if cell.col > 0 && cell.col < len(g.columnBorders) && g.columnBorders[cell.col] != nil {
+			border[3] = 0
+		}
+		if cell.col+1 < len(g.columnBorders) && g.columnBorders[cell.col+1] != nil {
+			border[1] = g.columnBorders[cell.col+1].width
+		}
+	}
+	if g.columns == 1 {
+		if cell.row > 0 && cell.row < len(g.rowBorders) && g.rowBorders[cell.row] != nil {
+			border[0] = 0
+		}
+		if cell.row+1 < len(g.rows) && cell.row+1 < len(g.rowBorders) &&
+			g.rowBorders[cell.row+1] != nil {
+			border[2] = 0
+		}
+	}
+	return border
+}
+
+func (g *tableGrid) collapsedCellPaintBorderWidths(cell *tableCellBox, border [4]int) [4]int {
+	border = g.collapsedCellBorderWidths(cell, border)
+	if cell.col > 0 && cell.col < len(g.columnBorders) && g.columnBorders[cell.col] != nil {
+		border[3] = 0
+	}
+	if cell.col+1 < len(g.columnBorders) && g.columnBorders[cell.col+1] != nil {
+		border[1] = 0
+	}
+	return border
 }
 
 // addRow records one row, wrapping any non-cell children in anonymous cells.
@@ -617,6 +778,7 @@ func (g *tableGrid) assignColumns() {
 // defaulting to the table's cellpadding when the cell declares no padding.
 func (g *tableGrid) cellEdges(cell *tableCellBox) (padding, border [4]int) {
 	border = boxEdges(cell.node, "border-width", 0)
+	border = g.collapsedCellBorderWidths(cell, border)
 	padding = boxEdges(cell.node, "padding", 0)
 	for i, side := range []string{"top", "right", "bottom", "left"} {
 		if cell.node.Style["padding-"+side] == "" {
@@ -1012,6 +1174,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	available := max(0, width-margin[1]-margin[3]-border[1]-border[3])
 
 	grid := buildTableGrid(n)
+	grid.resolveSingleColumnRowBorders()
+	grid.resolveSingleRowCellBorders()
 	grid.measureCells(faces)
 	sizes := grid.columnSizes()
 
@@ -1134,6 +1298,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				cellWidth += grid.hspacing * (span - 1)
 			}
 			padding, cellBorder := grid.cellEdges(cell)
+			cellBorder = grid.collapsedCellBorderWidths(cell, cellBorder)
 			innerWidth := max(0, cellWidth-padding[1]-padding[3]-cellBorder[1]-cellBorder[3])
 			contentX := columnX[min(cell.col, grid.columns)] + padding[3] + cellBorder[3]
 			// The cell box below owns the cell's background and border. Make
@@ -1233,7 +1398,7 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	// Second pass: move cell content into place now that rows are positioned.
 	var rowBoxes []*Box
 	groupBoxes := map[*tableGroupBox]*Box{}
-	for _, row := range grid.rows {
+	for rowIndex, row := range grid.rows {
 		rowBox := &Box{Node: row.node.nodeOrNil()}
 		rowHeight := row.height
 		for _, cell := range row.cells {
@@ -1243,17 +1408,49 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				spanHeight += grid.rows[i].height
 			}
 			padding, cellBorder := grid.cellEdges(cell)
+			cellBorder = grid.collapsedCellBorderWidths(cell, cellBorder)
 			top := row.y
 			offsetY := top + padding[0] + cellBorder[0]
 			translateBox(cell.box, 0, offsetY)
 			cell.box.Rect = image.Rect(cell.box.Rect.Min.X, top, cell.box.Rect.Max.X, top+max(0, spanHeight))
 			cell.box.Content = image.Rect(cell.box.Content.Min.X, offsetY,
 				cell.box.Content.Max.X, offsetY+max(0, cell.box.Content.Dy()))
+			paintBorders := grid.collapsedCellPaintBorderWidths(cell, cellBorder)
+			cell.box.BorderWidths = &paintBorders
 			rowBox.Children = append(rowBox.Children, cell.box)
 		}
 		rowBox.Rect = image.Rect(originX+grid.hspacing, row.y,
 			max(originX+grid.hspacing, columnX[grid.columns]-grid.hspacing), row.y+max(0, rowHeight))
 		rowBox.Content = rowBox.Rect
+		if rowIndex > 0 && rowIndex < len(grid.rowBorders) && grid.rowBorders[rowIndex] != nil {
+			edge := grid.rowBorders[rowIndex]
+			gapTop := grid.rows[rowIndex-1].y + grid.rows[rowIndex-1].height
+			widths := [4]int{edge.width, 0, 0, 0}
+			colors := [4]color.RGBA{}
+			colors[0] = borderColor(edge.node.Style, edge.side)
+			rowBox.Children = append(rowBox.Children, &Box{
+				Node:         rowBox.Node,
+				Rect:         image.Rect(rowBox.Rect.Min.X, gapTop, rowBox.Rect.Max.X, row.y),
+				Content:      image.Rect(rowBox.Rect.Min.X, gapTop, rowBox.Rect.Max.X, row.y),
+				BorderWidths: &widths, BorderColors: &colors,
+				BorderOnly: true,
+			})
+		}
+		for col := 1; col < len(grid.columnBorders)-1; col++ {
+			edge := grid.columnBorders[col]
+			if edge == nil {
+				continue
+			}
+			borderRect := image.Rect(columnX[col]-edge.width, row.y,
+				columnX[col], row.y+row.height)
+			widths := [4]int{0, edge.width, 0, 0}
+			colors := [4]color.RGBA{}
+			colors[1] = borderColor(edge.node.Style, edge.side)
+			rowBox.Children = append(rowBox.Children, &Box{
+				Node: rowBox.Node, Rect: borderRect, Content: borderRect,
+				BorderWidths: &widths, BorderColors: &colors, BorderOnly: true,
+			})
+		}
 		row.box = rowBox
 		if row.group == nil {
 			rowBoxes = append(rowBoxes, rowBox)
