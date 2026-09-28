@@ -166,6 +166,32 @@ func TestMinMaxHeightBlockReplaced(t *testing.T) {
 	}
 }
 
+func TestMinMaxHeightBlockReplacedPercentageHeight(t *testing.T) {
+	img := func(id, style string) string {
+		return `<img id="` + id + `" src="` + wideTestImage + `" style="display:block;` + style + `">`
+	}
+	boxes := percentHeightLayout(t, `<body style="margin:0">
+<div style="height:200px">`+
+		img("specified", "height:50%")+
+		img("min", "height:50%;min-height:125px")+
+		img("max", "height:50%;max-height:75px")+
+		`</div><div>`+img("indefinite", "height:50%")+`</div><div style="height:0px">`+
+		img("zero", "height:50%")+`</div></body>`,
+		"specified", "min", "max", "indefinite", "zero")
+	want := map[string]image.Point{
+		"specified":  {200, 100},
+		"min":        {250, 125},
+		"max":        {150, 75},
+		"indefinite": {40, 20}, // percentage height is auto with an indefinite basis
+		"zero":       {0, 0},   // zero is still a definite percentage basis
+	}
+	for id, size := range want {
+		if got := boxes[id].Content.Size(); got != size {
+			t.Errorf("#%s content size = %v, want %v", id, got, size)
+		}
+	}
+}
+
 func TestPaintMinHeightBlockReplaced(t *testing.T) {
 	img := painted(t, `<body style="margin:0"><img src="`+wideTestImage+`" style="display:block;min-height:50px">
 <div style="height:10px;background:blue"></div></body>`, image.Rect(0, 0, 150, 100))
@@ -176,4 +202,14 @@ func TestPaintMinHeightBlockReplaced(t *testing.T) {
 	pixel(t, img, 95, 45, green)
 	pixel(t, img, 105, 25, white)
 	pixel(t, img, 50, 55, blue)
+}
+
+func TestPaintPercentageHeightBlockReplaced(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><div style="height:200px"><img src="`+wideTestImage+`" style="display:block;height:50%"></div></body>`,
+		image.Rect(0, 0, 400, 200))
+	green := color.RGBA{0, 128, 0, 255}
+	white := color.RGBA{255, 255, 255, 255}
+	pixel(t, img, 199, 99, green)
+	pixel(t, img, 200, 99, white)
+	pixel(t, img, 50, 100, white)
 }

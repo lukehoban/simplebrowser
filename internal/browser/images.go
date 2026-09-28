@@ -263,7 +263,11 @@ func intrinsicImageSize(decoded image.Image) (int, int) {
 // the intrinsic ratio (§10.3.2 and the §10.4 constraint table without
 // min/max-width, which #309 tracks).
 func replacedBlockDimensions(n *StyledNode, decoded image.Image, width, basis int, definite bool) (int, int) {
-	w, h := imageDimensions(n, decoded, width)
+	heightBasis := 0
+	if definite {
+		heightBasis = basis
+	}
+	w, h := imageDimensionsWithBases(n, decoded, width, heightBasis, definite)
 	minimum, maximum, hasMax := heightConstraints(n, basis, definite)
 	clamped := min(max(0, clampHeight(h, minimum, maximum, hasMax)), 1<<20)
 	if clamped == h {
@@ -277,6 +281,12 @@ func replacedBlockDimensions(n *StyledNode, decoded image.Image, width, basis in
 }
 
 func imageDimensions(n *StyledNode, decoded image.Image, basis int) (int, int) {
+	return imageDimensionsWithBases(n, decoded, basis, basis, basis > 0)
+}
+
+// imageDimensionsWithBases resolves width and height independently: CSS
+// percentages use the containing block's width and height respectively.
+func imageDimensionsWithBases(n *StyledNode, decoded image.Image, widthBasis, heightBasis int, heightDefinite bool) (int, int) {
 	intrinsicW, intrinsicH := intrinsicImageSize(decoded)
 	widthValue, heightValue := "", ""
 	if n != nil && n.Style != nil {
@@ -288,8 +298,8 @@ func imageDimensions(n *StyledNode, decoded image.Image, basis int) (int, int) {
 	if heightValue == "" || strings.EqualFold(heightValue, "auto") {
 		heightValue = ""
 	}
-	width, hasWidth := imageDimensionValue(widthValue, basis)
-	height, hasHeight := imageDimensionValue(heightValue, basis)
+	width, hasWidth := imageDimensionValue(widthValue, widthBasis)
+	height, hasHeight := imageDimensionValueWithDefinite(heightValue, heightBasis, heightDefinite)
 	switch {
 	case hasWidth && hasHeight:
 	case hasWidth:
@@ -300,6 +310,14 @@ func imageDimensions(n *StyledNode, decoded image.Image, basis int) (int, int) {
 		width, height = intrinsicW, intrinsicH
 	}
 	return min(max(0, width), 1<<20), min(max(0, height), 1<<20)
+}
+
+func imageDimensionValueWithDefinite(value string, basis int, definite bool) (int, bool) {
+	parsed := classifyValue(value)
+	if parsed.Kind == "percentage" && definite {
+		return int(math.Round(float64(basis) * parsed.Number / 100)), true
+	}
+	return imageDimensionValue(value, basis)
 }
 
 func imageDimensionValue(value string, basis int) (int, bool) {
