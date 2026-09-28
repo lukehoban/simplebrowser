@@ -1,0 +1,21 @@
+<!doctype html>
+<style>
+html, body { margin: 0 }
+.stage { padding: 16px }
+.control {
+  width: 62px; height: 30px; padding: 0 12px;
+  display: grid;
+  grid-template-columns: min-content minmax(0,auto) min-content;
+  grid-template-areas: 'leadingVisual text trailingVisual';
+  column-gap: 8px;
+  align-items: center;
+  border: 1px solid #d1d9e0;
+  border-radius: 6px;
+  background: white;
+  font: 14px Arial;
+}
+.lead { grid-area: leadingVisual }
+.label { grid-area: text; white-space: nowrap; line-height: 1.5 }
+.trail { grid-area: trailingVisual }
+</style>
+<div class="stage"><div class="control"><span class="lead">◆</span><span class="label">main</span><span class="trail">▾</span></div></div>

@@ -191,54 +191,57 @@ var supportValidators = map[string]func(string) bool{
 	"display": keywordValidator("none", "block", "inline", "inline-block", "flex", "inline-flex", "list-item", "flow-root",
 		"table", "inline-table", "table-row", "table-cell", "table-row-group", "table-header-group",
 		"table-footer-group", "table-column", "table-column-group", "table-caption"),
-	"flex":                 flexValue,
-	"flex-grow":            nonNegativeNumber,
-	"flex-shrink":          nonNegativeNumber,
-	"flex-basis":           supportsOr(keywordValidator("auto"), nonNegativeLength),
-	"flex-direction":       keywordValidator("row", "row-reverse", "column", "column-reverse"),
-	"flex-wrap":            keywordValidator("nowrap", "wrap", "wrap-reverse"),
-	"align-content":        keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"),
-	"gap":                  oneOrTwo(nonNegativeLength),
-	"row-gap":              supportsOr(keywordValidator("normal"), nonNegativeLength),
-	"column-gap":           supportsOr(keywordValidator("normal"), nonNegativeLength),
-	"justify-content":      keywordValidator("normal", "start", "end", "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"),
-	"align-items":          keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center"),
-	"align-self":           keywordValidator("auto", "stretch", "start", "end", "flex-start", "flex-end", "center", "self-start", "self-end"),
-	"position":             keywordValidator("static", "relative", "absolute", "fixed"),
-	"float":                keywordValidator("none", "left", "right"),
-	"overflow":             keywordValidator("visible", "hidden", "clip"),
-	"visibility":           keywordValidator("visible", "hidden", "collapse"),
-	"text-align":           keywordValidator("left", "right", "center", "start", "end"),
-	"white-space":          keywordValidator("normal", "nowrap"),
-	"text-overflow":        keywordValidator("clip", "ellipsis"),
-	"vertical-align":       supportsOr(keywordValidator("baseline", "top", "bottom", "middle", "text-top", "text-bottom"), lengthOrPercentage),
-	"text-decoration":      keywordValidator("none", "underline", "line-through"),
-	"text-decoration-line": keywordValidator("none", "underline", "line-through"),
-	"border-collapse":      keywordValidator("collapse", "separate"),
-	"table-layout":         keywordValidator("auto", "fixed"),
-	"caption-side":         keywordValidator("top", "bottom"),
-	"font-style":           keywordValidator("normal", "italic", "oblique"),
-	"font-variant":         keywordValidator("normal", "small-caps"),
-	"font-weight":          supportsOr(keywordValidator("normal"), validFontWeight),
-	"font-family":          validFontFamilyValue,
-	"font-size":            validFontSize,
-	"line-height":          validLineHeight,
-	"color":                colorValue,
-	"background-color":     colorValue,
-	"background-image":     supportsOr(keywordValidator("none"), urlValue),
-	"background-repeat":    keywordValidator("repeat", "no-repeat", "repeat-x", "repeat-y"),
-	"width":                supportsOr(keywordValidator("auto"), nonNegativeLength),
-	"height":               supportsOr(keywordValidator("auto"), nonNegativeLength),
-	"inline-size":          supportsOr(keywordValidator("auto"), nonNegativeLength),
-	"block-size":           supportsOr(keywordValidator("auto"), nonNegativeLength),
-	"top":                  supportsOr(keywordValidator("auto"), lengthOrPercentage),
-	"right":                supportsOr(keywordValidator("auto"), lengthOrPercentage),
-	"bottom":               supportsOr(keywordValidator("auto"), lengthOrPercentage),
-	"left":                 supportsOr(keywordValidator("auto"), lengthOrPercentage),
-	"z-index":              supportsOr(keywordValidator("auto"), integerValue),
-	"margin":               boxShorthand(supportsOr(keywordValidator("auto"), lengthOrPercentage)),
-	"padding":              boxShorthand(nonNegativeLength),
-	"border-width":         boxShorthand(nonNegativeLength),
+	"flex":                  flexValue,
+	"flex-grow":             nonNegativeNumber,
+	"flex-shrink":           nonNegativeNumber,
+	"flex-basis":            supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"flex-direction":        keywordValidator("row", "row-reverse", "column", "column-reverse"),
+	"flex-wrap":             keywordValidator("nowrap", "wrap", "wrap-reverse"),
+	"align-content":         keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"),
+	"gap":                   oneOrTwo(nonNegativeLength),
+	"row-gap":               supportsOr(keywordValidator("normal"), nonNegativeLength),
+	"column-gap":            supportsOr(keywordValidator("normal"), nonNegativeLength),
+	"grid-template-columns": keywordValidator("min-content minmax(0,auto) min-content"),
+	"grid-template-areas":   gridAreasValue,
+	"grid-area":             gridAreaValue,
+	"justify-content":       keywordValidator("normal", "start", "end", "flex-start", "flex-end", "center", "space-between", "space-around", "space-evenly"),
+	"align-items":           keywordValidator("normal", "stretch", "start", "end", "flex-start", "flex-end", "center"),
+	"align-self":            keywordValidator("auto", "stretch", "start", "end", "flex-start", "flex-end", "center", "self-start", "self-end"),
+	"position":              keywordValidator("static", "relative", "absolute", "fixed"),
+	"float":                 keywordValidator("none", "left", "right"),
+	"overflow":              keywordValidator("visible", "hidden", "clip"),
+	"visibility":            keywordValidator("visible", "hidden", "collapse"),
+	"text-align":            keywordValidator("left", "right", "center", "start", "end"),
+	"white-space":           keywordValidator("normal", "nowrap"),
+	"text-overflow":         keywordValidator("clip", "ellipsis"),
+	"vertical-align":        supportsOr(keywordValidator("baseline", "top", "bottom", "middle", "text-top", "text-bottom"), lengthOrPercentage),
+	"text-decoration":       keywordValidator("none", "underline", "line-through"),
+	"text-decoration-line":  keywordValidator("none", "underline", "line-through"),
+	"border-collapse":       keywordValidator("collapse", "separate"),
+	"table-layout":          keywordValidator("auto", "fixed"),
+	"caption-side":          keywordValidator("top", "bottom"),
+	"font-style":            keywordValidator("normal", "italic", "oblique"),
+	"font-variant":          keywordValidator("normal", "small-caps"),
+	"font-weight":           supportsOr(keywordValidator("normal"), validFontWeight),
+	"font-family":           validFontFamilyValue,
+	"font-size":             validFontSize,
+	"line-height":           validLineHeight,
+	"color":                 colorValue,
+	"background-color":      colorValue,
+	"background-image":      supportsOr(keywordValidator("none"), urlValue),
+	"background-repeat":     keywordValidator("repeat", "no-repeat", "repeat-x", "repeat-y"),
+	"width":                 supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"height":                supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"inline-size":           supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"block-size":            supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"top":                   supportsOr(keywordValidator("auto"), lengthOrPercentage),
+	"right":                 supportsOr(keywordValidator("auto"), lengthOrPercentage),
+	"bottom":                supportsOr(keywordValidator("auto"), lengthOrPercentage),
+	"left":                  supportsOr(keywordValidator("auto"), lengthOrPercentage),
+	"z-index":               supportsOr(keywordValidator("auto"), integerValue),
+	"margin":                boxShorthand(supportsOr(keywordValidator("auto"), lengthOrPercentage)),
+	"padding":               boxShorthand(nonNegativeLength),
+	"border-width":          boxShorthand(nonNegativeLength),
 	// Group opacity, painted by opacity.go for HTML and svg.go for SVG.
 	"opacity": validOpacity,
 	// SVG presentation properties that svg.go resolves from the cascade.
@@ -369,6 +372,42 @@ func oneOrTwo(valid func(string) bool) func(string) bool {
 		}
 		return true
 	}
+}
+
+func gridAreasValue(v string) bool {
+	_, ok := parseGridTemplateAreas(v)
+	return ok
+}
+
+func gridAreaValue(v string) bool {
+	return cssIdentString(strings.TrimSpace(v))
+}
+
+func cssIdentString(v string) bool {
+	if v == "" {
+		return false
+	}
+	// A CSS identifier may start with "--", or with "-" followed by a
+	// name-start character, but not with a lone hyphen or a digit after it.
+	// Escape syntax is not accepted here: the bounded Grid parser consumes
+	// raw area strings and cannot match escaped names to grid-area values.
+	for i, r := range v {
+		nameStart := r == '_' || r >= 'a' && r <= 'z' ||
+			r >= 'A' && r <= 'Z' || r >= 0x80
+		if i == 0 {
+			if !nameStart && r != '-' {
+				return false
+			}
+			continue
+		}
+		if i == 1 && v[0] == '-' && !nameStart && r != '-' {
+			return false
+		}
+		if !(nameStart || r == '-' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return v != "-"
 }
 
 func boxShorthand(valid func(string) bool) func(string) bool {
