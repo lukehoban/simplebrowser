@@ -206,6 +206,28 @@ func TestSVGPatternGeometryCascadeAndHref(t *testing.T) {
 	}
 }
 
+func TestSVGPatternGeometryCalcVarAndFallback(t *testing.T) {
+	src := svgOpen + `width="20" height="20"><defs>
+		<style>
+			#base { --tile: 4px; width: var(--tile); height: calc(2px + 2px) }
+		</style>
+		<pattern id="base" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="red"/></pattern>
+		<pattern id="derived" href="#base"/>
+		<pattern id="bad" patternUnits="userSpaceOnUse" width="var(--missing)" height="4"><rect width="4" height="4" fill="red"/></pattern>
+		</defs>
+		<rect width="8" height="8" fill="url(#derived)"/>
+		<rect y="10" width="8" height="8" fill="url(#bad) blue"/></svg>`
+	img := decodeSVGString(t, src)
+	for _, point := range [][2]int{{1, 1}, {5, 1}} {
+		if got := img.RGBAAt(point[0], point[1]); !near(got, color.RGBA{255, 0, 0, 255}, 1) {
+			t.Errorf("href-inherited calc/var pattern pixel %v = %v, want red", point, got)
+		}
+	}
+	if got := img.RGBAAt(1, 11); !near(got, color.RGBA{0, 0, 255, 255}, 1) {
+		t.Errorf("unresolved geometry fallback = %v, want blue", got)
+	}
+}
+
 func TestSVGPatternFallbacksAndBounds(t *testing.T) {
 	for _, tc := range []struct {
 		name, defs, fill string
