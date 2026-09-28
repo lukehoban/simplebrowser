@@ -318,6 +318,13 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 			consider(candidate)
 		}
 	}
+	if len(priorityOutput) > 0 && priorityOutput[0] != nil {
+		for property, winner := range winners {
+			if winner.d.Value != invalidVariable {
+				priorityOutput[0][property] = winner
+			}
+		}
+	}
 	for p, winner := range winners {
 		switch winner.d.Value {
 		case "inherit", "unset":
@@ -406,14 +413,20 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 
 func exportedStylePriorities(winners map[string]winningDeclaration) map[string]StylePriority {
 	result := make(map[string]StylePriority)
-	for _, property := range inlineSVGHostStyleProperties {
-		winner, ok := winners[property]
-		if !ok {
-			continue
-		}
+	add := func(property string, winner winningDeclaration) {
 		result[property] = StylePriority{
 			Important: winner.important, Inline: winner.inline, Specificity: winner.spec,
 			Layer: winner.layer, Order: winner.order,
+		}
+	}
+	for _, property := range inlineSVGHostStyleProperties {
+		if winner, ok := winners[property]; ok {
+			add(property, winner)
+		}
+	}
+	for property, winner := range winners {
+		if strings.HasPrefix(property, "--") {
+			add(property, winner)
 		}
 	}
 	if len(result) == 0 {

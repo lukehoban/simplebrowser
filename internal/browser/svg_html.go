@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"image"
 	"image/color"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -181,7 +182,7 @@ func inlineSVGImage(n *StyledNode) image.Image {
 	inherited := color.NRGBA{R: rgba.R, G: rgba.G, B: rgba.B, A: rgba.A}
 	img, err := decodeSVGWithHostStyles(source.Bytes(), inherited, true,
 		inlineSVGHostInheritedStyle(n.Style, n.StylePriority), n.StyleLayerOrder,
-		inlineSVGHostCustomProperties(n.Style))
+		inlineSVGHostInheritedCustomProperties(n.Style, n.StylePriority))
 	if err != nil {
 		return nil
 	}
@@ -195,7 +196,15 @@ func inlineSVGHostCustomProperties(style ComputedStyle) ComputedStyle {
 	const maxProperties = 256
 	result := make(ComputedStyle)
 	total := 0
-	for property, value := range style {
+	var properties []string
+	for property := range style {
+		if strings.HasPrefix(property, "--") {
+			properties = append(properties, property)
+		}
+	}
+	sort.Strings(properties)
+	for _, property := range properties {
+		value := style[property]
 		if !strings.HasPrefix(property, "--") || !validProperty(property) ||
 			value == invalidVariable || len(value) > maxSVGBytes-total {
 			continue
@@ -210,6 +219,16 @@ func inlineSVGHostCustomProperties(style ComputedStyle) ComputedStyle {
 		return nil
 	}
 	return result
+}
+
+// Only inherited HTML custom values seed the SVG root. Direct declarations
+// must instead enter the SVG author cascade with their host priority.
+func inlineSVGHostInheritedCustomProperties(style ComputedStyle, priorities map[string]StylePriority) ComputedStyle {
+	custom := inlineSVGHostCustomProperties(style)
+	for property := range priorities {
+		delete(custom, property)
+	}
+	return custom
 }
 
 func inlineSVGHostInheritedStyle(style ComputedStyle, priorities map[string]StylePriority) map[string]string {
@@ -238,11 +257,14 @@ func inlineSVGHostInheritedStyle(style ComputedStyle, priorities map[string]Styl
 func inlineSVGHostStyle(style ComputedStyle, priorities map[string]StylePriority) (string, string) {
 	var declarations []string
 	var encodedPriorities []string
-	for _, property := range inlineSVGHostStyleProperties {
-		value := strings.TrimSpace(style[property])
+	add := func(property string) {
+		value := style[property]
+		if !strings.HasPrefix(property, "--") {
+			value = strings.TrimSpace(value)
+		}
 		priority, hasPriority := priorities[property]
-		if value == "" || !hasPriority {
-			continue
+		if value == "" || value == invalidVariable || !hasPriority {
+			return
 		}
 		declarations = append(declarations, property+":"+value)
 		flag := func(v bool) string {
@@ -257,6 +279,25 @@ func inlineSVGHostStyle(style ComputedStyle, priorities map[string]StylePriority
 			strconv.Itoa(spec[0]), strconv.Itoa(spec[1]), strconv.Itoa(spec[2]),
 			strconv.Itoa(priority.Layer), strconv.Itoa(priority.Order),
 		}, ","))
+	}
+	for _, property := range inlineSVGHostStyleProperties {
+		add(property)
+	}
+	// The HTML engine has already computed these streams, but a direct
+	// declaration on an SVG node must still compete with SVG-local rules.
+	// Sort names to make the bounded serialization deterministic.
+	var custom []string
+	for property := range priorities {
+		if strings.HasPrefix(property, "--") && validProperty(property) {
+			custom = append(custom, property)
+		}
+	}
+	sort.Strings(custom)
+	bounded := inlineSVGHostCustomProperties(style)
+	for _, property := range custom {
+		if _, ok := bounded[property]; ok {
+			add(property)
+		}
 	}
 	return strings.Join(declarations, ";"), strings.Join(encodedPriorities, ";")
 }
