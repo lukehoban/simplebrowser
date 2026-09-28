@@ -714,6 +714,42 @@ func TestTableCollapsedOuterEdgesResolveAgainstCells(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedOuterEdgesResolveAgainstAllTableParts(t *testing.T) {
+	tests := []struct {
+		name   string
+		markup string
+		want   color.RGBA
+	}{
+		{
+			name: "row border wins when the table border is none",
+			markup: `<body style="margin:0"><table style="border-collapse:collapse;width:40px">` +
+				`<tr style="border-left:4px solid blue"><td style="padding:0;border-left:1px solid red;height:20px"></td></tr>` +
+				`</table></body>`,
+			want: color.RGBA{0, 0, 255, 255},
+		},
+		{
+			name: "computed table-cell role outranks the table",
+			markup: `<body style="margin:0"><table style="border-collapse:collapse;border-left:4px solid red;width:40px">` +
+				`<tr><div style="display:table-cell;padding:0;border-left:4px solid blue;height:20px"></div></tr>` +
+				`</table></body>`,
+			want: color.RGBA{0, 0, 255, 255},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			img := painted(t, tc.markup, image.Rect(0, 0, 80, 40))
+			for y := 5; y < 15; y++ {
+				for x := 0; x < 4; x++ {
+					if got := img.At(x, y); got != tc.want {
+						t.Fatalf("pixel (%d,%d) = %v, want %v", x, y, got, tc.want)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestTableCollapsedRowCellBorderConflictWithTransparentCells(t *testing.T) {
 	read := func(name string) string {
 		t.Helper()

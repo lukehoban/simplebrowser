@@ -740,6 +740,26 @@ func borderOriginRank(node *StyledNode) int {
 	if node == nil || node.Node == nil {
 		return 0
 	}
+	display := strings.ToLower(strings.TrimSpace(node.Style["display"]))
+	switch display {
+	case "table-cell":
+		return 6
+	case "table-row":
+		return 5
+	case "table-row-group", "table-header-group", "table-footer-group":
+		return 4
+	case "table-column":
+		return 3
+	case "table-column-group":
+		return 2
+	case "table", "inline-table":
+		return 1
+	}
+	if display != "" {
+		return 0
+	}
+	// Computed styles normally include display. Keep the HTML role fallback
+	// for synthetic StyledNodes that have not passed through the cascade.
 	switch strings.ToLower(node.Node.Name) {
 	case "td", "th":
 		return 6
@@ -758,24 +778,25 @@ func borderOriginRank(node *StyledNode) int {
 	}
 }
 
-// resolveOuterBorders resolves the four table perimeter edges against the
-// cells which touch them. The collapsed border is a single edge: its width is
-// split between the table and the touching cells rather than painting the
-// table border beside a complete cell border. This is intentionally bounded
-// to one winner per side; segmented perimeter winners are tracked separately.
+// resolveOuterBorders resolves each table perimeter edge against the
+// table-part borders that touch it. The collapsed border is a single edge:
+// its width is split between the table and touching cells rather than
+// painting the table border beside a complete cell border. This is
+// intentionally bounded to one winner per side; segmented perimeter winners
+// are tracked separately.
 func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 	if !g.collapse || len(g.rows) == 0 || g.columns == 0 {
 		return
 	}
+	cellNodes := make(map[*StyledNode]struct{})
+	for _, row := range g.rows {
+		for _, cell := range row.cells {
+			cellNodes[cell.node] = struct{}{}
+		}
+	}
 	edges := []string{"top", "right", "bottom", "left"}
 	for i, side := range edges {
-		// With no table border there is no table-side candidate to resolve
-		// against. Preserve the existing cell outer-edge behavior (including
-		// its intrinsic geometry) in that case.
 		tableCandidate := tableBorderCandidate(table, side)
-		if tableCandidate.width == 0 && tableCandidate.style != "hidden" {
-			continue
-		}
 		candidates := []collapsedTableBorder{tableCandidate}
 		rowStart, rowEnd := 0, len(g.rows)
 		if side == "top" {
@@ -813,6 +834,25 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 			candidates = append(candidates, tableBorderCandidate(g.cols[col], side))
 			if col < len(g.colGroups) && g.colGroups[col] != nil {
 				candidates = append(candidates, tableBorderCandidate(g.colGroups[col], side))
+			}
+		}
+		if tableCandidate.width == 0 && tableCandidate.style != "hidden" {
+			// Preserve the established cell-only perimeter geometry when no
+			// table/row/group/column border competes. A non-cell candidate
+			// makes this a real conflict even if the table itself has no edge.
+			nonCellBorder := false
+			for _, candidate := range candidates[1:] {
+				if candidate.style == "none" ||
+					(candidate.width == 0 && candidate.style != "hidden") {
+					continue
+				}
+				if _, isCell := cellNodes[candidate.node]; !isCell {
+					nonCellBorder = true
+					break
+				}
+			}
+			if !nonCellBorder {
+				continue
 			}
 		}
 		g.outerBorders[i] = resolveCollapsedBorder(candidates...)
