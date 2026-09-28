@@ -547,6 +547,14 @@ func splitInlineBlocks(children []*StyledNode) []*StyledNode {
 // No-break space (U+00A0) is rendered as a glyph and never collapses.
 func collapsibleSpace(r rune) bool { return unicode.IsSpace(r) && r != '\u00a0' }
 
+// noWrap reports whether white-space suppresses soft wrap opportunities
+// (CSS Text 3 §3). Only nowrap is supported: pre, pre-wrap, pre-line and
+// break-spaces also change white-space preservation, which is not
+// implemented, so they keep the collapsing, wrapping behavior of normal.
+func noWrap(style ComputedStyle) bool {
+	return strings.EqualFold(strings.TrimSpace(style["white-space"]), "nowrap")
+}
+
 // collapsibleWhitespaceOnly reports whether text contains only white space
 // that inline layout collapses away, i.e. whether it would render nothing.
 func collapsibleWhitespaceOnly(text string) bool {
@@ -1368,6 +1376,9 @@ func positionedIntrinsicWidths(n *StyledNode, faces *faceSet, containingWidth in
 		for _, word := range fields {
 			minimum = max(minimum, m.width(word))
 		}
+		if noWrap(n.Style) {
+			minimum = maximum
+		}
 		return minimum, maximum
 	}
 	for _, child := range n.Children {
@@ -1387,7 +1398,11 @@ func positionedIntrinsicWidths(n *StyledNode, faces *faceSet, containingWidth in
 			childMin += extras
 			childMax += extras
 		}
-		minimum = max(minimum, childMin)
+		if noWrap(n.Style) {
+			minimum += childMin
+		} else {
+			minimum = max(minimum, childMin)
+		}
 		maximum += childMax
 	}
 	return minimum, maximum
@@ -1446,8 +1461,12 @@ type inlinePart struct {
 	// isBox marks an empty non-replaced atomic inline box.
 	// It occupies imageW by imageH of content, and paints as a child box
 	// rather than as replaced content.
-	isBox       bool
-	backgrounds []*Node
+	isBox bool
+	// noWrapContext records whether the atomic inline's parent suppresses
+	// soft wrap opportunities; the atomic box's own white-space applies only
+	// to its contents.
+	noWrapContext bool
+	backgrounds   []*Node
 	// table holds a fully laid out inline-table fragment positioned at the
 	// origin. Placement translates it onto the line.
 	table         *Box
@@ -1484,10 +1503,17 @@ func (p inlinePart) outerHeight() int {
 
 // Inline descendants are flattened in document order, without manufacturing
 // whitespace between element boundaries. Text ownership survives flattening.
-func inlineParts(nodes []*StyledNode, faces *faceSet, width int, cb containingBlock) []inlinePart {
+func inlineParts(nodes []*StyledNode, context ComputedStyle, faces *faceSet, width int, cb containingBlock) []inlinePart {
 	var parts []inlinePart
-	var visit func(*StyledNode, []*Node)
-	visit = func(n *StyledNode, backgrounds []*Node) {
+	var visit func(*StyledNode, ComputedStyle, []*Node)
+	visit = func(n *StyledNode, context ComputedStyle, backgrounds []*Node) {
+		start := len(parts)
+		defer func() {
+			if n.Node.Type == ElementNode && len(parts) == start+1 && parts[start].atomic() &&
+				parts[start].node == n.Node {
+				parts[start].noWrapContext = noWrap(context)
+			}
+		}()
 		if n.Node.Type == ElementNode {
 			if strings.EqualFold(n.Style["display"], "none") {
 				return
@@ -1530,11 +1556,11 @@ func inlineParts(nodes []*StyledNode, faces *faceSet, width int, cb containingBl
 				backgrounds: backgrounds})
 		}
 		for _, child := range n.Children {
-			visit(child, backgrounds)
+			visit(child, n.Style, backgrounds)
 		}
 	}
 	for _, n := range nodes {
-		visit(n, nil)
+		visit(n, context, nil)
 	}
 	return parts
 }
@@ -1699,6 +1725,28 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 	line := inlineLine{}
 	var word []inlinePart
 	var space *inlinePart
+	// spaceBreak records whether the pending collapsed space is a soft wrap
+	// opportunity: true when any space in the collapsed sequence comes from
+	// a context that allows wrapping.
+	spaceBreak := false
+	// wordSpace holds a collapsed space from a white-space:nowrap context
+	// that follows the current word. It joins the word, making the words on
+	// both sides one unbreakable unit, once more non-space text follows.
+	var wordSpace *inlinePart
+	// glue records that the content last placed on the line sits in a
+	// white-space:nowrap context, so the boundary after it is not a soft wrap
+	// opportunity unless an intervening collapsible space provides one.
+	glue := false
+	// breakable reports whether the boundary before the next content is a
+	// soft wrap opportunity. A collapsed space is governed by the
+	// white-space values of its sequence; an adjacent boundary without a
+	// space uses the surrounding contexts (CSS Text 3 §5.1).
+	breakable := func(nextNoWrap bool) bool {
+		if space != nil {
+			return spaceBreak
+		}
+		return !glue && !nextNoWrap
+	}
 	forced := false
 	lineY := y
 	lineBounds := func() {
@@ -1771,7 +1819,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		if space != nil && len(line.parts) != 0 {
 			gap = faces.metrics(space.style).advance(" ")
 		}
-		if len(line.parts) != 0 && line.width+gap+wordWidth > fixed.I(line.available) {
+		if len(line.parts) != 0 && breakable(false) && line.width+gap+wordWidth > fixed.I(line.available) {
 			finalize(&line)
 			lines = append(lines, line)
 			newLine()
@@ -1792,13 +1840,25 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 		for _, p := range word {
 			add(p)
 		}
+		glue = noWrap(word[len(word)-1].style)
 		word = nil
 		space = nil
 		forced = false
 	}
-	for _, part := range inlineParts(nodes, faces, width, cb) {
+	// endWord completes the current word before a forced break, an atomic
+	// inline or the end of the content. A trailing nowrap space becomes the
+	// pending space, without a wrap opportunity.
+	endWord := func() {
+		pending := wordSpace
+		wordSpace = nil
+		flushWord()
+		if pending != nil {
+			space, spaceBreak = pending, false
+		}
+	}
+	for _, part := range inlineParts(nodes, parentStyle, faces, width, cb) {
 		if part.br {
-			flushWord()
+			endWord()
 			if len(line.parts) == 0 {
 				line.ascent, line.descent = faces.metrics(part.style).lineMetrics()
 			}
@@ -1806,11 +1866,12 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			lines = append(lines, line)
 			newLine()
 			space = nil
+			glue = false
 			forced = true
 			continue
 		}
 		if part.atomic() {
-			flushWord()
+			endWord()
 			var gap fixed.Int26_6
 			if space != nil && len(line.parts) != 0 {
 				gap = faces.metrics(space.style).advance(" ")
@@ -1823,7 +1884,8 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 					part = inlineBlockPartFit(part.shrinkNode, part.shrinkAvailable, remaining, faces, part.shrinkCB)
 				}
 			}
-			if len(line.parts) != 0 && line.width+gap+fixed.I(part.outerWidth()) > fixed.I(line.available) {
+			if len(line.parts) != 0 && breakable(part.noWrapContext) &&
+				line.width+gap+fixed.I(part.outerWidth()) > fixed.I(line.available) {
 				finalize(&line)
 				lines = append(lines, line)
 				newLine()
@@ -1834,18 +1896,38 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			}
 			space = nil
 			add(part)
+			glue = part.noWrapContext
 			forced = false
 			continue
 		}
 		for _, r := range part.text {
 			if collapsibleSpace(r) {
-				flushWord()
-				if space == nil {
-					p := inlinePart{node: part.node, style: part.style, text: " ",
-						backgrounds: part.backgrounds}
-					space = &p
+				wraps := !noWrap(part.style)
+				p := inlinePart{node: part.node, style: part.style, text: " ",
+					backgrounds: part.backgrounds}
+				switch {
+				case wordSpace != nil:
+					// Collapsed into the pending nowrap space. A wrapping
+					// space in the sequence still ends the unbreakable unit.
+					if wraps {
+						pending := wordSpace
+						wordSpace = nil
+						flushWord()
+						space, spaceBreak = pending, true
+					}
+				case len(word) != 0 && !wraps:
+					wordSpace = &p
+				case len(word) == 0 && space != nil:
+					spaceBreak = spaceBreak || wraps
+				default:
+					flushWord()
+					space, spaceBreak = &p, wraps
 				}
 				continue
+			}
+			if wordSpace != nil {
+				word = append(word, *wordSpace)
+				wordSpace = nil
 			}
 			if len(word) != 0 && word[len(word)-1].node == part.node {
 				word[len(word)-1].text += string(r)
@@ -1855,7 +1937,7 @@ func layoutInlineAt(parent *Node, parentStyle ComputedStyle, nodes []*StyledNode
 			}
 		}
 	}
-	flushWord()
+	endWord()
 	if len(line.parts) != 0 || forced {
 		finalize(&line)
 		lines = append(lines, line)

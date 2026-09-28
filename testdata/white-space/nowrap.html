@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+<style>
+body { margin: 16px; font: 16px sans-serif; }
+h2 { font-size: 13px; margin: 8px 0 3px; color: #555; }
+.box { width: 150px; border: 1px solid #888; background: #eef; margin-bottom: 4px; }
+.nowrap { white-space: nowrap; }
+.tabs { display: flex; width: 240px; overflow: hidden; border: 1px solid #888; white-space: nowrap; }
+.tab { display: flex; align-items: center; padding: 4px 6px; border-right: 1px solid #ccc; background: #efe; }
+.count { display: inline-block; margin-left: 4px; padding: 0 5px; border-radius: 8px; background: #ccc; font-size: 12px; }
+.inner-normal { white-space: normal; }
+</style>
+</head>
+<body>
+<h2>white-space: normal (wraps)</h2>
+<div class="box">Security and quality settings</div>
+<h2>white-space: nowrap block (one line, overflows)</h2>
+<div class="box nowrap">Security and quality settings</div>
+<h2>nowrap inherited through inline elements</h2>
+<div class="box nowrap">Pull <b>requests</b> and <i>code review</i> history</div>
+<h2>nowrap span inside a wrapping block</h2>
+<div class="box">Open the <span class="nowrap">Security and quality</span> tab now</div>
+<h2>normal inside a nowrap block may wrap</h2>
+<div class="box nowrap">One line <span class="inner-normal">but this part may wrap here</span></div>
+<h2>nowrap table cell: column min-content fits the label</h2>
+<table style="width: 200px; border-collapse: collapse; font-size: 13px"><tr>
+  <td style="white-space: nowrap; background: #fee">Security and quality</td><td style="background: #eef">a b c d e f g h i j k l m n o p</td>
+</tr></table>
+<h2>nowrap between inline-blocks: no break at element boundary</h2>
+<div class="box nowrap">A<span class="count">1</span> <span class="count">22</span> <span class="count">333</span> <span class="count">4444</span> <span class="count">55555</span></div>
+<h2>nowrap flex row: labels stay on one line (overflow clipped)</h2>
+<div class="tabs">
+  <div class="tab">Pull requests<span class="count">12</span></div>
+  <div class="tab">Security and quality<span class="count">3</span></div>
+</div>
+</body>
+</html>

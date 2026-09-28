@@ -1440,7 +1440,13 @@ func contentIntrinsicWidths(n *StyledNode, faces *faceSet) (int, int) {
 			maxWidth = max(maxWidth, childMax)
 			continue
 		}
-		inlineMin = max(inlineMin, childMin)
+		if noWrap(n.Style) {
+			// Without soft wrap opportunities between inline children, the
+			// run's minimum is the sum of their minimums (CSS Text 3 §3).
+			inlineMin += childMin
+		} else {
+			inlineMin = max(inlineMin, childMin)
+		}
 		inlineMax += childMax
 	}
 	flush()
@@ -1461,6 +1467,10 @@ func textIntrinsic(n *StyledNode, faces *faceSet) (int, int) {
 		if i > 0 {
 			maxWidth += m.width(" ")
 		}
+	}
+	if noWrap(n.Style) {
+		// nowrap removes the soft wrap opportunities at spaces.
+		minWidth = maxWidth
 	}
 	return minWidth, maxWidth
 }
