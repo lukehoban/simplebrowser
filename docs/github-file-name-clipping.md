@@ -56,9 +56,15 @@ six filename text runs remain inside their respective truncation boxes.
 
 If a filename genuinely exceeds the available width, the renderer currently
 clips it without painting the CSS `text-overflow: ellipsis` marker. That
-separate behavior is tracked in [#TODO](https://github.com/lukehoban/simplebrowser/issues).
-This change fixes the demonstrated offset for names that fit; it does not
-implement text-overflow painting.
+separate behavior is tracked in
+[#402](https://github.com/lukehoban/simplebrowser/issues/402), with a
+deterministic screenshot below. This change fixes the demonstrated offset for
+names that fit; it does not implement text-overflow painting.
+
+![A deliberately overlong label is clipped without the requested ellipsis](screenshots/issue376/text-overflow-without-ellipsis.png)
+
+Reproduce it with
+[`testdata/github-vscode/repros/text-overflow-ellipsis.html`](../testdata/github-vscode/repros/text-overflow-ellipsis.html).
 
 This live-page behavior is a sub-issue of
 [#330](https://github.com/lukehoban/simplebrowser/issues/330) and
