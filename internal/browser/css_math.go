@@ -30,6 +30,7 @@ const maxCSSMathDepth = 64
 func calcLengthProperty(property string) bool {
 	switch property {
 	case "width", "height", "min-width", "max-width", "min-height", "max-height",
+		"inline-size", "block-size",
 		"top", "right", "bottom", "left", "margin", "margin-top", "margin-right",
 		"margin-bottom", "margin-left", "padding", "padding-top", "padding-right",
 		"padding-bottom", "padding-left", "flex-basis", "gap", "row-gap", "column-gap",
