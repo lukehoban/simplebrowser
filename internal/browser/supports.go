@@ -346,17 +346,19 @@ func nonNegativeNumber(v string) bool {
 }
 
 func flexValue(v string) bool {
-	if strings.EqualFold(strings.TrimSpace(v), "none") {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "none", "auto", "initial":
 		return true
 	}
+	basis := supportsOr(keywordValidator("auto"), nonNegativeLength)
 	parts := strings.Fields(v)
 	if len(parts) < 1 || len(parts) > 3 || !nonNegativeNumber(parts[0]) {
 		return false
 	}
-	if len(parts) >= 2 && !nonNegativeNumber(parts[1]) && !nonNegativeLength(parts[1]) {
+	if len(parts) >= 2 && !nonNegativeNumber(parts[1]) && !basis(parts[1]) {
 		return false
 	}
-	return len(parts) < 3 || nonNegativeLength(parts[2])
+	return len(parts) < 3 || basis(parts[2])
 }
 
 func oneOrTwo(valid func(string) bool) func(string) bool {

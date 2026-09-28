@@ -787,8 +787,17 @@ func resolveFlexLengths(items []flexItem, free float64, column bool, mainSize in
 func flexFactors(style ComputedStyle, basisSize int, mainDefinite bool) (grow, shrink, basis float64, hasBasis bool) {
 	grow, shrink = 0, 1
 	if shorthand := strings.Fields(strings.TrimSpace(style["flex"])); len(shorthand) > 0 {
-		if strings.EqualFold(shorthand[0], "none") {
+		// Keyword forms (css-flexbox §7.1): none = 0 0 auto, auto = 1 1 auto,
+		// initial = 0 1 auto. The cascade normally resolves the CSS-wide
+		// `initial` keyword before layout; it is handled here defensively.
+		// Longhands below still override, matching the existing shorthand model.
+		switch keyword := strings.ToLower(shorthand[0]); {
+		case len(shorthand) == 1 && keyword == "none":
 			return 0, 0, 0, false
+		case len(shorthand) == 1 && keyword == "auto":
+			grow, shrink = 1, 1
+		case len(shorthand) == 1 && keyword == "initial":
+			grow, shrink = 0, 1
 		}
 		if value, err := strconv.ParseFloat(shorthand[0], 64); err == nil {
 			grow = math.Max(0, value)
