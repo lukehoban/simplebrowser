@@ -353,7 +353,9 @@ type svgExpansion struct {
 	// patternBudget bounds lazily scaled pattern tiles for the document.
 	patternBudget *svgPatternBudget
 	// colors memoizes computed color values for non-rendered gradient trees.
-	colors                        map[*svgNode]color.NRGBA
+	colors map[*svgNode]color.NRGBA
+	// fonts memoizes computed font state for nodes walk does not visit.
+	fonts                         map[*svgNode]svgComputedFont
 	elements                      int
 	segments                      int
 	inheritedHostStyle            map[string]string

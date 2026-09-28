@@ -206,6 +206,87 @@ func TestSVGPatternGeometryCascadeAndHref(t *testing.T) {
 	}
 }
 
+func TestSVGPatternGeometryCalcVarAndFallback(t *testing.T) {
+	src := svgOpen + `width="20" height="20"><defs>
+		<style>
+			#base { --tile: 4px; width: var(--tile); height: calc(2px + 2px) }
+		</style>
+		<pattern id="base" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="red"/></pattern>
+		<pattern id="derived" href="#base"/>
+		<pattern id="bad" patternUnits="userSpaceOnUse" width="var(--missing)" height="4"><rect width="4" height="4" fill="red"/></pattern>
+		</defs>
+		<rect width="8" height="8" fill="url(#derived)"/>
+		<rect y="10" width="8" height="8" fill="url(#bad) blue"/></svg>`
+	img := decodeSVGString(t, src)
+	for _, point := range [][2]int{{1, 1}, {5, 1}} {
+		if got := img.RGBAAt(point[0], point[1]); !near(got, color.RGBA{255, 0, 0, 255}, 1) {
+			t.Errorf("href-inherited calc/var pattern pixel %v = %v, want red", point, got)
+		}
+	}
+	if got := img.RGBAAt(1, 11); !near(got, color.RGBA{0, 0, 255, 255}, 1) {
+		t.Errorf("unresolved geometry fallback = %v, want blue", got)
+	}
+}
+
+// Font-relative pattern geometry resolves against the computed font of the
+// pattern supplying the value (em/ex/ch) and the document root (rem), even
+// though patterns in <defs> are never visited by walk.
+func TestSVGPatternGeometryCalcFontRelative(t *testing.T) {
+	for _, tc := range []struct {
+		name, defs string
+		tile       int
+	}{
+		{"own font-size em", `<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:10px" width="calc(1em + 1px)" height="calc(1em + 1px)">`, 11},
+		{"rem uses root", `<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:10px" width="calc(1rem + 0px)" height="calc(1rem + 0px)">`, 20},
+		{"inherited from defs ancestor", `<g style="font-size:12px"><pattern id="p" patternUnits="userSpaceOnUse" width="calc(1em)" height="calc(1em)">`, 12},
+		{"percentage font-size", `<pattern id="p" patternUnits="userSpaceOnUse" font-size="50%" width="calc(1em - 1px)" height="calc(1em - 1px)">`, 9},
+		{"href source font", `<pattern id="base" patternUnits="userSpaceOnUse" style="font-size:10px" width="calc(1em + 1px)" height="calc(1em + 1px)"><rect width="2" height="2" fill="red"/></pattern>` +
+			`<pattern id="p" href="#base" style="font-size:30px">`, 11},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			closeTags := `<rect width="2" height="2" fill="red"/></pattern>`
+			if strings.Contains(tc.defs, `href="#base"`) {
+				closeTags = `</pattern>`
+			}
+			if strings.HasPrefix(tc.defs, "<g") {
+				closeTags += `</g>`
+			}
+			src := svgOpen + `width="60" height="60" style="font-size:20px"><defs>` + tc.defs + closeTags +
+				`</defs><rect width="60" height="60" fill="blue"/><rect width="60" height="60" fill="url(#p)"/></svg>`
+			img := decodeSVGString(t, src)
+			red := color.RGBA{255, 0, 0, 255}
+			blue := color.RGBA{0, 0, 255, 255}
+			if got := img.RGBAAt(tc.tile, 0); !near(got, red, 1) {
+				t.Errorf("tile start (%d,0) = %v, want red", tc.tile, got)
+			}
+			if got := img.RGBAAt(tc.tile-1, 0); !near(got, blue, 1) {
+				t.Errorf("before tile start (%d,0) = %v, want blue", tc.tile-1, got)
+			}
+		})
+	}
+}
+
+// CSS math in objectBoundingBox pattern geometry uses the normalized box
+// (percentages are fractions of 1), not the viewport.
+func TestSVGPatternGeometryCalcObjectBoundingBox(t *testing.T) {
+	src := svgOpen + `width="80" height="80"><defs>
+		<pattern id="p" width="calc(25% + 25%)" height="calc(100% - 50%)"><rect width="2" height="2" fill="red"/></pattern>
+		</defs><rect width="20" height="20" fill="blue"/><rect width="20" height="20" fill="url(#p)"/></svg>`
+	img := decodeSVGString(t, src)
+	red := color.RGBA{255, 0, 0, 255}
+	blue := color.RGBA{0, 0, 255, 255}
+	for _, point := range [][2]int{{0, 0}, {10, 0}, {0, 10}, {10, 10}} {
+		if got := img.RGBAAt(point[0], point[1]); !near(got, red, 1) {
+			t.Errorf("tile origin %v = %v, want red (10px tiles from 0.5 bbox)", point, got)
+		}
+	}
+	for _, point := range [][2]int{{5, 0}, {15, 15}} {
+		if got := img.RGBAAt(point[0], point[1]); !near(got, blue, 1) {
+			t.Errorf("tile gap %v = %v, want blue", point, got)
+		}
+	}
+}
+
 func TestSVGPatternFallbacksAndBounds(t *testing.T) {
 	for _, tc := range []struct {
 		name, defs, fill string

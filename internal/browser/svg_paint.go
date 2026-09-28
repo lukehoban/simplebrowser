@@ -432,13 +432,13 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 		chain = append(chain, next)
 		cur = next
 	}
-	attr := func(name string) (string, bool) {
+	attr := func(name string) (string, *svgNode, bool) {
 		for _, n := range chain {
 			if v, ok := s.cascadedAttributes(n)[name]; ok {
-				return v, true
+				return v, n, true
 			}
 		}
-		return "", false
+		return "", nil, false
 	}
 	// viewBox and preserveAspectRatio inherit independently through the href
 	// chain. An unparsable or negative viewBox is an error that leaves the
@@ -464,11 +464,11 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 			}
 		}
 	}
-	units, _ := attr("patternUnits")
+	units, _, _ := attr("patternUnits")
 	if units = strings.TrimSpace(units); units != "" && units != "userSpaceOnUse" && units != "objectBoundingBox" {
 		return nil
 	}
-	contentUnits, _ := attr("patternContentUnits")
+	contentUnits, _, _ := attr("patternContentUnits")
 	if contentUnits = strings.TrimSpace(contentUnits); contentUnits != "" && contentUnits != "userSpaceOnUse" && contentUnits != "objectBoundingBox" {
 		return nil
 	}
@@ -480,22 +480,28 @@ func (s *svgExpansion) resolvePattern(id string) *svgPattern {
 	objectUnits := units != "userSpaceOnUse"
 	objectContent := contentUnits == "objectBoundingBox"
 	vw, vh := s.img.userWidth, s.img.userHeight
-	length := func(name string, basis float64) (float64, bool) {
-		v, present := attr(name)
+	length := func(name string, basis float64, axis svgAxis) (float64, bool) {
+		v, source, present := attr(name)
 		if !present {
 			v = "0"
+			source = node
 		}
-		return svgGradientLength(v, basis, !objectUnits)
+		if objectUnits {
+			// Percentages and CSS math in objectBoundingBox geometry use
+			// normalized box coordinates, not the document viewport.
+			basis = 1
+		}
+		return s.svgPaintLength(v, source, basis, !objectUnits, axis)
 	}
-	x, okX := length("x", vw)
-	y, okY := length("y", vh)
-	width, okW := length("width", vw)
-	height, okH := length("height", vh)
+	x, okX := length("x", vw, svgHorizontal)
+	y, okY := length("y", vh, svgVertical)
+	width, okW := length("width", vw, svgHorizontal)
+	height, okH := length("height", vh, svgVertical)
 	if !okX || !okY || !okW || !okH || width <= 0 || height <= 0 {
 		return nil
 	}
 	transform := svgIdentity
-	if v, ok := attr("patternTransform"); ok {
+	if v, _, ok := attr("patternTransform"); ok {
 		if parsed, valid := parseSVGTransform(v); valid {
 			transform = parsed
 		}
@@ -602,6 +608,57 @@ func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
 	return c
 }
 
+// svgComputedFont is the inherited font state of a node outside walk.
+type svgComputedFont struct {
+	size                  float64
+	family, style, weight string
+	ratios                fontRatios
+}
+
+// computedFont mirrors walk's font-size and font-family inheritance for nodes
+// such as paint servers in <defs> that walk does not visit. em, ex and ch in
+// their geometry resolve against the node's own computed font; rem uses the
+// document root font size.
+func (s *svgExpansion) computedFont(node *svgNode) svgComputedFont {
+	if f, ok := s.fonts[node]; ok {
+		return f
+	}
+	def := svgDefaultFrame()
+	parent := svgComputedFont{size: def.fontSize, ratios: def.fontRatios}
+	if node.parent != nil {
+		parent = s.computedFont(node.parent)
+	}
+	current := parent
+	a := s.cascadedAttributes(node)
+	for _, property := range []struct {
+		key string
+		dst *string
+	}{
+		{"font-family", &current.family},
+		{"font-style", &current.style},
+		{"font-weight", &current.weight},
+	} {
+		if value := strings.TrimSpace(a[property.key]); value != "" && !strings.EqualFold(value, "inherit") {
+			*property.dst = value
+		}
+	}
+	current.ratios = ratiosFor(ComputedStyle{
+		"font-family": current.family, "font-style": current.style, "font-weight": current.weight,
+	})
+	rootFontSize := s.img.rootFontSize
+	if node == s.root {
+		rootFontSize = 16
+	}
+	if n, ok := svgFontSize(a["font-size"], parent.size, rootFontSize, parent.ratios); ok {
+		current.size = n
+	}
+	if s.fonts == nil {
+		s.fonts = make(map[*svgNode]svgComputedFont)
+	}
+	s.fonts[node] = current
+	return current
+}
+
 func svgParseStop(a map[string]string, currentColor color.NRGBA, previous []svgStop) svgStop {
 	offset := 0.0
 	if v := strings.TrimSpace(a["offset"]); v != "" {
@@ -630,9 +687,44 @@ func svgParseStop(a map[string]string, currentColor color.NRGBA, previous []svgS
 	return svgStop{offset: offset, color: c}
 }
 
-// svgGradientLength resolves a gradient coordinate. In objectBoundingBox
-// units numbers and percentages are fractions of the box; in userSpaceOnUse
-// percentages are relative to the viewport basis.
+// svgPaintLength resolves a paint-server length after the paint server's
+// cascade has been collected. Paint servers are not visited by walk when they
+// live in <defs>, so their geometry properties do not pass through the normal
+// SVG geometry resolver. Resolve custom properties and CSS math here instead,
+// using the source node from the href chain (not necessarily the referencing
+// pattern).
+func (s *svgExpansion) svgPaintLength(v string, source *svgNode, basis float64, userSpace bool, axis svgAxis) (float64, bool) {
+	v = strings.TrimSpace(v)
+	if containsVarFunction(v) {
+		var values ComputedStyle
+		if source != nil {
+			// cascadedAttributes computes the custom-property snapshot before
+			// returning, including inherited values and var() fallbacks.
+			values = s.customProperties[source]
+		}
+		resolved, ok := substituteVars(v, values, nil)
+		if !ok {
+			return 0, false
+		}
+		v = strings.TrimSpace(resolved)
+	}
+	if strings.HasPrefix(strings.ToLower(v), "calc(") {
+		font := svgComputedFont{size: s.img.rootFontSize, ratios: ratiosFor(nil)}
+		if source != nil {
+			font = s.computedFont(source)
+		}
+		calcBasis := svgLengthBasis{horizontal: basis, vertical: basis, diagonal: basis,
+			fontSize: font.size, rootFontSize: s.img.rootFontSize,
+			ratios: font.ratios}
+		n, ok := svgCalc(v, calcBasis, axis)
+		return n, ok
+	}
+	return svgGradientLength(v, basis, userSpace)
+}
+
+// svgGradientLength resolves a simple gradient coordinate. In
+// objectBoundingBox units numbers and percentages are fractions of the box;
+// in userSpaceOnUse percentages are relative to the viewport basis.
 func svgGradientLength(v string, basis float64, userSpace bool) (float64, bool) {
 	v = strings.TrimSpace(v)
 	scale := 1.0
