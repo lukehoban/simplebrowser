@@ -16,9 +16,9 @@ const (
 	svgFillSubSamples        = 16
 	svgFillQualitySubSamples = 128
 	// Quality sampling is only selected when this conservative estimate of
-	// edge visits plus covered pixel visits remains bounded. Larger inputs
-	// retain the 16-sample fallback.
-	maxSVGQualitySampleWork = 1 << 22
+	// edge visits, crossing-sort work, and covered pixel visits remains
+	// bounded. Larger inputs retain the 16-sample fallback.
+	maxSVGQualitySampleWork = 1 << 24
 )
 
 // The exact even-odd rasterizer splits the path into y-monotone trapezoids.
@@ -478,19 +478,13 @@ func svgEvenOddSampledMaskWithSamples(paths []svgSubpath, w, h, samples int) *im
 	}
 	if samples <= 0 {
 		samples = svgFillSubSamples
-		// Each edge can be visited once per overlapping row and parity spans
-		// visit no more than the visible row width per sample. This estimate
-		// therefore bounds the dominant loops without allocating by sample
-		// count or relaxing the exact rasterizer's hostile-input safeguards.
-		edgeRows := int64(0)
-		for _, e := range edges {
-			first := max(yStart, int(math.Floor(e.y0)))
-			last := min(yEnd, int(math.Ceil(e.y1)))
-			if last > first {
-				edgeRows += int64(last - first)
-			}
-		}
-		samples = svgEvenOddFallbackSampleCount(edgeRows, w, yEnd-yStart)
+		// Each edge can be visited once per overlapping row. Sorting the
+		// crossings at a row costs O(k log k), where k is the active crossing
+		// count; the row histogram bounds that work before selecting a sample
+		// count. Parity spans visit no more than the visible row width per
+		// sample. This estimate bounds the dominant loops without relaxing
+		// the exact rasterizer's hostile-input safeguards.
+		samples = svgEvenOddFallbackSampleCountForEdges(edges, w, yStart, yEnd)
 	}
 	cov := make([]float64, w)
 	var xs []float64
@@ -540,12 +534,71 @@ func svgEvenOddSampledMaskWithSamples(paths []svgSubpath, w, h, samples int) *im
 	return mask
 }
 
-func svgEvenOddFallbackSampleCount(edgeRows int64, width, rows int) int {
-	qualityWork := (edgeRows + int64(width)*int64(rows)) * svgFillQualitySubSamples
-	if qualityWork <= maxSVGQualitySampleWork {
-		return svgFillQualitySubSamples
+func svgEvenOddFallbackSampleCountForEdges(edges []svgEdge, width, yStart, yEnd int) int {
+	if yStart >= yEnd {
+		return svgFillSubSamples
 	}
-	return svgFillSubSamples
+	activeDelta := make([]int64, yEnd-yStart+1)
+	for _, e := range edges {
+		first := max(yStart, int(math.Floor(e.y0)))
+		last := min(yEnd, int(math.Ceil(e.y1)))
+		if last > first {
+			activeDelta[first-yStart]++
+			activeDelta[last-yStart]--
+		}
+	}
+	var edgeRows, sortingWork, active int64
+	for row := 0; row < yEnd-yStart; row++ {
+		active += activeDelta[row]
+		edgeRows = svgAccumulateQualityWork(edgeRows, active)
+		// Budget room for both comparison and movement work at each level,
+		// not just the asymptotic number of comparison levels.
+		sortFactor := 2 * int64(svgCeilLog2(active))
+		if sortFactor > 0 && active > int64(maxSVGQualitySampleWork/svgFillQualitySubSamples)/sortFactor {
+			sortingWork = int64(maxSVGQualitySampleWork/svgFillQualitySubSamples) + 1
+		} else {
+			sortingWork = svgAccumulateQualityWork(sortingWork, active*sortFactor)
+		}
+	}
+	return svgEvenOddFallbackSampleCount(edgeRows, sortingWork, width, yEnd-yStart)
+}
+
+func svgEvenOddFallbackSampleCount(edgeRows, sortingWork int64, width, rows int) int {
+	// Compare before multiplying so pathological dimensions or edge counts
+	// cannot overflow the work estimate and accidentally select 128 samples.
+	perSampleLimit := int64(maxSVGQualitySampleWork / svgFillQualitySubSamples)
+	if edgeRows < 0 || sortingWork < 0 || width < 0 || rows < 0 {
+		return svgFillSubSamples
+	}
+	if edgeRows > perSampleLimit || sortingWork > perSampleLimit-edgeRows {
+		return svgFillSubSamples
+	}
+	work := edgeRows + sortingWork
+	if width != 0 && int64(rows) > (perSampleLimit-work)/int64(width) {
+		return svgFillSubSamples
+	}
+	return svgFillQualitySubSamples
+}
+
+func svgAccumulateQualityWork(work, added int64) int64 {
+	limit := int64(maxSVGQualitySampleWork / svgFillQualitySubSamples)
+	if added < 0 || work > limit || added > limit-work {
+		return limit + 1
+	}
+	return work + added
+}
+
+func svgCeilLog2(value int64) int {
+	if value <= 1 {
+		return 0
+	}
+	value--
+	log := 0
+	for value > 0 {
+		log++
+		value >>= 1
+	}
+	return log
 }
 
 // addSVGSpan adds weight*coverage for the horizontal span [x0,x1) to cov,

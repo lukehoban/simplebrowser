@@ -1544,10 +1544,10 @@ func TestSVGEvenOddDenseCrossingsBoundedFallbackAccuracy(t *testing.T) {
 	if mask, ok := svgEvenOddExactMask(paths, 20, 20); ok || mask != nil {
 		t.Fatal("dense crossing repro should exceed the exact intersection budget")
 	}
-	if samples := svgEvenOddFallbackSampleCount(260*20, 20, 20); samples != svgFillQualitySubSamples {
+	if samples := svgEvenOddFallbackSampleCountForEdges(testSVGEdges(260, 0, 20), 20, 0, 20); samples != svgFillQualitySubSamples {
 		t.Fatalf("dense crossing repro samples = %d, want %d", samples, svgFillQualitySubSamples)
 	}
-	if samples := svgEvenOddFallbackSampleCount(maxSVGExactEdges*20, 20, 20); samples != svgFillSubSamples {
+	if samples := svgEvenOddFallbackSampleCountForEdges(testSVGEdges(maxSVGExactEdges, 0, 20), 20, 0, 20); samples != svgFillSubSamples {
 		t.Fatalf("pathological fallback samples = %d, want safety ceiling %d", samples, svgFillSubSamples)
 	}
 
@@ -1571,6 +1571,25 @@ func TestSVGEvenOddDenseCrossingsBoundedFallbackAccuracy(t *testing.T) {
 	if path := os.Getenv("SVG_DENSE_FALLBACK_VISUAL_PATH"); path != "" {
 		writeSVGMaskComparison(t, path, low, got, reference)
 	}
+}
+
+func TestSVGEvenOddFallbackBudgetIncludesShortSpanCrossingSort(t *testing.T) {
+	// The review repro has 16,380 skinny triangles: 32,760 non-horizontal
+	// edges span only half of a 1x1 row. Edge and pixel visits alone fit the
+	// old quality budget, but sorting 32,760 crossings at each sample does not.
+	const edgeCount = 16_380 * 2
+	edges := testSVGEdges(edgeCount, 0.25, 0.75)
+	if samples := svgEvenOddFallbackSampleCountForEdges(edges, 1, 0, 1); samples != svgFillSubSamples {
+		t.Fatalf("short-span high-edge fallback samples = %d, want safety ceiling %d", samples, svgFillSubSamples)
+	}
+}
+
+func testSVGEdges(count int, y0, y1 float64) []svgEdge {
+	edges := make([]svgEdge, count)
+	for i := range edges {
+		edges[i] = svgEdge{x0: 0, y0: y0, x1: 1, y1: y1, slope: (1 - y0) / (y1 - y0)}
+	}
+	return edges
 }
 
 func denseCrossingSVGPaths() []svgSubpath {
