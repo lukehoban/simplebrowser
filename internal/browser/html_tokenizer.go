@@ -272,6 +272,9 @@ func (t *Tokenizer) inForeignContent() bool {
 }
 
 func (t *Tokenizer) pushElement(token Token) {
+	if t.inForeignContent() && isHTMLBreakoutStartTag(token) {
+		t.leaveForeignContent()
+	}
 	if token.SelfClosing || voidElement(token.Name) {
 		return
 	}
@@ -303,6 +306,16 @@ func (t *Tokenizer) pushElement(token Token) {
 	t.elements = append(t.elements, element)
 }
 
+func (t *Tokenizer) leaveForeignContent() {
+	for len(t.elements) > 0 {
+		current := t.elements[len(t.elements)-1]
+		if current.namespace == "" || current.integration {
+			return
+		}
+		t.elements = t.elements[:len(t.elements)-1]
+	}
+}
+
 func (t *Tokenizer) popElement(name string) {
 	for i := len(t.elements) - 1; i >= 0; i-- {
 		if t.elements[i].name == name {
@@ -310,6 +323,24 @@ func (t *Tokenizer) popElement(name string) {
 			return
 		}
 	}
+}
+
+func isHTMLBreakoutStartTag(token Token) bool {
+	switch token.Name {
+	case "b", "big", "blockquote", "body", "br", "center", "code", "dd", "div",
+		"dl", "dt", "em", "embed", "h1", "h2", "h3", "h4", "h5", "h6", "head",
+		"hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p",
+		"pre", "ruby", "s", "small", "span", "strong", "strike", "sub", "sup",
+		"table", "tt", "u", "ul":
+		return true
+	case "font":
+		for _, attr := range token.Attributes {
+			if attr.Name == "color" || attr.Name == "face" || attr.Name == "size" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isMathTextIntegrationPoint(name string) bool {
