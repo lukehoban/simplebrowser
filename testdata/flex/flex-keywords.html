@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<title>flex: auto / initial / none keywords</title>
+<style>
+body { margin: 10px; font: 14px sans-serif; }
+p { margin: 12px 0 4px; }
+.row { display: flex; width: 300px; background: #eee; }
+.row > div { height: 24px; }
+.grow { background: #3b6fd8; }
+.fixed { width: 50px; background: #d9534f; }
+.content { background: #5cb85c; color: white; }
+</style>
+</head>
+<body>
+<p>flex: auto (1 1 auto) &mdash; blue grows to 250px</p>
+<div class="row"><div class="grow" style="flex:auto"></div><div class="fixed"></div></div>
+<p>flex: initial (0 1 auto) &mdash; green keeps its content width</p>
+<div class="row"><div class="content" style="flex:initial">initial</div><div class="fixed"></div></div>
+<p>flex: none (0 0 auto) &mdash; green keeps its content width</p>
+<div class="row"><div class="content" style="flex:none">none</div><div class="fixed"></div></div>
+<p>flex: auto on two items with content &mdash; free space shared equally</p>
+<div class="row"><div class="content" style="flex:auto">short</div><div class="content" style="flex:auto;background:#3b6fd8">much longer</div></div>
+<p>flex: initial shrinks a 280px item to fit (250px)</p>
+<div class="row"><div class="grow" style="flex:initial;width:280px"></div><div class="fixed" style="flex:none"></div></div>
+<p>flex: none keeps 280px and overflows</p>
+<div class="row"><div class="grow" style="flex:none;width:280px"></div><div class="fixed" style="flex:none"></div></div>
+</body>
+</html>

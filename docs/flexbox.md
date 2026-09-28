@@ -21,7 +21,13 @@ its second item must stay inside the 180px container.
 
 - `flex-direction` row, column and their `-reverse` forms.
 - `flex`, `flex-grow`, `flex-shrink`, `flex-basis`, with min/max freezing
-  ([#247](https://github.com/lukehoban/simplebrowser/issues/247)).
+  ([#247](https://github.com/lukehoban/simplebrowser/issues/247)). The
+  shorthand keywords `none` (`0 0 auto`), `auto` (`1 1 auto`) and `initial`
+  (`0 1 auto`) are supported
+  ([#356](https://github.com/lukehoban/simplebrowser/issues/356)):
+  [keyword render](screenshots/flex-keywords-after.png)
+  ([before](screenshots/flex-keywords-before.png) ·
+  [`testdata/flex/flex-keywords.html`](../testdata/flex/flex-keywords.html)).
 - Row flex items use a content-based minimum for `min-width:auto`, except
   scroll containers; an explicit `min-width` (including `0`) overrides it.
   The minimum is capped by a definite `width` suggestion and `max-width`,
