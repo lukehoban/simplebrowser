@@ -81,6 +81,11 @@ its second item must stay inside the 180px container.
   ([`testdata/flex/unitless-basis-intrinsic.html`](../testdata/flex/unitless-basis-intrinsic.html)).
 - Direct text children become anonymous flex items, including NBSP-only runs
   ([#278](https://github.com/lukehoban/simplebrowser/issues/278)).
+- Replaced `<img>` and inline `<svg>` flex items use their image dimensions for
+  flex sizing and paint. The 800×600
+  [SVG regression render](screenshots/flex-inline-svg-item.png) comes from
+  [`testdata/flex/inline-svg-item.html`](../testdata/flex/inline-svg-item.html)
+  ([#410](https://github.com/lukehoban/simplebrowser/issues/410)).
 
 ## Not supported
 
