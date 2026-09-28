@@ -95,7 +95,8 @@ func flexChildren(parent *StyledNode) (nodes, outOfFlow []*StyledNode) {
 	return nodes, outOfFlow
 }
 
-func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefinite bool, faces *faceSet, cb containingBlock) ([]*Box, int) {
+func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefinite bool,
+	minHeight, maxHeight int, hasMaxHeight bool, faces *faceSet, cb containingBlock) ([]*Box, int) {
 	direction := strings.ToLower(strings.TrimSpace(parent.Style["flex-direction"]))
 	column := strings.HasPrefix(direction, "column")
 	reverse := strings.HasSuffix(direction, "-reverse")
@@ -111,6 +112,10 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	availableMain := width
 	if column && heightDefinite {
 		availableMain = containerHeight
+	} else if column {
+		// An auto-height column has no percentage main-size basis, even when
+		// min/max-height will later provide a flexing target.
+		availableMain = 0
 	}
 
 	items := make([]flexItem, 0, len(nodes))
@@ -169,6 +174,17 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			automaticMin: automaticMin, extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
 	}
 
+	autoColumnMainSize := 0
+	autoColumnNeedsFlexing := false
+	if column && !heightDefinite {
+		naturalMain := max(0, len(items)-1) * gap
+		for _, item := range items {
+			naturalMain += int(item.main) + item.extra
+		}
+		autoColumnMainSize = clampHeight(naturalMain, minHeight, maxHeight, hasMaxHeight)
+		autoColumnNeedsFlexing = autoColumnMainSize != naturalMain
+	}
+
 	// Collect items into lines. A single-line container keeps every item on
 	// one line; a wrapping container with a definite main size breaks before
 	// an item whose hypothetical (min/max-clamped) outer size would overflow.
@@ -195,12 +211,16 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 	// line's cross size is known before alignment.
 	for li := range lines {
 		line := &lines[li]
-		if mainDefinite {
+		if mainDefinite || autoColumnNeedsFlexing {
 			total := float64(max(0, len(line.items)-1) * gap)
 			for _, item := range line.items {
 				total += item.main + float64(item.extra)
 			}
-			resolveFlexLengths(line.items, float64(availableMain)-total, column, availableMain)
+			mainSize := availableMain
+			if autoColumnNeedsFlexing {
+				mainSize = autoColumnMainSize
+			}
+			resolveFlexLengths(line.items, float64(mainSize)-total, column, availableMain)
 		}
 		for i := range line.items {
 			item := &line.items[i]
@@ -324,6 +344,8 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			mainSize = occupied
 			if heightDefinite {
 				mainSize = containerHeight
+			} else if autoColumnNeedsFlexing {
+				mainSize = autoColumnMainSize
 			}
 		}
 		// css-flexbox §8.1: main-axis auto margins absorb positive remaining

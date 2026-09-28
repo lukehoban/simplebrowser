@@ -58,6 +58,47 @@ func TestMinHeightWinsOverMaxHeight(t *testing.T) {
 	}
 }
 
+func TestFlexAutoHeightColumnUsesClampedMainSize(t *testing.T) {
+	const source = `<body style="margin:0">
+<div id="min" style="display:flex;flex-direction:column;min-height:100px;background:white">
+  <div id="grow" style="flex:1;background:red"></div>
+</div>
+<div id="max" style="display:flex;flex-direction:column;max-height:100px">
+  <div id="shrink-a" style="height:80px;background:blue"></div>
+  <div id="shrink-b" style="height:80px;background:green"></div>
+</div>
+<div style="height:200px">
+  <div id="percent" style="display:flex;flex-direction:column;min-height:50%">
+    <div id="percent-a" style="flex:1;min-height:75%;background:blue"></div>
+    <div id="percent-b" style="flex:1;min-height:75%;background:green"></div>
+  </div>
+</div></body>`
+	boxes := percentHeightLayout(t, source, "min", "grow", "max", "shrink-a", "shrink-b", "percent", "percent-a", "percent-b")
+	want := map[string]image.Rectangle{
+		"min":       image.Rect(0, 0, 400, 100),
+		"grow":      image.Rect(0, 0, 400, 100),
+		"max":       image.Rect(0, 100, 400, 200),
+		"shrink-a":  image.Rect(0, 100, 400, 150),
+		"shrink-b":  image.Rect(0, 150, 400, 200),
+		"percent":   image.Rect(0, 200, 400, 300),
+		"percent-a": image.Rect(0, 200, 400, 250),
+		"percent-b": image.Rect(0, 250, 400, 300),
+	}
+	for id, rect := range want {
+		if boxes[id] == nil || boxes[id].Rect != rect {
+			t.Errorf("%s: got %v, want %v", id, boxes[id], rect)
+		}
+	}
+
+	img := painted(t, source, image.Rect(0, 0, 400, 600))
+	pixel(t, img, 20, 99, color.RGBA{255, 0, 0, 255})
+	pixel(t, img, 20, 100, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 20, 149, color.RGBA{0, 0, 255, 255})
+	pixel(t, img, 20, 150, color.RGBA{0, 128, 0, 255})
+	pixel(t, img, 20, 199, color.RGBA{0, 128, 0, 255})
+	pixel(t, img, 20, 299, color.RGBA{0, 128, 0, 255})
+}
+
 func TestMinMaxHeightPercentages(t *testing.T) {
 	boxes := percentHeightLayout(t, `<body style="margin:0">
 <div style="height:200px">
