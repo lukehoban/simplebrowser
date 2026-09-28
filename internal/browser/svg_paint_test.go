@@ -99,6 +99,8 @@ func TestSVGGradientPixels(t *testing.T) {
 			`<rect width="20" height="20" fill="url(#g)"/>`, 16, 10, color.RGBA{178, 0, 77, 255}},
 		{"radial focal radius clamps negative", `<radialGradient id="g" gradientUnits="userSpaceOnUse" cx="10" cy="10" r="10" fr="-5"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></radialGradient>`,
 			`<rect width="20" height="20" fill="url(#g)"/>`, 12, 10, color.RGBA{190, 0, 65, 255}},
+		{"radial focal radius fills outer circle", `<radialGradient id="g" gradientUnits="userSpaceOnUse" cx="10" cy="10" r="10" fr="10"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></radialGradient>`,
+			`<rect width="20" height="20" fill="url(#g)"/>`, 12, 10, red},
 		{"radial focal radius clamps to outer circle", `<radialGradient id="g" gradientUnits="userSpaceOnUse" cx="10" cy="10" r="10" fx="19" fr="10"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></radialGradient>`,
 			`<rect width="20" height="20" fill="url(#g)"/>`, 19, 10, red},
 		{"gradient stroke", `<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" x2="20"><stop stop-color="red"/><stop offset="1" stop-color="blue"/></linearGradient>`,

@@ -820,6 +820,9 @@ func (g *svgGradient) offset(x, y float64) float64 {
 	outerDistance := centerDistance + math.Sqrt(math.Max(0,
 		g.r*g.r-ex*ex-ey*ey+centerDistance*centerDistance))
 	if outerDistance <= fr {
+		if distance <= fr {
+			return -1
+		}
 		return 1
 	}
 	return (distance - fr) / (outerDistance - fr)
