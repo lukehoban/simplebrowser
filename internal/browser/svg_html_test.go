@@ -48,3 +48,35 @@ func TestInlineSVGInheritsHTMLCurrentColor(t *testing.T) {
 		t.Fatalf("SVG currentColor pixel = %#v, want opaque rgb(20, 80, 160)", got)
 	}
 }
+
+func TestInlineSVGRestoresSpreadMethodCase(t *testing.T) {
+	node := ParseHTML(`<span><svg width="100" height="10" viewBox="0 0 100 10"><defs><linearGradient id="g" x1="0%" x2="50%" spreadMethod="reflect"><stop offset="0%" stop-color="red"/><stop offset="100%" stop-color="blue"/></linearGradient></defs><rect width="100" height="10" fill="url(#g)"/></svg></span>`)
+	styled, err := style(Document{Root: node}, &Fetcher{})
+	if err != nil {
+		t.Fatalf("style document: %v", err)
+	}
+	img := inlineSVGImage(styled.StyleRoot.Children[0].Children[0])
+	if img == nil {
+		t.Fatal("inlineSVGImage() did not decode the reflecting gradient")
+	}
+	got := color.NRGBAModel.Convert(img.At(75, 5)).(color.NRGBA)
+	if got.R < 80 || got.R > 180 || got.B < 80 || got.B > 180 {
+		t.Fatalf("reflecting gradient pixel = %#v, want an interpolated color after the gradient repeats", got)
+	}
+}
+
+func TestInlineSVGResolvesXLinkHrefWithoutHTMLNamespaceDeclaration(t *testing.T) {
+	node := ParseHTML(`<span><svg width="10" height="10" viewBox="0 0 10 10"><defs><path id="p" d="M0 0H10V10H0Z"/></defs><use xlink:href="#p" fill="#1450a0"/></svg></span>`)
+	styled, err := style(Document{Root: node}, &Fetcher{})
+	if err != nil {
+		t.Fatalf("style document: %v", err)
+	}
+	img := inlineSVGImage(styled.StyleRoot.Children[0].Children[0])
+	if img == nil {
+		t.Fatal("inlineSVGImage() did not decode use with xlink:href")
+	}
+	got := color.NRGBAModel.Convert(img.At(5, 5)).(color.NRGBA)
+	if got.R != 20 || got.G != 80 || got.B != 160 || got.A != 255 {
+		t.Fatalf("xlink:href pixel = %#v, want opaque rgb(20, 80, 160)", got)
+	}
+}

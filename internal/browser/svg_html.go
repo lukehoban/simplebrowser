@@ -15,6 +15,24 @@ func inlineSVGImage(n *StyledNode) image.Image {
 	if n == nil || n.Node == nil {
 		return nil
 	}
+	hasXLinkHref := false
+	var findXLinkHref func(*Node)
+	findXLinkHref = func(node *Node) {
+		if node == nil || hasXLinkHref {
+			return
+		}
+		for _, attr := range node.Attributes {
+			if strings.EqualFold(attr.Name, "xlink:href") {
+				hasXLinkHref = true
+				return
+			}
+		}
+		for _, child := range node.Children {
+			findXLinkHref(child)
+		}
+	}
+	findXLinkHref(n.Node)
+
 	var source bytes.Buffer
 	elements := 0
 	var writeNode func(*Node, int) bool
@@ -41,8 +59,12 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		name := svgHTMLName(node.Name)
 		source.WriteByte('<')
 		source.WriteString(name)
+		hasXLinkNamespace := false
 		for _, attr := range node.Attributes {
 			attrName := svgHTMLAttributeName(attr.Name)
+			if strings.EqualFold(attrName, "xmlns:xlink") {
+				hasXLinkNamespace = true
+			}
 			escaped := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;").Replace(attr.Value)
 			if source.Len()+len(attrName)+len(escaped)+4 > maxSVGBytes {
 				return false
@@ -52,6 +74,13 @@ func inlineSVGImage(n *StyledNode) image.Image {
 			source.WriteString("=\"")
 			source.WriteString(escaped)
 			source.WriteByte('"')
+		}
+		if depth == 0 && hasXLinkHref && !hasXLinkNamespace {
+			const declaration = ` xmlns:xlink="http://www.w3.org/1999/xlink"`
+			if source.Len()+len(declaration) > maxSVGBytes {
+				return false
+			}
+			source.WriteString(declaration)
 		}
 		source.WriteByte('>')
 		if source.Len() > maxSVGBytes {
@@ -129,6 +158,8 @@ func svgHTMLAttributeName(name string) string {
 		return "lengthAdjust"
 	case "startoffset":
 		return "startOffset"
+	case "spreadmethod":
+		return "spreadMethod"
 	default:
 		return name
 	}
