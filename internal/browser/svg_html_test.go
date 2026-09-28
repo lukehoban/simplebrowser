@@ -100,6 +100,36 @@ func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
 		},
 		{
+			name: "earlier host important layer beats later SVG-only important layer",
+			html: `<style>@layer base { #shape { fill: red !important } }</style><svg width="10" height="10" viewBox="0 0 10 10"><style>@layer theme { #shape { fill: blue !important } }</style><path id="shape" d="M0 0H10V10H0Z"/></svg>`,
+			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
+		},
+		{
+			name: "later SVG-only normal layer beats earlier host layer",
+			html: `<style>@layer base { #shape { fill: red } }</style><svg width="10" height="10" viewBox="0 0 10 10"><style>@layer theme { #shape { fill: blue } }</style><path id="shape" d="M0 0H10V10H0Z"/></svg>`,
+			want: color.NRGBA{R: 0, G: 0, B: 255, A: 255},
+		},
+		{
+			name: "SVG-only layer declared before host layer ranks first",
+			html: `<svg width="10" height="10" viewBox="0 0 10 10"><style>@layer theme { #shape { fill: blue } }</style><path id="shape" d="M0 0H10V10H0Z"/></svg><style>@layer base { #shape { fill: red } }</style>`,
+			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
+		},
+		{
+			name: "SVG-only important layer declared before host layer wins",
+			html: `<svg width="10" height="10" viewBox="0 0 10 10"><style>@layer theme { #shape { fill: blue !important } }</style><path id="shape" d="M0 0H10V10H0Z"/></svg><style>@layer base { #shape { fill: red !important } }</style>`,
+			want: color.NRGBA{R: 0, G: 0, B: 255, A: 255},
+		},
+		{
+			name: "SVG statement orders host-declared layers",
+			html: `<svg width="10" height="10" viewBox="0 0 10 10"><style>@layer theme, base; @layer extra { #shape { fill: green } }</style><path id="shape" d="M0 0H10V10H0Z"/></svg><style>@layer base { #shape { fill: red } } @layer theme { #shape { fill: blue } }</style>`,
+			want: color.NRGBA{R: 0, G: 128, B: 0, A: 255},
+		},
+		{
+			name: "unlayered SVG rule beats every host layer",
+			html: `<style>@layer a, b, c; @layer c { #shape { fill: red } }</style><svg width="10" height="10" viewBox="0 0 10 10"><style>#shape { fill: blue }</style><path id="shape" d="M0 0H10V10H0Z"/></svg>`,
+			want: color.NRGBA{R: 0, G: 0, B: 255, A: 255},
+		},
+		{
 			name: "inherited host fill crosses the HTML SVG boundary",
 			html: `<div style="fill: blue"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z"/></svg></div>`,
 			want: color.NRGBA{R: 0, G: 0, B: 255, A: 255},
@@ -132,6 +162,98 @@ func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 				}
 			}
 			find(styled.StyleRoot)
+			img, ok := inlineSVGImage(svgNode).(*svgImage)
+			if !ok || img == nil {
+				t.Fatal("inlineSVGImage() did not decode the SVG")
+			}
+			got := color.NRGBAModel.Convert(img.At(5, 5)).(color.NRGBA)
+			if got != tc.want {
+				t.Fatalf("center pixel = %#v, want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The host registry normally includes inline SVG <style> sheets because the
+// HTML stylesheet walk visits them. These cases insert the embedded sheet only
+// after the host cascade, so its layers reach the SVG decoder as SVG-only
+// layers that must be merged after the host registry (CSS Cascade 5 §6.4).
+func TestInlineSVGMergesSVGOnlyLayersAfterHostLayers(t *testing.T) {
+	tests := []struct {
+		name, host, svgCSS string
+		want               color.NRGBA
+	}{
+		{
+			name:   "earlier host important layer beats SVG-only important layer",
+			host:   `@layer base { #shape { fill: red !important } }`,
+			svgCSS: `@layer theme { #shape { fill: blue !important } }`,
+			want:   color.NRGBA{R: 255, A: 255},
+		},
+		{
+			name:   "SVG-only normal layer beats earlier host layer",
+			host:   `@layer base { #shape { fill: red } }`,
+			svgCSS: `@layer theme { #shape { fill: blue } }`,
+			want:   color.NRGBA{B: 255, A: 255},
+		},
+		{
+			name:   "SVG redeclaring a host layer keeps host order",
+			host:   `@layer a, b; @layer b { #shape { fill: red } }`,
+			svgCSS: `@layer a { #shape { fill: blue } }`,
+			want:   color.NRGBA{R: 255, A: 255},
+		},
+		{
+			name:   "SVG-only layer follows every host layer",
+			host:   `@layer a, b; @layer b { #shape { fill: red } }`,
+			svgCSS: `@layer a { #shape { fill: blue } } @layer c { #shape { fill: green } }`,
+			want:   color.NRGBA{G: 128, A: 255},
+		},
+		{
+			name:   "SVG-only sublayer ranks inside its host parent",
+			host:   `@layer base, top; @layer top { #shape { fill: red } }`,
+			svgCSS: `@layer base.inner { #shape { fill: blue } }`,
+			want:   color.NRGBA{R: 255, A: 255},
+		},
+		{
+			name:   "host unlayered rule beats SVG-only layer",
+			host:   `#shape { fill: red } @layer base { #shape { fill: green } }`,
+			svgCSS: `@layer theme { #shape { fill: blue } }`,
+			want:   color.NRGBA{R: 255, A: 255},
+		},
+		{
+			name:   "SVG-only important layer beats host unlayered important",
+			host:   `#shape { fill: red !important }`,
+			svgCSS: `@layer theme { #shape { fill: blue !important } }`,
+			want:   color.NRGBA{B: 255, A: 255},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := ParseHTML(`<style>` + tc.host + `</style><svg width="10" height="10" viewBox="0 0 10 10"><path id="shape" d="M0 0H10V10H0Z"/></svg>`)
+			styled, err := style(Document{Root: root}, &Fetcher{})
+			if err != nil {
+				t.Fatalf("style document: %v", err)
+			}
+			var svgNode *StyledNode
+			var find func(*StyledNode)
+			find = func(node *StyledNode) {
+				if node == nil || svgNode != nil {
+					return
+				}
+				if node.Node != nil && node.Node.Type == ElementNode && node.Node.Name == "svg" {
+					svgNode = node
+					return
+				}
+				for _, child := range node.Children {
+					find(child)
+				}
+			}
+			find(styled.StyleRoot)
+			if svgNode == nil {
+				t.Fatal("no styled svg element")
+			}
+			sheet := &Node{Type: ElementNode, Name: "style", Parent: svgNode.Node}
+			sheet.Children = []*Node{{Type: TextNode, Data: tc.svgCSS, Parent: sheet}}
+			svgNode.Node.Children = append([]*Node{sheet}, svgNode.Node.Children...)
 			img, ok := inlineSVGImage(svgNode).(*svgImage)
 			if !ok || img == nil {
 				t.Fatal("inlineSVGImage() did not decode the SVG")

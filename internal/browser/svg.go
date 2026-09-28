@@ -283,16 +283,23 @@ func decodeSVGWithHostStyles(data []byte, inherited color.NRGBA, allowHostStyles
 	if root == nil {
 		return nil, errUnsupportedSVG
 	}
-	assignLayerOrder(sheets, image.Pt(800, 600))
-	for i := range sheets {
-		for j := range sheets[i].Rules {
-			if rank, ok := hostLayerOrder[sheets[i].Rules[j].Layer]; ok {
-				sheets[i].Rules[j].LayerOrder = rank
-			}
+	// Host and embedded layers share one registry (CSS Cascade 5 §6.4): host
+	// layers keep their document order, and layers declared only inside this
+	// SVG are appended after them rather than ranked among themselves.
+	registry := append([]Stylesheet{hostLayerRegistry(hostLayerOrder)}, sheets...)
+	ranks, unlayered := layerRanks(registry, image.Pt(800, 600))
+	assignLayerOrder(registry, image.Pt(800, 600))
+	hostLayers := make(map[int]int, len(hostLayerOrder))
+	for name, old := range hostLayerOrder {
+		if name == "" {
+			hostLayers[old] = unlayered
+		} else if rank, ok := ranks[name]; ok {
+			hostLayers[old] = rank
 		}
 	}
 	state := svgExpansion{img: img, root: root, ids: ids, sheets: sheets, active: make(map[*svgNode]bool),
-		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA)}
+		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA),
+		hostLayers: hostLayers}
 	state.inheritedHostStyle = inheritedHostStyle
 	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
 		return nil, err
@@ -333,6 +340,8 @@ type svgExpansion struct {
 	elements           int
 	segments           int
 	inheritedHostStyle map[string]string
+	// hostLayers maps host cascade layer ranks to the merged host/SVG ranks.
+	hostLayers map[int]int
 }
 
 func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
@@ -953,6 +962,9 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 		candidateOrder := order
 		if len(hostPriority) > 0 {
 			layer = hostPriority[0].Layer
+			if merged, ok := s.hostLayers[layer]; ok {
+				layer = merged
+			}
 			candidateOrder = hostPriority[0].Order
 		}
 		candidate := winningDeclaration{d: d, important: d.Important, inline: inline, origin: 1, order: candidateOrder, layer: layer, spec: spec}
