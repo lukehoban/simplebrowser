@@ -751,6 +751,28 @@ func TestTableCollapsedOuterEdgesResolveAgainstAllTableParts(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedPerimeterReservesWidestSegment(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
+		`<tr><td style="padding:0;width:20px;height:20px;border-top:50px solid red"></td>`+
+		`<td style="padding:0;width:20px;height:20px;border-top:50px hidden blue"></td></tr></table></body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables, cells := collectBoxes(got.Root, "table"), collectBoxes(got.Root, "td")
+	if len(tables) != 1 || len(cells) != 2 {
+		t.Fatalf("boxes = table %d, cells %d; want one table and two cells", len(tables), len(cells))
+	}
+	if tables[0].Rect.Min.Y != 0 || cells[0].Content.Min.Y != 50 ||
+		cells[1].Content.Min.Y != 0 {
+		t.Fatalf("geometry = table %v, cell contents %v and %v; want table top 0 and contents 50px/0px", tables[0].Rect, cells[0].Content, cells[1].Content)
+	}
+	if cells[0].Rect.Min.Y != tables[0].Rect.Min.Y ||
+		cells[1].Rect.Min.Y != tables[0].Rect.Min.Y {
+		t.Fatalf("cell tops = %v, %v; want table top %v", cells[0].Rect.Min.Y, cells[1].Rect.Min.Y, tables[0].Rect.Min.Y)
+	}
+}
+
 func TestTableCollapsedRowCellBorderConflictWithTransparentCells(t *testing.T) {
 	read := func(name string) string {
 		t.Helper()

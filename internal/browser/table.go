@@ -1604,8 +1604,21 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	// Keep the table's outer half of a collapsed perimeter edge in its
 	// border box. The other half is included in the touching cell below.
 	for i, edge := range grid.outerBorders {
+		width := 0
 		if edge != nil {
-			border[i] = edge.width - edge.width/2
+			width = edge.width
+		}
+		// A perimeter can have a different collapsed winner in each
+		// interval. Reserve the widest interval in the table box; the
+		// cells and perimeter painter still use their local winners. The
+		// aggregate winner may be nil when a hidden segment suppresses it.
+		for _, segment := range grid.outerBorderSegments[i] {
+			if segment != nil && segment.width > width {
+				width = segment.width
+			}
+		}
+		if width > 0 {
+			border[i] = width - width/2
 		}
 	}
 	grid.measureCells(faces)
