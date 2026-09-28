@@ -254,3 +254,70 @@ func TestPaintPercentageHeightBlockReplaced(t *testing.T) {
 	pixel(t, img, 200, 99, white)
 	pixel(t, img, 50, 100, white)
 }
+
+func TestMinMaxHeightInlineAndFlexReplaced(t *testing.T) {
+	img := func(id, style string) string {
+		return `<img id="` + id + `" src="` + wideTestImage + `" style="` + style + `">`
+	}
+	source := `<body style="margin:0;background:white">
+<div>` + img("inline-min", "min-height:50px") + `</div>
+<div>` + img("inline-max", "max-height:10px") + `</div>
+<div style="height:100px">` + img("inline-percent", "min-height:50%") + `</div>
+<div id="flex-min" style="display:flex;height:60px">` + img("flex-min-image", "min-height:50px;align-self:flex-start") + `</div>
+<div id="flex-max" style="display:flex;height:60px">` + img("flex-max-image", "width:80px;max-height:10px;align-self:flex-start") + `</div>
+<div id="flex-percent" style="display:flex;height:100px">` + img("flex-percent-image", "min-height:50%;align-self:flex-start") + `</div>
+</body>`
+	viewport := image.Rect(0, 0, 400, 500)
+	layout, err := LayoutWithViewport(styledForLayout(t, source), viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageRects := make(map[string]image.Rectangle)
+	var walk func(*Box)
+	walk = func(box *Box) {
+		for _, picture := range box.Images {
+			if id, ok := picture.Node.Attribute("id"); ok {
+				imageRects[id.Value] = picture.Rect
+			}
+		}
+		for _, child := range box.Children {
+			walk(child)
+		}
+	}
+	walk(layout.Root)
+	for id, want := range map[string]image.Point{
+		"inline-min":     {100, 50},
+		"inline-max":     {20, 10},
+		"inline-percent": {100, 50},
+	} {
+		if got := imageRects[id].Size(); got != want {
+			t.Errorf("#%s inline image size = %v, want %v (rect %v)", id, got, want, imageRects[id])
+		}
+	}
+	flexBoxes := boxesByID(layout.Root, "flex-min-image", "flex-max-image", "flex-percent-image")
+	for id, want := range map[string]image.Point{
+		"flex-min-image":     {100, 50},
+		"flex-max-image":     {80, 10},
+		"flex-percent-image": {100, 50},
+	} {
+		if got := flexBoxes[id].Content.Size(); got != want {
+			t.Errorf("#%s flex image size = %v, want %v (rect %v)", id, got, want, flexBoxes[id].Content)
+		}
+	}
+
+	// Verify the rendered pixels use the same clamped rectangles as geometry:
+	// each image fills its bottom-right pixel and nothing bleeds into the next
+	// pixel on its right edge.
+	paintedImage := painted(t, source, viewport)
+	green := color.RGBA{0, 128, 0, 255}
+	white := color.RGBA{255, 255, 255, 255}
+	for _, rect := range imageRects {
+		pixel(t, paintedImage, rect.Max.X-1, rect.Max.Y-1, green)
+		pixel(t, paintedImage, rect.Max.X, rect.Max.Y-1, white)
+	}
+	for _, box := range flexBoxes {
+		rect := box.Content
+		pixel(t, paintedImage, rect.Max.X-1, rect.Max.Y-1, green)
+		pixel(t, paintedImage, rect.Max.X, rect.Max.Y-1, white)
+	}
+}

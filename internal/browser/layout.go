@@ -1486,11 +1486,10 @@ func translatePositionedBox(box *Box, dx, dy int) *Box {
 	return box
 }
 
-// layoutReplacedBlock lays out a block-level img, honouring margins, borders
-// and padding while sizing the replaced content from intrinsic or CSS
-// dimensions. When cb is non-nil (normal flow), min-height and max-height
-// also apply, with percentages against cb's height basis. Flex items pass
-// nil because flex measurement does not yet apply them (#447).
+// layoutReplacedBlock lays out an img, honouring margins, borders and padding
+// while sizing the replaced content from intrinsic or CSS dimensions.
+// min-height and max-height apply when cb is non-nil, with percentages against
+// cb's height basis.
 func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet, cb *containingBlock) (*Box, int) {
 	margin := boxEdges(n, "margin", float64(width))
 	padding := boxEdges(n, "padding", float64(width))
@@ -1594,7 +1593,8 @@ func inlineParts(nodes []*StyledNode, context ComputedStyle, faces *faceSet, wid
 			}
 			if isReplacedHTMLImage(n.Node) {
 				picture := faces.images[n.Node]
-				w, h := imageDimensions(n, picture, width)
+				basis, definite := percentageHeightBasis(n, cb)
+				w, h := replacedBlockDimensions(n, picture, width, basis, definite)
 				parts = append(parts, inlinePart{node: n.Node, style: n.Style,
 					image: picture, imageW: w, imageH: h,
 					imageEdges: inlineImageEdges(n, width), isImage: true})

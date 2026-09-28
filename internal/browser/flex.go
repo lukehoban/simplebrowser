@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"image"
 	"math"
 	"strconv"
 	"strings"
@@ -129,7 +130,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			} else if h, ok := specifiedHeight(child, containerHeight, heightDefinite); ok {
 				main = float64(h)
 			} else if isReplacedHTMLImage(child.Node) {
-				_, h := imageDimensions(child, faces.images[child.Node], width)
+				_, h := flexImageDimensions(child, faces.images[child.Node], width, cb)
 				main = float64(h)
 			} else {
 				// Auto-sized text (including anonymous items) has a natural
@@ -143,7 +144,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			} else if value := strings.TrimSpace(child.Style["width"]); value != "" && !strings.EqualFold(value, "auto") {
 				main = px(value, float64(width), 0)
 			} else if isReplacedHTMLImage(child.Node) {
-				w, _ := imageDimensions(child, faces.images[child.Node], width)
+				w, _ := flexImageDimensions(child, faces.images[child.Node], width, cb)
 				main = float64(w)
 			} else {
 				_, preferred := contentIntrinsicWidths(child, faces)
@@ -650,11 +651,18 @@ func flexBasisIsLength(style ComputedStyle) bool {
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
 	if isReplacedHTMLImage(n.Node) {
-		box, _ := layoutReplacedBlock(n, x, y, width, faces, nil)
+		box, _ := layoutReplacedBlock(n, x, y, width, faces, &cb)
 		return box
 	}
 	box, _ := layoutBlock(asFlexItem(n), x, y, width, faces, cb)
 	return box
+}
+
+// flexImageDimensions keeps an image's flex base size consistent with the
+// dimensions used when its flex item is laid out.
+func flexImageDimensions(n *StyledNode, picture image.Image, width int, cb containingBlock) (int, int) {
+	basis, definite := percentageHeightBasis(n, cb)
+	return replacedBlockDimensions(n, picture, width, basis, definite)
 }
 
 // asFlexItem returns n marked as an independent formatting context root.
