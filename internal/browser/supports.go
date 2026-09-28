@@ -280,7 +280,7 @@ func featureSupported(property, value string) bool {
 	case "inherit":
 		return true // resolved generically by the cascade
 	}
-	if calcLengthProperty(property) && strings.Contains(strings.ToLower(value), "calc(") {
+	if calcLengthProperty(property) && containsMathFunction(value) {
 		return validCalcDeclaration(property, value)
 	}
 	return valid(strings.TrimSpace(value))

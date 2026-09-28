@@ -456,7 +456,7 @@ func validSubstitutedDeclaration(property, value string) bool {
 	case "inherit", "initial", "unset":
 		return true
 	}
-	if calcLengthProperty(property) && strings.Contains(strings.ToLower(value), "calc(") {
+	if calcLengthProperty(property) && containsMathFunction(value) {
 		return validCalcDeclaration(property, value)
 	}
 	if validate, ok := supportValidators[property]; ok {

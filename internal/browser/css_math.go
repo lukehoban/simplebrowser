@@ -19,9 +19,8 @@ type cssMathParser struct {
 	i       int
 	depth   int
 	convert func(float64, string) (cssMathValue, bool)
-	// functions enables nested calc(), min() and max() inside an expression.
-	// It is only enabled for properties whose used values evaluate them
-	// (currently mask-size); ordinary length properties do not yet.
+	// functions enables nested calc(), min(), max() and clamp() inside an
+	// expression. parseCSSMath (used by SVG) leaves it off.
 	functions bool
 }
 
@@ -45,6 +44,22 @@ func calcLengthProperty(property string) bool {
 // percentages; border widths do not, so calc() there must not either.
 func calcPercentAllowed(property string) bool {
 	return !strings.HasPrefix(property, "border-")
+}
+
+// calcNonNegativeProperty reports properties whose length values are
+// constrained to be non-negative. Math expressions are range-clamped after
+// substitution; a percentage-dependent expression may need to wait until its
+// layout basis is known.
+func calcNonNegativeProperty(property string) bool {
+	switch property {
+	case "width", "height", "min-width", "max-width", "min-height", "max-height",
+		"inline-size", "block-size", "padding", "padding-top", "padding-right",
+		"padding-bottom", "padding-left", "flex-basis", "gap", "row-gap",
+		"column-gap", "border-width", "border-top-width", "border-right-width",
+		"border-bottom-width", "border-left-width":
+		return true
+	}
+	return false
 }
 
 func parseCSSMath(value string, convert func(float64, string) (cssMathValue, bool)) (cssMathValue, bool) {
@@ -225,13 +240,15 @@ func (p *cssMathParser) atom() (cssMathValue, bool) {
 	return cssMathValue{}, false
 }
 
-// function parses a nested calc(), min() or max(). matched reports whether
+// function parses a calc(), min(), max() or clamp(). matched reports whether
 // the input started with one of these names, so atom can fall through to
-// numbers otherwise. min()/max() compare pixel values only; a percentage
-// argument has no basis at parse time, so such comparisons are rejected.
+// numbers otherwise. Comparisons need a common basis: the arguments must be
+// all pixel lengths, all pure percentages, or all numbers. Mixed
+// percentage/pixel comparisons are rejected here; normalizeCalcValues keeps
+// such expressions until layout, where percentages are resolved to pixels.
 func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	name := ""
-	for _, candidate := range []string{"calc(", "min(", "max("} {
+	for _, candidate := range []string{"calc(", "min(", "max(", "clamp("} {
 		if len(p.s)-p.i >= len(candidate) && strings.EqualFold(p.s[p.i:p.i+len(candidate)], candidate) {
 			name = candidate[:len(candidate)-1]
 			break
@@ -246,35 +263,178 @@ func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	p.i += len(name) + 1
 	p.depth++
 	defer func() { p.depth-- }()
-	var result cssMathValue
-	for count := 0; ; count++ {
+	var args []cssMathValue
+	for {
 		arg, ok := p.sum()
 		p.space()
 		if !ok || p.i >= len(p.s) {
 			return cssMathValue{}, false, true
 		}
-		if count == 0 {
-			result = arg
-		} else {
-			if arg.number != result.number || arg.percent != 0 || result.percent != 0 {
-				return cssMathValue{}, false, true
-			}
-			if name == "min" {
-				result.px = math.Min(result.px, arg.px)
-			} else {
-				result.px = math.Max(result.px, arg.px)
-			}
+		args = append(args, arg)
+		if p.s[p.i] == ')' {
+			p.i++
+			break
 		}
-		switch {
-		case p.s[p.i] == ')':
-			p.i++
-			return result, true, true
-		case p.s[p.i] == ',' && name != "calc":
-			p.i++
-		default:
+		if p.s[p.i] != ',' || name == "calc" || name == "clamp" && len(args) == 3 {
+			return cssMathValue{}, false, true
+		}
+		p.i++
+	}
+	if name == "calc" {
+		return args[0], true, true
+	}
+	if name == "clamp" && len(args) != 3 {
+		return cssMathValue{}, false, true
+	}
+	usePercent := args[0].px == 0 && args[0].percent != 0
+	for _, arg := range args {
+		if arg.number != args[0].number {
+			return cssMathValue{}, false, true
+		}
+		if usePercent && arg.px != 0 || !usePercent && arg.percent != 0 {
 			return cssMathValue{}, false, true
 		}
 	}
+	key := func(v cssMathValue) float64 {
+		if usePercent {
+			return v.percent
+		}
+		return v.px
+	}
+	pick := func(a, b cssMathValue, smaller bool) cssMathValue {
+		if (key(b) < key(a)) == smaller && key(b) != key(a) {
+			return b
+		}
+		return a
+	}
+	switch name {
+	case "clamp":
+		// clamp(MIN, VAL, MAX) is max(MIN, min(VAL, MAX)); MIN wins a conflict.
+		return pick(args[0], pick(args[1], args[2], true), false), true, true
+	default:
+		result := args[0]
+		for _, arg := range args[1:] {
+			result = pick(result, arg, name == "min")
+		}
+		return result, true, true
+	}
+}
+
+// mathFunctionNames are the CSS math functions accepted in ordinary length
+// declarations.
+var mathFunctionNames = []string{"calc(", "min(", "max(", "clamp("}
+
+// mathFunctionAt reports the length of the math function name (including
+// the opening parenthesis) starting at text[i], or 0. The name must not be
+// the tail of a longer identifier such as minmax(.
+func mathFunctionAt(text string, i int) int {
+	if i > 0 {
+		c := text[i-1]
+		if c == '-' || c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' {
+			return 0
+		}
+	}
+	for _, name := range mathFunctionNames {
+		if len(text)-i >= len(name) && strings.EqualFold(text[i:i+len(name)], name) {
+			return len(name)
+		}
+	}
+	return 0
+}
+
+func containsMathFunction(text string) bool {
+	for i := range text {
+		if mathFunctionAt(text, i) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func startsWithMathFunction(text string) bool {
+	return mathFunctionAt(strings.TrimSpace(text), 0) > 0
+}
+
+// rewriteMathUnits converts every non-percentage dimension in a math
+// expression to pixels, leaving numbers and percentages untouched, so the
+// expression can be kept as a computed value and finished at layout time.
+func rewriteMathUnits(text string, convert func(float64, string) (cssMathValue, bool)) (string, bool) {
+	var out strings.Builder
+	for i := 0; i < len(text); {
+		c := text[i]
+		startsNumber := c >= '0' && c <= '9' || c == '.' && i+1 < len(text) && text[i+1] >= '0' && text[i+1] <= '9'
+		if startsNumber && i > 0 {
+			prev := text[i-1]
+			if prev == '_' || prev >= 'a' && prev <= 'z' || prev >= 'A' && prev <= 'Z' || prev >= '0' && prev <= '9' || prev == '.' {
+				startsNumber = false
+			}
+		}
+		if !startsNumber {
+			out.WriteByte(c)
+			i++
+			continue
+		}
+		start := i
+		for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+			i++
+		}
+		if i < len(text) && text[i] == '.' {
+			i++
+			for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+				i++
+			}
+		}
+		if i < len(text) && (text[i] == 'e' || text[i] == 'E') {
+			exponent := i
+			i++
+			if i < len(text) && (text[i] == '+' || text[i] == '-') {
+				i++
+			}
+			digits := i
+			for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+				i++
+			}
+			if digits == i {
+				i = exponent
+			}
+		}
+		numberEnd := i
+		if i < len(text) && text[i] == '%' {
+			i++
+		} else {
+			for i < len(text) && (text[i] >= 'a' && text[i] <= 'z' || text[i] >= 'A' && text[i] <= 'Z') {
+				i++
+			}
+		}
+		unit := strings.ToLower(text[numberEnd:i])
+		if unit == "" || unit == "%" || unit == "px" {
+			out.WriteString(text[start:i])
+			continue
+		}
+		n, err := strconv.ParseFloat(text[start:numberEnd], 64)
+		if err != nil {
+			return "", false
+		}
+		v, ok := convert(n, unit)
+		if !ok || v.number || v.percent != 0 || !finite(v.px) {
+			return "", false
+		}
+		out.WriteString(strconv.FormatFloat(v.px, 'f', -1, 64) + "px")
+	}
+	return out.String(), true
+}
+
+// parseCSSLengthMathShape type-checks a pixel/percentage math expression
+// without a percentage basis by treating 1% as 1px. The value is only
+// meaningful as a validity check.
+func parseCSSLengthMathShape(value string) (cssMathValue, bool) {
+	return parseCSSMathFunction(value, func(n float64, unit string) (cssMathValue, bool) {
+		switch unit {
+		case "px", "%":
+			return cssMathValue{px: n}, true
+		}
+		return cssMathValue{}, false
+	})
 }
 
 func finite(n float64) bool { return !math.IsNaN(n) && !math.IsInf(n, 0) }
@@ -313,16 +473,46 @@ func normalizeCalcValues(values ComputedStyle, viewportWidth, viewportHeight int
 			continue
 		}
 		values[property] = replaceCalcFunctions(text, func(expression string) (string, bool) {
-			v, ok := parseCSSMath("calc("+expression+")", convert)
-			if !ok || v.number {
+			rewritten, ok := rewriteMathUnits(expression, convert)
+			if !ok {
 				return "", false
 			}
-			return serializeCSSMath(v), true
+			if v, ok := parseCSSMathFunction(rewritten, convert); ok && !v.number {
+				if calcNonNegativeProperty(property) {
+					switch {
+					case v.px < 0 && v.percent <= 0, v.px <= 0 && v.percent < 0:
+						// For a non-negative percentage basis these terms
+						// can never produce a positive used value.
+						return "0px", true
+					case v.px < 0 && v.percent > 0, v.px > 0 && v.percent < 0:
+						// The sign depends on the property's percentage
+						// basis. Defer range clamping until layout.
+						return "calc(max(0px, " + serializeCSSMath(v) + "))", true
+					}
+				}
+				return serializeCSSMath(v), true
+			}
+			// A comparison between percentages and pixels cannot be
+			// resolved without the layout basis; keep it as a calc()
+			// wrapper so used-value callers evaluate it.
+			if v, ok := parseCSSLengthMathShape(rewritten); !ok || v.number {
+				return "", false
+			}
+			if calcNonNegativeProperty(property) && strings.Contains(rewritten, "%") {
+				// Mixed percentage/length comparisons cannot be evaluated
+				// until layout. Keep the expression deferred, but ensure its
+				// eventual used value is clamped to the property's range.
+				return "calc(max(0px, " + rewritten + "))", true
+			}
+			if strings.HasPrefix(strings.ToLower(rewritten), "calc(") {
+				return rewritten, true
+			}
+			return "calc(" + rewritten + ")", true
 		})
 	}
 }
 
-// parseCSSMathFunction evaluates one top-level calc(), min() or max(),
+// parseCSSMathFunction evaluates one top-level calc(), min(), max() or clamp(),
 // including nested math functions.
 func parseCSSMathFunction(value string, convert func(float64, string) (cssMathValue, bool)) (cssMathValue, bool) {
 	p := cssMathParser{s: strings.TrimSpace(value), convert: convert, functions: true}
@@ -380,18 +570,24 @@ func serializeCSSMath(v cssMathValue) string {
 	return "calc(" + parts[0] + " + " + strconv.FormatFloat(v.px, 'f', -1, 64) + "px)"
 }
 
+// replaceCalcFunctions calls replace with each top-level math function in
+// text (the full function, including its name) and substitutes the result.
 func replaceCalcFunctions(text string, replace func(string) (string, bool)) string {
-	lower := strings.ToLower(text)
 	var out strings.Builder
 	for i := 0; i < len(text); {
-		start := strings.Index(lower[i:], "calc(")
+		start, nameLen := -1, 0
+		for j := i; j < len(text); j++ {
+			if n := mathFunctionAt(text, j); n > 0 {
+				start, nameLen = j, n
+				break
+			}
+		}
 		if start < 0 {
 			out.WriteString(text[i:])
 			break
 		}
-		start += i
 		out.WriteString(text[i:start])
-		depth, end := 1, start+5
+		depth, end := 1, start+nameLen
 		for end < len(text) && depth > 0 {
 			if text[end] == '(' {
 				depth++
@@ -404,8 +600,7 @@ func replaceCalcFunctions(text string, replace func(string) (string, bool)) stri
 			out.WriteString(text[start:])
 			break
 		}
-		inner := text[start+5 : end-1]
-		if value, ok := replace(inner); ok {
+		if value, ok := replace(text[start:end]); ok {
 			out.WriteString(value)
 		} else {
 			out.WriteString(text[start:end])
@@ -416,7 +611,7 @@ func replaceCalcFunctions(text string, replace func(string) (string, bool)) stri
 }
 
 func evaluateComputedCalc(value string, basis float64) (float64, bool) {
-	v, ok := parseCSSMath(value, func(n float64, unit string) (cssMathValue, bool) {
+	v, ok := parseCSSMathFunction(value, func(n float64, unit string) (cssMathValue, bool) {
 		switch unit {
 		case "px":
 			return cssMathValue{px: n}, true
@@ -435,7 +630,7 @@ func validCalcDeclaration(property, value string) bool {
 	if !calcLengthProperty(property) {
 		return true
 	}
-	if !strings.Contains(strings.ToLower(value), "calc(") {
+	if !containsMathFunction(value) {
 		return true
 	}
 	// The box shorthands accept one to four whitespace-separated components.
@@ -447,7 +642,7 @@ func validCalcDeclaration(property, value string) bool {
 			return false
 		}
 		for _, part := range parts {
-			if strings.Contains(strings.ToLower(part), "calc(") {
+			if containsMathFunction(part) {
 				if !validSingleCalc(property, part) {
 					return false
 				}
@@ -471,17 +666,16 @@ func validCalcDeclaration(property, value string) bool {
 
 func validSingleCalc(property, value string) bool {
 	value = strings.TrimSpace(value)
-	if !strings.HasPrefix(strings.ToLower(value), "calc(") {
+	if !startsWithMathFunction(value) {
 		return false
 	}
-	v, ok := parseCSSMath(value, func(n float64, unit string) (cssMathValue, bool) {
+	// Percentages are type-checked as lengths (1% as 1px) so comparisons
+	// such as min(50%, 300px) validate without a layout basis.
+	v, ok := parseCSSMathFunction(value, func(n float64, unit string) (cssMathValue, bool) {
 		switch unit {
 		case "%", "px", "em", "rem", "ex", "ch", "vw", "vh":
-			if unit == "%" {
-				if !calcPercentAllowed(property) {
-					return cssMathValue{}, false
-				}
-				return cssMathValue{percent: n / 100}, true
+			if unit == "%" && !calcPercentAllowed(property) {
+				return cssMathValue{}, false
 			}
 			return cssMathValue{px: n}, true
 		}
@@ -541,7 +735,7 @@ func splitCSSComponents(value string) ([]string, bool) {
 // computedCalcHasPercentage reports whether a normalized calc expression
 // still depends on its percentage basis.
 func computedCalcHasPercentage(value string) bool {
-	v, ok := parseCSSMath(value, func(n float64, unit string) (cssMathValue, bool) {
+	v, ok := parseCSSMathFunction(value, func(n float64, unit string) (cssMathValue, bool) {
 		switch unit {
 		case "%":
 			return cssMathValue{percent: n / 100}, true
@@ -550,5 +744,11 @@ func computedCalcHasPercentage(value string) bool {
 		}
 		return cssMathValue{}, false
 	})
-	return ok && v.percent != 0
+	if ok {
+		return v.percent != 0
+	}
+	// Mixed percentage/pixel comparisons only parse once percentages have a
+	// basis; any such expression depends on its percentage basis.
+	_, ok = parseCSSLengthMathShape(value)
+	return ok && strings.Contains(value, "%")
 }

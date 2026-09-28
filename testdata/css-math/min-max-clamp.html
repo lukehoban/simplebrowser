@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<!-- CSS min()/max()/clamp() in ordinary length declarations (#281).
+     Inside the 400px light-gray frame the bars must be:
+       green  250px  width: min(250px, 300px)          (issue repro)
+       blue   200px  width: min(50%, 300px)            (percentage, resolved at layout)
+       orange 150px  width: max(10%, 150px)
+       purple 200px  width: clamp(100px, 50%, 300px)
+       teal   300px  width: clamp(10px, 90%, 300px)    (clamped to MAX)
+       navy   190px  width: calc(min(50%, 300px) - 10px) (nested)
+       maroon 220px  width: min(var(--w), 60%)          (custom property)
+     Without math-function support every bar falls back to the full 400px. -->
+<style>
+  .wrap { width: 400px; background: #ddd; padding: 1px 0; }
+  .wrap div { height: 22px; margin: 6px 0; }
+  .a { width: min(250px, 300px); background: green; }
+  .b { width: min(50%, 300px); background: blue; }
+  .c { width: max(10%, 150px); background: orange; }
+  .d { width: clamp(100px, 50%, 300px); background: purple; }
+  .e { width: clamp(10px, 90%, 300px); background: teal; }
+  .f { width: calc(min(50%, 300px) - 10px); background: navy; }
+  .g { --w: 220px; width: min(var(--w), 60%); background: maroon; }
+</style>
+<body style="margin:8px">
+<div class="wrap">
+  <div class="a"></div><div class="b"></div><div class="c"></div><div class="d"></div>
+  <div class="e"></div><div class="f"></div><div class="g"></div>
+</div>
+</body>
