@@ -90,6 +90,7 @@ type tableGrid struct {
 	columns                     int
 	columnBorders               []*collapsedTableBorder
 	rowBorders                  []*collapsedTableBorder
+	outerBorders                [4]*collapsedTableBorder
 	hspacing                    int    // horizontal border-spacing between/around columns
 	vspacing                    int    // vertical border-spacing between/around rows
 	collapse                    bool   // border-collapse: collapse
@@ -615,6 +616,7 @@ func (g *tableGrid) resolveSingleRowCellBorders() {
 	if !g.collapse || len(g.rows) != 1 || g.columns < 2 {
 		return
 	}
+
 	row := g.rows[0]
 	if len(row.cells) != g.columns {
 		return
@@ -661,26 +663,104 @@ func borderOriginRank(node *StyledNode) int {
 	}
 }
 
+// resolveOuterBorders resolves the four table perimeter edges against the
+// cells which touch them. The collapsed border is a single edge: its width is
+// split between the table and the touching cells rather than painting the
+// table border beside a complete cell border. This is intentionally bounded
+// to one winner per side; segmented perimeter winners are tracked separately.
+func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
+	if !g.collapse || len(g.rows) == 0 || g.columns == 0 {
+		return
+	}
+	edges := []string{"top", "right", "bottom", "left"}
+	for i, side := range edges {
+		// With no table border there is no table-side candidate to resolve
+		// against. Preserve the existing cell outer-edge behavior (including
+		// its intrinsic geometry) in that case.
+		if borderWidth(table.Style, side) == 0 {
+			continue
+		}
+		candidates := []collapsedTableBorder{{
+			node: table, side: side, width: borderWidth(table.Style, side),
+		}}
+		rowStart, rowEnd := 0, len(g.rows)
+		if side == "top" {
+			rowEnd = 1
+		} else if side == "bottom" {
+			rowStart = len(g.rows) - 1
+		}
+		for rowIndex := rowStart; rowIndex < rowEnd; rowIndex++ {
+			for _, cell := range g.rows[rowIndex].cells {
+				touches := (side == "top" && cell.row == 0) ||
+					(side == "bottom" && cell.row+cell.rowspan == len(g.rows)) ||
+					(side == "left" && cell.col == 0) ||
+					(side == "right" && cell.col+cell.colspan == g.columns)
+				if touches {
+					candidates = append(candidates, collapsedTableBorder{
+						node: cell.node, side: side, width: borderWidth(cell.node.Style, side),
+					})
+				}
+			}
+		}
+		var winner *collapsedTableBorder
+		for j := range candidates {
+			candidate := &candidates[j]
+			if candidate.width == 0 {
+				continue
+			}
+			if winner == nil || candidate.width > winner.width ||
+				(candidate.width == winner.width &&
+					borderOriginRank(candidate.node) > borderOriginRank(winner.node)) {
+				winner = candidate
+			}
+		}
+		if winner != nil {
+			copy := *winner
+			g.outerBorders[i] = &copy
+		}
+	}
+}
+
 func (g *tableGrid) collapsedCellBorderWidths(cell *tableCellBox, border [4]int) [4]int {
-	if !g.collapse || cell.colspan != 1 || cell.rowspan != 1 {
+	if !g.collapse {
 		return border
 	}
-	if cell.row == 0 && cell.row < len(g.rows) && g.rows[cell.row].cells != nil &&
-		g.columnBorders != nil {
-		if cell.col > 0 && cell.col < len(g.columnBorders) && g.columnBorders[cell.col] != nil {
-			border[3] = 0
+	if cell.colspan == 1 && cell.rowspan == 1 {
+		if cell.row == 0 && cell.row < len(g.rows) && g.rows[cell.row].cells != nil &&
+			g.columnBorders != nil {
+			if cell.col > 0 && cell.col < len(g.columnBorders) && g.columnBorders[cell.col] != nil {
+				border[3] = 0
+			}
+			if cell.col+1 < len(g.columnBorders) && g.columnBorders[cell.col+1] != nil {
+				border[1] = g.columnBorders[cell.col+1].width
+			}
 		}
-		if cell.col+1 < len(g.columnBorders) && g.columnBorders[cell.col+1] != nil {
-			border[1] = g.columnBorders[cell.col+1].width
+		if g.columns == 1 {
+			if cell.row > 0 && cell.row < len(g.rowBorders) && g.rowBorders[cell.row] != nil {
+				border[0] = 0
+			}
+			if cell.row+1 < len(g.rows) && cell.row+1 < len(g.rowBorders) &&
+				g.rowBorders[cell.row+1] != nil {
+				border[2] = 0
+			}
 		}
 	}
-	if g.columns == 1 {
-		if cell.row > 0 && cell.row < len(g.rowBorders) && g.rowBorders[cell.row] != nil {
-			border[0] = 0
+	if g.collapse && len(g.rows) > 0 {
+		sides := []struct {
+			index int
+			edge  *collapsedTableBorder
+			touch bool
+		}{
+			{0, g.outerBorders[0], cell.row == 0},
+			{1, g.outerBorders[1], cell.col+cell.colspan == g.columns},
+			{2, g.outerBorders[2], cell.row+cell.rowspan == len(g.rows)},
+			{3, g.outerBorders[3], cell.col == 0},
 		}
-		if cell.row+1 < len(g.rows) && cell.row+1 < len(g.rowBorders) &&
-			g.rowBorders[cell.row+1] != nil {
-			border[2] = 0
+		for _, side := range sides {
+			if side.touch && side.edge != nil {
+				// The cell owns the inward half of the shared edge.
+				border[side.index] = side.edge.width / 2
+			}
 		}
 	}
 	return border
@@ -1176,6 +1256,14 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	grid := buildTableGrid(n)
 	grid.resolveSingleColumnRowBorders()
 	grid.resolveSingleRowCellBorders()
+	grid.resolveOuterBorders(n)
+	// Keep the table's outer half of a collapsed perimeter edge in its
+	// border box. The other half is included in the touching cell below.
+	for i, edge := range grid.outerBorders {
+		if edge != nil {
+			border[i] = edge.width - edge.width/2
+		}
+	}
 	grid.measureCells(faces)
 	sizes := grid.columnSizes()
 
@@ -1417,6 +1505,31 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 				cell.box.Content.Max.X, offsetY+max(0, cell.box.Content.Dy()))
 			paintBorders := grid.collapsedCellPaintBorderWidths(cell, cellBorder)
 			cell.box.BorderWidths = &paintBorders
+			if grid.collapse {
+				colors := [4]color.RGBA{
+					borderColor(cell.node.Style, "top"),
+					borderColor(cell.node.Style, "right"),
+					borderColor(cell.node.Style, "bottom"),
+					borderColor(cell.node.Style, "left"),
+				}
+				hasColors := false
+				for side, edge := range grid.outerBorders {
+					if edge == nil {
+						continue
+					}
+					touches := (side == 0 && cell.row == 0) ||
+						(side == 1 && cell.col+cell.colspan == grid.columns) ||
+						(side == 2 && cell.row+cell.rowspan == len(grid.rows)) ||
+						(side == 3 && cell.col == 0)
+					if touches {
+						colors[side] = borderColor(edge.node.Style, edge.side)
+						hasColors = true
+					}
+				}
+				if hasColors {
+					cell.box.BorderColors = &colors
+				}
+			}
 			rowBox.Children = append(rowBox.Children, cell.box)
 		}
 		rowBox.Rect = image.Rect(originX+grid.hspacing, row.y,
@@ -1537,6 +1650,26 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	children := append(topCaptions, rowBoxes...)
 	children = append(children, bottomCaptions...)
 	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: children}
+	if grid.collapse {
+		widths := border
+		box.BorderWidths = &widths
+		colors := [4]color.RGBA{
+			borderColor(n.Style, "top"),
+			borderColor(n.Style, "right"),
+			borderColor(n.Style, "bottom"),
+			borderColor(n.Style, "left"),
+		}
+		hasColors := false
+		for side, edge := range grid.outerBorders {
+			if edge != nil {
+				colors[side] = borderColor(edge.node.Style, edge.side)
+				hasColors = true
+			}
+		}
+		if hasColors {
+			box.BorderColors = &colors
+		}
+	}
 	return box, end - y + margin[2]
 }
 
