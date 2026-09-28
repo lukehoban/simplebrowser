@@ -805,6 +805,32 @@ func TestTableCollapsedAdjacentCellsMatchReference(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedRowSpanSegmentsMatchReference(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	viewport := image.Rect(0, 0, 220, 90)
+	got := painted(t, read("collapsed-row-span-segments.html"), viewport)
+	want := painted(t, read("collapsed-row-span-segments-ref.html"), viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("colspan shared border differs from explicit segment reference at %d pixels", differing)
+	}
+	pixel(t, got, 50, 42, color.RGBA{255, 0, 0, 255})
+	pixel(t, got, 150, 41, color.RGBA{0, 128, 0, 255})
+	pixel(t, got, 150, 44, color.RGBA{255, 255, 255, 255})
+}
+
 func TestCollapsedBorderConflictPrecedence(t *testing.T) {
 	node := func(name, border string) *StyledNode {
 		return &StyledNode{
