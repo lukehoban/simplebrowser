@@ -8,13 +8,17 @@
       width: 150px;
       padding: 8px;
       border: 1px solid #d1d9e0;
+      margin-bottom: 8px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
+    .narrow { width: 4px; padding: 0 }
   </style>
 </head>
 <body>
+  <div class="label">short-name.txt</div>
   <div class="label">this-is-a-deliberately-very-long-file-name-that-must-be-truncated.txt</div>
+  <div class="label narrow">too-narrow</div>
 </body>
 </html>
