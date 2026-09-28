@@ -14,8 +14,8 @@
     "error": 0
   },
   "diagnostic_local": {
-    "total": 6,
-    "pass": 5,
+    "total": 7,
+    "pass": 6,
     "fail": 1,
     "error": 0
   },
@@ -111,8 +111,8 @@
     {
       "suite": "Local",
       "area": "Tables",
-      "total": 3,
-      "pass": 2,
+      "total": 4,
+      "pass": 3,
       "fail": 1,
       "error": 0
     }
@@ -658,8 +658,20 @@
       "suite": "Local",
       "area": "Tables",
       "diagnostic": true,
-      "not_covered": "Row/table borders, style precedence, spans, and multi-row conflicts.",
+      "not_covered": "Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318).",
       "issue": "#66",
+      "status": "pass",
+      "different_pixels": 0
+    },
+    {
+      "test": "collapsed-border-precedence.html",
+      "reference": "collapsed-border-precedence-ref.html",
+      "relation": "match",
+      "suite": "Local",
+      "area": "Tables",
+      "diagnostic": true,
+      "not_covered": "Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318).",
+      "issue": "#396",
       "status": "pass",
       "different_pixels": 0
     },
@@ -670,7 +682,7 @@
       "suite": "Local",
       "area": "Tables",
       "diagnostic": true,
-      "not_covered": "Multi-row segmentation, table edges, row groups, border styles, and spanning cells.",
+      "not_covered": "Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318).",
       "issue": "#66",
       "status": "pass",
       "different_pixels": 0

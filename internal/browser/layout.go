@@ -49,6 +49,9 @@ type Box struct {
 	BorderWidths *[4]int // top, right, bottom, left
 	// BorderColors overrides colors on paint-only collapsed-border fragments.
 	BorderColors *[4]color.RGBA
+	// BorderStyles preserves the winning styles on collapsed-table borders
+	// whose paint box belongs to a different table part.
+	BorderStyles *[4]string
 	// BorderOnly marks a paint-only fragment of another box's collapsed
 	// border: it paints no background and has no content of its own.
 	BorderOnly bool

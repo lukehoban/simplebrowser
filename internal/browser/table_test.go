@@ -714,6 +714,42 @@ func TestTableCollapsedOuterEdgesResolveAgainstCells(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedOuterEdgesResolveAgainstAllTableParts(t *testing.T) {
+	tests := []struct {
+		name   string
+		markup string
+		want   color.RGBA
+	}{
+		{
+			name: "row border wins when the table border is none",
+			markup: `<body style="margin:0"><table style="border-collapse:collapse;width:40px">` +
+				`<tr style="border-left:4px solid blue"><td style="padding:0;border-left:1px solid red;height:20px"></td></tr>` +
+				`</table></body>`,
+			want: color.RGBA{0, 0, 255, 255},
+		},
+		{
+			name: "computed table-cell role outranks the table",
+			markup: `<body style="margin:0"><table style="border-collapse:collapse;border-left:4px solid red;width:40px">` +
+				`<tr><div style="display:table-cell;padding:0;border-left:4px solid blue;height:20px"></div></tr>` +
+				`</table></body>`,
+			want: color.RGBA{0, 0, 255, 255},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			img := painted(t, tc.markup, image.Rect(0, 0, 80, 40))
+			for y := 5; y < 15; y++ {
+				for x := 0; x < 4; x++ {
+					if got := img.At(x, y); got != tc.want {
+						t.Fatalf("pixel (%d,%d) = %v, want %v", x, y, got, tc.want)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestTableCollapsedRowCellBorderConflictWithTransparentCells(t *testing.T) {
 	read := func(name string) string {
 		t.Helper()
@@ -766,6 +802,143 @@ func TestTableCollapsedAdjacentCellsMatchReference(t *testing.T) {
 			}
 		}
 		t.Fatalf("two-cell shared border differs from explicit reference at %d pixels", differing)
+	}
+}
+
+func TestCollapsedBorderConflictPrecedence(t *testing.T) {
+	node := func(name, border string) *StyledNode {
+		return &StyledNode{
+			Node:  &Node{Type: ElementNode, Name: name},
+			Style: ComputedStyle{"border-right": border},
+		}
+	}
+	candidate := func(name, border string) collapsedTableBorder {
+		return tableBorderCandidate(node(name, border), "right")
+	}
+
+	tests := []struct {
+		name       string
+		candidates []collapsedTableBorder
+		wantStyle  string
+		wantNode   string
+		wantWidth  int
+	}{
+		{
+			name: "hidden suppresses wider visible border",
+			candidates: []collapsedTableBorder{
+				candidate("td", "20px solid red"),
+				candidate("table", "1px hidden blue"),
+			},
+			wantStyle: "hidden", wantNode: "table", wantWidth: 0,
+		},
+		{
+			name: "none loses to visible border",
+			candidates: []collapsedTableBorder{
+				candidate("td", "20px none red"),
+				candidate("table", "1px dotted blue"),
+			},
+			wantStyle: "dotted", wantNode: "table", wantWidth: 1,
+		},
+		{
+			name: "width precedes style",
+			candidates: []collapsedTableBorder{
+				candidate("td", "2px double red"),
+				candidate("table", "3px dotted blue"),
+			},
+			wantStyle: "dotted", wantNode: "table", wantWidth: 3,
+		},
+		{
+			name: "style breaks equal width",
+			candidates: []collapsedTableBorder{
+				candidate("td", "4px solid red"),
+				candidate("table", "4px double blue"),
+			},
+			wantStyle: "double", wantNode: "table", wantWidth: 4,
+		},
+		{
+			name: "origin breaks equal width and style",
+			candidates: []collapsedTableBorder{
+				candidate("table", "4px solid red"),
+				candidate("colgroup", "4px solid red"),
+				candidate("col", "4px solid red"),
+				candidate("tbody", "4px solid red"),
+				candidate("tr", "4px solid red"),
+				candidate("td", "4px solid blue"),
+			},
+			wantStyle: "solid", wantNode: "td", wantWidth: 4,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			winner := resolveCollapsedBorder(tc.candidates...)
+			if winner == nil || winner.style != tc.wantStyle || winner.width != tc.wantWidth ||
+				nodeName(winner.node) != tc.wantNode {
+				t.Fatalf("winner = %#v, want %s %s %dpx", winner, tc.wantNode, tc.wantStyle, tc.wantWidth)
+			}
+		})
+	}
+}
+
+func TestTableCollapsedHiddenBorderSuppressesSharedEdge(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
+		`<tr><td style="padding:0;width:40px;height:20px;border-right:10px solid red"></td>`+
+		`<td style="padding:0;width:40px;height:20px;border-left:1px hidden blue"></td></tr></table></body>`)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cells := collectBoxes(layout.Root, "td")
+	if len(cells) != 2 {
+		t.Fatalf("cells = %d, want 2", len(cells))
+	}
+	if cells[0].Rect.Max.X != cells[1].Rect.Min.X {
+		t.Fatalf("hidden winner left a shared gap between %v and %v", cells[0].Rect, cells[1].Rect)
+	}
+}
+
+func TestTableCollapsedOriginTiesUseTablePartPrecedence(t *testing.T) {
+	t.Run("row beats row group", func(t *testing.T) {
+		img := painted(t, `<body style="margin:0"><table style="border-collapse:collapse;width:40px">`+
+			`<tbody style="border-bottom:4px solid red"><tr><td style="padding:0;height:10px;font-size:0"></td></tr></tbody>`+
+			`<tbody><tr style="border-top:4px solid blue"><td style="padding:0;height:10px;font-size:0"></td></tr></tbody>`+
+			`</table></body>`, image.Rect(0, 0, 50, 30))
+		for y := 10; y < 14; y++ {
+			pixel(t, img, 10, y, color.RGBA{0, 0, 255, 255})
+		}
+	})
+
+	t.Run("cell beats column", func(t *testing.T) {
+		img := painted(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
+			`<colgroup><col style="border-right:4px solid red"><col></colgroup>`+
+			`<tr><td style="padding:0;width:20px;height:20px;border-right:4px solid blue"></td>`+
+			`<td style="padding:0;width:20px;height:20px"></td></tr></table></body>`,
+			image.Rect(0, 0, 60, 30))
+		for x := 20; x < 24; x++ {
+			pixel(t, img, x, 10, color.RGBA{0, 0, 255, 255})
+		}
+	})
+}
+
+func TestTableCollapsedBorderPrecedenceMatchesReference(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	viewport := image.Rect(0, 0, 800, 600)
+	got := painted(t, read("collapsed-border-precedence.html"), viewport)
+	want := painted(t, read("collapsed-border-precedence-ref.html"), viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("collapsed precedence render differs from explicit reference at %d pixels", differing)
 	}
 }
 
