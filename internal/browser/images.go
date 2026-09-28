@@ -244,14 +244,40 @@ func decodeImage(data []byte) image.Image {
 
 // imageDimensions returns the used dimensions of an img replaced element.
 // Computed width/height include HTML presentational hints from the cascade.
-func imageDimensions(n *StyledNode, decoded image.Image, basis int) (int, int) {
-	intrinsicW, intrinsicH := 16, 16
+// intrinsicImageSize reports a decoded image's natural size, or the 16x16
+// placeholder used for missing and undecodable images.
+func intrinsicImageSize(decoded image.Image) (int, int) {
 	if decoded != nil {
 		bounds := decoded.Bounds()
 		if bounds.Dx() > 0 && bounds.Dy() > 0 {
-			intrinsicW, intrinsicH = bounds.Dx(), bounds.Dy()
+			return bounds.Dx(), bounds.Dy()
 		}
 	}
+	return 16, 16
+}
+
+// replacedBlockDimensions sizes a block-level replaced element like
+// imageDimensions, then applies min-height and max-height (CSS 2.1 §10.7)
+// with percentages resolved against the containing block height (basis,
+// when definite). When width is auto, it follows the clamped height through
+// the intrinsic ratio (§10.3.2 and the §10.4 constraint table without
+// min/max-width, which #309 tracks).
+func replacedBlockDimensions(n *StyledNode, decoded image.Image, width, basis int, definite bool) (int, int) {
+	w, h := imageDimensions(n, decoded, width)
+	minimum, maximum, hasMax := heightConstraints(n, basis, definite)
+	clamped := min(max(0, clampHeight(h, minimum, maximum, hasMax)), 1<<20)
+	if clamped == h {
+		return w, h
+	}
+	if v := strings.TrimSpace(n.Style["width"]); v == "" || strings.EqualFold(v, "auto") {
+		intrinsicW, intrinsicH := intrinsicImageSize(decoded)
+		w = min(int(math.Round(float64(clamped)*float64(intrinsicW)/float64(intrinsicH))), 1<<20)
+	}
+	return w, clamped
+}
+
+func imageDimensions(n *StyledNode, decoded image.Image, basis int) (int, int) {
+	intrinsicW, intrinsicH := intrinsicImageSize(decoded)
 	widthValue, heightValue := "", ""
 	if n != nil && n.Style != nil {
 		widthValue, heightValue = strings.TrimSpace(n.Style["width"]), strings.TrimSpace(n.Style["height"])

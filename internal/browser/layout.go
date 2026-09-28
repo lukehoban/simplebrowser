@@ -1220,7 +1220,7 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 		case flowReplaced:
 			// Positive margins are applied inside; offset so the border box
 			// starts at top.
-			b, _ = layoutReplacedBlock(child, childX, top-boxEdges(child, "margin", float64(width))[0], childWidth, faces)
+			b, _ = layoutReplacedBlock(child, childX, top-boxEdges(child, "margin", float64(width))[0], childWidth, faces, &cb)
 			bottom = bottom.add(verticalMargin(child, "bottom", width))
 		case flowTable:
 			margin := boxEdges(child, "margin", float64(width))
@@ -1487,13 +1487,21 @@ func translatePositionedBox(box *Box, dx, dy int) *Box {
 
 // layoutReplacedBlock lays out a block-level img, honouring margins, borders
 // and padding while sizing the replaced content from intrinsic or CSS
-// dimensions.
-func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet) (*Box, int) {
+// dimensions. When cb is non-nil (normal flow), min-height and max-height
+// also apply, with percentages against cb's height basis. Flex items pass
+// nil because flex measurement does not yet apply them (#447).
+func layoutReplacedBlock(n *StyledNode, x, y, width int, faces *faceSet, cb *containingBlock) (*Box, int) {
 	margin := boxEdges(n, "margin", float64(width))
 	padding := boxEdges(n, "padding", float64(width))
 	border := boxEdges(n, "border-width", float64(width))
 	picture := faces.images[n.Node]
-	contentWidth, contentHeight := imageDimensions(n, picture, width)
+	var contentWidth, contentHeight int
+	if cb != nil {
+		basis, definite := percentageHeightBasis(n, *cb)
+		contentWidth, contentHeight = replacedBlockDimensions(n, picture, width, basis, definite)
+	} else {
+		contentWidth, contentHeight = imageDimensions(n, picture, width)
+	}
 	contentX := x + margin[3] + border[3] + padding[3]
 	contentY := y + margin[0] + border[0] + padding[0]
 	content := image.Rect(contentX, contentY, contentX+contentWidth, contentY+contentHeight)

@@ -117,3 +117,63 @@ func TestPaintMinMaxHeightBackgrounds(t *testing.T) {
 	pixel(t, img, 50, 59, red)
 	pixel(t, img, 50, 60, white)
 }
+
+// A 40x20 SVG data URL gives replaced elements a non-square intrinsic ratio.
+const wideTestImage = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='20'><rect width='40' height='20' fill='%23008000'/></svg>`
+
+// Review finding on #444: blockified replaced elements are laid out by
+// layoutReplacedBlock and must honour min-height/max-height too.
+func TestMinMaxHeightBlockReplaced(t *testing.T) {
+	img := func(id, style string) string {
+		return `<img id="` + id + `" src="` + wideTestImage + `" style="display:block;` + style + `">`
+	}
+	boxes := percentHeightLayout(t, `<body style="margin:0">`+
+		img("placeholder", "min-height:100px")+
+		img("grow", "min-height:50px")+
+		img("cap", "max-height:10px")+
+		img("fixed-width", "width:80px;max-height:30px")+
+		img("both", "width:30px;height:30px;min-height:45px")+
+		img("height-clamped", "height:60px;max-height:25px;padding:2px")+
+		img("conflict", "min-height:40px;max-height:10px")+
+		img("none", "max-height:none")+
+		`<div style="height:200px">`+img("pct", "min-height:25%")+`</div>`+
+		`<div>`+img("pct-indefinite", "min-height:50%;max-height:1%")+`</div>`+
+		`<div id="after" style="height:1px"></div></body>`,
+		"placeholder", "grow", "cap", "fixed-width", "both", "height-clamped", "conflict", "none", "pct", "pct-indefinite", "after")
+	want := map[string]image.Point{
+		"placeholder":    {200, 100}, // 40x20 image, width follows the ratio
+		"grow":           {100, 50},
+		"cap":            {20, 10},
+		"fixed-width":    {80, 30}, // explicit width keeps; only height clamps
+		"both":           {30, 45},
+		"height-clamped": {50, 25},
+		"conflict":       {80, 40}, // min-height wins
+		"none":           {40, 20},
+		"pct":            {100, 50},
+		"pct-indefinite": {40, 20}, // indefinite basis: min 0, max none
+	}
+	for id, size := range want {
+		if got := boxes[id].Content.Size(); got != size {
+			t.Errorf("#%s content size = %v, want %v", id, got, size)
+		}
+	}
+	if got, want := boxes["height-clamped"].Rect.Dy(), 29; got != want {
+		t.Errorf("height-clamped border-box height = %d, want %d (content-box)", got, want)
+	}
+	// Following flow starts below the clamped replaced boxes.
+	if got, want := boxes["after"].Rect.Min.Y, boxes["pct-indefinite"].Rect.Max.Y; got != want {
+		t.Errorf("after top = %d, want %d", got, want)
+	}
+}
+
+func TestPaintMinHeightBlockReplaced(t *testing.T) {
+	img := painted(t, `<body style="margin:0"><img src="`+wideTestImage+`" style="display:block;min-height:50px">
+<div style="height:10px;background:blue"></div></body>`, image.Rect(0, 0, 150, 100))
+	green := color.RGBA{0, 128, 0, 255}
+	blue := color.RGBA{0, 0, 255, 255}
+	white := color.RGBA{255, 255, 255, 255}
+	pixel(t, img, 5, 5, green)
+	pixel(t, img, 95, 45, green)
+	pixel(t, img, 105, 25, white)
+	pixel(t, img, 50, 55, blue)
+}

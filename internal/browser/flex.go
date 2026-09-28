@@ -628,7 +628,7 @@ func flexBasisIsLength(style ComputedStyle) bool {
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
 	if isReplacedHTMLImage(n.Node) {
-		box, _ := layoutReplacedBlock(n, x, y, width, faces)
+		box, _ := layoutReplacedBlock(n, x, y, width, faces, nil)
 		return box
 	}
 	box, _ := layoutBlock(asFlexItem(n), x, y, width, faces, cb)
