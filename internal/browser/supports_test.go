@@ -62,7 +62,7 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(gap: 8px 12px)", true},
 		{"(justify-content: space-between)", true},
 		{"(align-items: center)", true},
-		{"(width: round(1.5px, 1px))", false},
+		{"(width: round(1.5px, 1px))", true},
 		{"(width: calc(1px + 1px))", true},
 		{"(width: calc(1px + 2))", false},
 		{"(float: left)", true},

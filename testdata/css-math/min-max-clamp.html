@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- CSS min()/max()/clamp() in ordinary length declarations (#281).
+<!-- CSS math functions in ordinary length declarations (#281, #445).
      Inside the 400px light-gray frame the bars must be:
        green  250px  width: min(250px, 300px)          (issue repro)
        blue   200px  width: min(50%, 300px)            (percentage, resolved at layout)
@@ -8,6 +8,10 @@
        teal   300px  width: clamp(10px, 90%, 300px)    (clamped to MAX)
        navy   190px  width: calc(min(50%, 300px) - 10px) (nested)
        maroon 220px  width: min(var(--w), 60%)          (custom property)
+       lime   260px  width: round(nearest, 257px, 10px)
+       gold   120px  width: abs(-120px)
+       coral  300px  width: clamp(none, 90%, 300px)
+       red    100px  width: calc(sign(-50%) * -100px)
      Without math-function support every bar falls back to the full 400px. -->
 <style>
   .wrap { width: 400px; background: #ddd; padding: 1px 0; }
@@ -19,10 +23,15 @@
   .e { width: clamp(10px, 90%, 300px); background: teal; }
   .f { width: calc(min(50%, 300px) - 10px); background: navy; }
   .g { --w: 220px; width: min(var(--w), 60%); background: maroon; }
+  .h { width: round(nearest, 257px, 10px); background: lime; }
+  .i { width: abs(-120px); background: gold; }
+  .j { width: clamp(none, 90%, 300px); background: coral; }
+  .k { width: calc(sign(-50%) * -100px); background: red; }
 </style>
 <body style="margin:8px">
 <div class="wrap">
   <div class="a"></div><div class="b"></div><div class="c"></div><div class="d"></div>
   <div class="e"></div><div class="f"></div><div class="g"></div>
+  <div class="h"></div><div class="i"></div><div class="j"></div><div class="k"></div>
 </div>
 </body>
