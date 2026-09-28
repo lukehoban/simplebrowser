@@ -1506,6 +1506,36 @@ func TestSVGEvenOddExactMaskEdgeBudget(t *testing.T) {
 	}
 }
 
+func TestSVGEvenOddExactMaskDensePath(t *testing.T) {
+	// This exceeds the former 512-edge limit while remaining a set of
+	// non-crossing zigzags, so exact area coverage is both useful and bounded.
+	points := make([]svgPoint, 514)
+	for i := range points {
+		points[i] = svgPoint{float64(i) * 20 / 513, 0}
+		if i%2 == 1 {
+			points[i].y = 20
+		}
+	}
+	mask, ok := svgEvenOddExactMask([]svgSubpath{{points: points}}, 20, 20)
+	if !ok || mask == nil {
+		t.Fatal("dense non-crossing path should use exact rasterization")
+	}
+	for _, tc := range []struct {
+		x, y int
+		want uint8
+	}{
+		{0, 0, 125},
+		{10, 0, 6},
+		{10, 10, 128},
+		{0, 19, 6},
+		{19, 19, 125},
+	} {
+		if got := mask.AlphaAt(tc.x, tc.y).A; got != tc.want {
+			t.Errorf("dense path alpha at (%d, %d) = %d, want %d", tc.x, tc.y, got, tc.want)
+		}
+	}
+}
+
 func TestSVGFillRuleExactCoverageKeepsHole(t *testing.T) {
 	const d = "M1.25 1.5L18.75 1.5L18.75 18.5L1.25 18.5Z M5 5L15 5L15 15L5 15Z"
 	_, evenodd := renderSVGFillRulePair(t, d)

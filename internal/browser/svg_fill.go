@@ -17,8 +17,11 @@ const svgFillSubSamples = 16
 // The exact even-odd rasterizer splits the path into y-monotone trapezoids.
 // These caps keep intersection discovery and per-pixel clipping bounded;
 // inputs beyond them retain the existing bounded scanline approximation.
+// The edge limit is deliberately above the common dense-path threshold: a
+// path can have many edges without having any interior crossings, and those
+// paths remain cheap in the slab sweep below.
 const (
-	maxSVGExactEdges       = 512
+	maxSVGExactEdges       = 4096
 	maxSVGExactEvents      = 16384
 	maxSVGExactIntersects  = 8192
 	maxSVGExactPixelChecks = 1 << 24
@@ -258,6 +261,12 @@ func svgEvenOddExactMask(paths []svgSubpath, w, h int) (*image.Alpha, bool) {
 		arx, ary := a.x1-a.x0, a.y1-a.y0
 		for j := i + 1; j < len(edges); j++ {
 			b := edges[j]
+			// Edges whose open y intervals do not overlap cannot cross.
+			// Avoiding those candidates is important for paths made from many
+			// short segments spread over the viewport.
+			if a.y1 <= b.y0 || b.y1 <= a.y0 {
+				continue
+			}
 			brx, bry := b.x1-b.x0, b.y1-b.y0
 			den := arx*bry - ary*brx
 			if den == 0 {
