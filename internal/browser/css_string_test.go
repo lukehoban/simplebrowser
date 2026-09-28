@@ -51,6 +51,7 @@ func TestCloseCSSStringAtEOF(t *testing.T) {
 		`p{content:"OK`:        `p{content:"OK"`,
 		`p{content:'OK`:        `p{content:'OK'`,
 		`p{content:"OK\`:       `p{content:"OK"`,
+		`p{content:"x\\`:       `p{content:"x\\"`,
 		`p{content:"x\"}`:      `p{content:"x\"}"`,
 		`p{content:"OK"}`:      `p{content:"OK"}`,
 		`p{content:"\\"}`:      `p{content:"\\"}`,

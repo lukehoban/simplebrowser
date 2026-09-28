@@ -226,7 +226,17 @@ func closeCSSStringAtEOF(s string) string {
 		case s[i] == '"' || s[i] == '\'':
 			end, _ := scanCSSString(s, i)
 			if end == len(s) && (end-i < 2 || s[end-1] != s[i] || escapedAt(s, i+1, end-1)) {
-				return strings.TrimSuffix(s, "\\") + string(s[i])
+				// A trailing backslash escapes nothing at EOF. Drop exactly
+				// one only when the final run is odd; an even run represents
+				// escaped backslash pairs and must remain intact.
+				backslashes := 0
+				for j := len(s) - 1; j > i && s[j] == '\\'; j-- {
+					backslashes++
+				}
+				if backslashes%2 == 1 {
+					s = s[:len(s)-1]
+				}
+				return s + string(s[i])
 			}
 			i = end
 		default:
