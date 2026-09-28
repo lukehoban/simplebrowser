@@ -606,6 +606,115 @@ func TestTableCollapsedRowGroupBordersPaintOnlyWinningEdge(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedRowCellBorderConflict(t *testing.T) {
+	repro := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
+		`<tr style="border-bottom:3px solid black"><td style="padding:0">a</td></tr>`+
+		`<tr><td style="padding:0;border-top:2px solid red">b</td></tr></table></body>`)
+	reproLayout, err := LayoutWithViewport(repro, image.Rect(0, 0, 80, 80))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reproCells := collectBoxes(reproLayout.Root, "td")
+	if len(reproCells) != 2 {
+		t.Fatalf("issue repro cells = %d, want 2", len(reproCells))
+	}
+	if got := reproCells[1].Rect.Min.Y - reproCells[0].Rect.Max.Y; got != 3 {
+		t.Fatalf("issue repro shared gap = %dpx, want winning 3px row border (%v, %v)",
+			got, reproCells[0].Rect, reproCells[1].Rect)
+	}
+
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	test, reference := read("collapsed-row-cell-border.html"), read("collapsed-row-cell-border-ref.html")
+	viewport := image.Rect(0, 0, 80, 50)
+
+	doc := styledForLayout(t, test)
+	layout, err := LayoutWithViewport(doc, viewport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cells := collectBoxes(layout.Root, "td")
+	if len(cells) != 2 {
+		t.Fatalf("cells = %d, want 2", len(cells))
+	}
+	if got := cells[1].Rect.Min.Y - cells[0].Rect.Max.Y; got != 3 {
+		t.Fatalf("shared border gap = %dpx, want winning row border width 3px (%v, %v)",
+			got, cells[0].Rect, cells[1].Rect)
+	}
+
+	got, want := painted(t, test, viewport), painted(t, reference, viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("render differs from explicit collapsed-edge reference at %d pixels", differing)
+	}
+}
+
+func TestTableCollapsedRowCellBorderConflictWithTransparentCells(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	test := read("collapsed-row-cell-transparent-border.html")
+	reference := read("collapsed-row-cell-transparent-border-ref.html")
+	viewport := image.Rect(0, 0, 80, 50)
+	got, want := painted(t, test, viewport), painted(t, reference, viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("transparent-cell collapsed edge differs from explicit reference at %d pixels", differing)
+	}
+	// The losing row border must not paint inside the upper cell. Only the
+	// resolved three-pixel edge is black.
+	for y := 17; y < 20; y++ {
+		pixel(t, got, 10, y, color.RGBA{255, 255, 255, 255})
+	}
+	for y := 20; y < 23; y++ {
+		pixel(t, got, 10, y, color.RGBA{0, 0, 0, 255})
+	}
+}
+
+func TestTableCollapsedAdjacentCellsMatchReference(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	viewport := image.Rect(0, 0, 800, 600)
+	got := painted(t, read("collapsed-border-conflict.html"), viewport)
+	want := painted(t, read("collapsed-border-conflict-ref.html"), viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("two-cell shared border differs from explicit reference at %d pixels", differing)
+	}
+}
+
 func TestTableCollapsedOuterCellTrailingBordersContributeToGeometry(t *testing.T) {
 	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
 		`<caption style="border:4px solid green">caption</caption>`+

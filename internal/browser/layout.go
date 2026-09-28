@@ -2,6 +2,7 @@ package browser
 
 import (
 	"image"
+	"image/color"
 	"math"
 	"strconv"
 	"strings"
@@ -46,6 +47,8 @@ type Box struct {
 	// BorderWidths overrides the widths from the node's computed style when
 	// table border collapsing allocates a shared edge to another box.
 	BorderWidths *[4]int // top, right, bottom, left
+	// BorderColors overrides colors on paint-only collapsed-border fragments.
+	BorderColors *[4]color.RGBA
 	// BorderOnly marks a paint-only fragment of another box's collapsed
 	// border: it paints no background and has no content of its own.
 	BorderOnly bool
@@ -477,7 +480,7 @@ func childFlowKind(child *StyledNode) flowKind {
 	if child.Node.Type == ElementNode && strings.EqualFold(child.Style["display"], "none") {
 		return flowSkip
 	}
-	if child.Node.Type == ElementNode && strings.EqualFold(child.Node.Name, "img") && displayBlock(child) {
+	if child.Node.Type == ElementNode && isReplacedHTMLImage(child.Node) && displayBlock(child) {
 		// A block-level replaced element still needs an image box, and it
 		// has no children to lay out.
 		return flowReplaced
@@ -500,10 +503,15 @@ func childFlowKind(child *StyledNode) flowKind {
 		// flattened into the inline flow.
 		return flowBlock
 	}
+
 	if child.Node.Type == TextNode || !displayBlock(child) {
 		return flowInline
 	}
 	return flowBlock
+}
+
+func isReplacedHTMLImage(n *Node) bool {
+	return n != nil && (strings.EqualFold(n.Name, "img") || strings.EqualFold(n.Name, "svg"))
 }
 
 // A block descendant of an inline element participates in the enclosing
@@ -582,7 +590,7 @@ func emptyInline(n *StyledNode) bool {
 		return true
 	}
 	switch strings.ToLower(n.Node.Name) {
-	case "img", "br":
+	case "img", "svg", "br":
 		return false
 	}
 	if isInlineTableNode(n) || isAtomicInline(n) {
@@ -602,7 +610,7 @@ func isAtomicInline(n *StyledNode) bool {
 	if n == nil || n.Node == nil || n.Node.Type != ElementNode {
 		return false
 	}
-	if strings.EqualFold(n.Node.Name, "img") || strings.EqualFold(n.Node.Name, "br") {
+	if strings.EqualFold(n.Node.Name, "img") || strings.EqualFold(n.Node.Name, "svg") || strings.EqualFold(n.Node.Name, "br") {
 		return false
 	}
 	display := strings.ToLower(strings.TrimSpace(n.Style["display"]))
@@ -639,7 +647,7 @@ func emptyAtomicContent(n *StyledNode) bool {
 		return false
 	}
 	switch strings.ToLower(n.Node.Name) {
-	case "img", "br":
+	case "img", "svg", "br":
 		return false
 	}
 	if isInlineTableNode(n) || isAtomicInline(n) {
@@ -1533,7 +1541,7 @@ func inlineParts(nodes []*StyledNode, context ComputedStyle, faces *faceSet, wid
 				parts = append(parts, inlineTablePart(n, width, faces))
 				return
 			}
-			if strings.EqualFold(n.Node.Name, "img") {
+			if isReplacedHTMLImage(n.Node) {
 				picture := faces.images[n.Node]
 				w, h := imageDimensions(n, picture, width)
 				parts = append(parts, inlinePart{node: n.Node, style: n.Style,

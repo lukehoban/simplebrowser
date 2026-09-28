@@ -213,6 +213,7 @@ var supportValidators = map[string]func(string) bool{
 	"visibility":            keywordValidator("visible", "hidden", "collapse"),
 	"text-align":            keywordValidator("left", "right", "center", "start", "end"),
 	"white-space":           keywordValidator("normal", "nowrap"),
+	"text-overflow":         keywordValidator("clip", "ellipsis"),
 	"vertical-align":        supportsOr(keywordValidator("baseline", "top", "bottom", "middle", "text-top", "text-bottom"), lengthOrPercentage),
 	"text-decoration":       keywordValidator("none", "underline", "line-through"),
 	"text-decoration-line":  keywordValidator("none", "underline", "line-through"),
