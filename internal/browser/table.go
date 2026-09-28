@@ -943,28 +943,44 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 		// Resolve each perimeter interval independently.  In particular, a
 		// cell spanning the first two columns must not make its border win
 		// over a different cell at the next perimeter interval.
+		//
+		// Index the cells touching this edge once, keyed by perimeter
+		// segment, so the per-segment work scales with the perimeter rather
+		// than rescanning every cell for every segment. Entries keep the
+		// row-major encounter order used for candidate precedence.
+		touching := g.perimeterCellsBySegment(i, count)
 		for segment := 0; segment < count; segment++ {
 			segmentCandidates := []collapsedTableBorder{tableCandidate}
-			for rowIndex, row := range g.rows {
-				for _, cell := range row.cells {
-					touches := (i == 0 && cell.row == 0 && cell.col <= segment && segment < cell.col+cell.colspan) ||
-						(i == 2 && cell.row+cell.rowspan == len(g.rows) && cell.col <= segment && segment < cell.col+cell.colspan) ||
-						(i == 3 && cell.col == 0 && cell.row <= segment && segment < cell.row+cell.rowspan) ||
-						(i == 1 && cell.col+cell.colspan == g.columns && cell.row <= segment && segment < cell.row+cell.rowspan)
-					if touches {
-						segmentCandidates = append(segmentCandidates, tableBorderCandidate(cell.node, side))
-					}
+			// The row (and row group) touching this segment contributes its
+			// candidates immediately after the cells of that row.
+			candidateRow := segment
+			if i == 0 {
+				candidateRow = 0
+			} else if i == 2 {
+				candidateRow = len(g.rows) - 1
+			}
+			rowAdded := false
+			addRow := func() {
+				rowAdded = true
+				if candidateRow < 0 || candidateRow >= len(g.rows) {
+					return
 				}
-				if rowIndex < len(g.rows) &&
-					((i == 0 && rowIndex == 0) || (i == 2 && rowIndex == len(g.rows)-1) ||
-						((i == 1 || i == 3) && rowIndex == segment)) {
-					if row.node != nil {
-						segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.node, side))
-					}
-					if row.group != nil {
-						segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.group.node, side))
-					}
+				row := g.rows[candidateRow]
+				if row.node != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.node, side))
 				}
+				if row.group != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.group.node, side))
+				}
+			}
+			for _, entry := range touching[segment] {
+				if !rowAdded && entry.rowIndex > candidateRow {
+					addRow()
+				}
+				segmentCandidates = append(segmentCandidates, tableBorderCandidate(entry.cell.node, side))
+			}
+			if !rowAdded {
+				addRow()
 			}
 			col := segment
 			if i == 3 {
@@ -993,6 +1009,44 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 			g.outerBorderSegments[i] = segments
 		}
 	}
+}
+
+// perimeterCell is a cell touching a table perimeter edge, with the index of
+// the row whose cell list contains it.
+type perimeterCell struct {
+	rowIndex int
+	cell     *tableCellBox
+}
+
+// perimeterCellsBySegment returns, for each segment of perimeter edge side
+// (0 top, 1 right, 2 bottom, 3 left), the cells touching that segment in
+// row-major order. Top/bottom segments are columns and left/right segments
+// are rows; spanning cells are listed under every segment they cover.
+func (g *tableGrid) perimeterCellsBySegment(side, count int) [][]perimeterCell {
+	index := make([][]perimeterCell, count)
+	for rowIndex, row := range g.rows {
+		for _, cell := range row.cells {
+			var touches bool
+			var first, span int
+			switch side {
+			case 0:
+				touches, first, span = cell.row == 0, cell.col, cell.colspan
+			case 2:
+				touches, first, span = cell.row+cell.rowspan == len(g.rows), cell.col, cell.colspan
+			case 3:
+				touches, first, span = cell.col == 0, cell.row, cell.rowspan
+			case 1:
+				touches, first, span = cell.col+cell.colspan == g.columns, cell.row, cell.rowspan
+			}
+			if !touches {
+				continue
+			}
+			for segment := max(first, 0); segment < first+span && segment < count; segment++ {
+				index[segment] = append(index[segment], perimeterCell{rowIndex, cell})
+			}
+		}
+	}
+	return index
 }
 
 func (g *tableGrid) outerBorderAt(side, segment int) *collapsedTableBorder {

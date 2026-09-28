@@ -2,6 +2,7 @@ package browser
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"os"
@@ -996,6 +997,216 @@ func TestCollapsedPerimeterLeftSegmentsUseLeftmostColumn(t *testing.T) {
 	}
 	if got := grid.outerBorderAt(3, 2); got == nil || got.width != 6 || got.node != rows[2].cells[0].node {
 		t.Fatalf("last left segment = %#v, want 6px left cell", got)
+	}
+}
+
+// referencePerimeterSegments is the original quadratic-per-segment
+// perimeter resolution, kept as an oracle for the indexed implementation.
+func referencePerimeterSegments(g *tableGrid, table *StyledNode, i int) []*collapsedTableBorder {
+	side := []string{"top", "right", "bottom", "left"}[i]
+	count := g.columns
+	if i == 1 || i == 3 {
+		count = len(g.rows)
+	}
+	tableCandidate := tableBorderCandidate(table, side)
+	segments := make([]*collapsedTableBorder, count)
+	for segment := 0; segment < count; segment++ {
+		segmentCandidates := []collapsedTableBorder{tableCandidate}
+		for rowIndex, row := range g.rows {
+			for _, cell := range row.cells {
+				touches := (i == 0 && cell.row == 0 && cell.col <= segment && segment < cell.col+cell.colspan) ||
+					(i == 2 && cell.row+cell.rowspan == len(g.rows) && cell.col <= segment && segment < cell.col+cell.colspan) ||
+					(i == 3 && cell.col == 0 && cell.row <= segment && segment < cell.row+cell.rowspan) ||
+					(i == 1 && cell.col+cell.colspan == g.columns && cell.row <= segment && segment < cell.row+cell.rowspan)
+				if touches {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(cell.node, side))
+				}
+			}
+			if (i == 0 && rowIndex == 0) || (i == 2 && rowIndex == len(g.rows)-1) ||
+				((i == 1 || i == 3) && rowIndex == segment) {
+				if row.node != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.node, side))
+				}
+				if row.group != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.group.node, side))
+				}
+			}
+		}
+		col := segment
+		if i == 3 {
+			col = 0
+		} else if i == 1 {
+			col = g.columns - 1
+		}
+		if col >= 0 && col < len(g.cols) {
+			segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.cols[col], side))
+			if col < len(g.colGroups) && g.colGroups[col] != nil {
+				segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.colGroups[col], side))
+			}
+		}
+		segments[segment] = resolveCollapsedBorder(segmentCandidates...)
+	}
+	return segments
+}
+
+// largeCollapsedPerimeterGrid builds an n×n collapsed grid with spanning
+// cells on every perimeter edge plus row, group and column candidates. It
+// returns the grid, the table node and the forced spanning perimeter cells.
+func largeCollapsedPerimeterGrid(n int) (*tableGrid, *StyledNode, map[string]*tableCellBox) {
+	styled := func(name string, style ComputedStyle) *StyledNode {
+		return &StyledNode{Node: &Node{Type: ElementNode, Name: name}, Style: style}
+	}
+	allSides := func(value string) ComputedStyle {
+		return ComputedStyle{"display": "table-cell",
+			"border-top": value, "border-right": value, "border-bottom": value, "border-left": value}
+	}
+	type spec struct {
+		name             string
+		colspan, rowspan int
+		border           string
+	}
+	forced := map[[2]int]spec{
+		{0, 0}:          {"corner", 2, 2, "3px solid black"},
+		{0, 10}:         {"top", 3, 1, "50px solid red"},
+		{0, n / 2}:      {"topHidden", 2, 1, "1px hidden black"},
+		{20, 0}:         {"left", 1, 3, "40px solid green"},
+		{40, n - 1}:     {"right", 1, 3, "45px double blue"},
+		{n - 1, n - 10}: {"bottom", 3, 1, "35px dashed purple"},
+	}
+	occupied := make([][]bool, n)
+	for r := range occupied {
+		occupied[r] = make([]bool, n)
+	}
+	group := &tableGroupBox{node: styled("tbody", ComputedStyle{"border-left": "2px dotted gray"})}
+	grid := &tableGrid{collapse: true, columns: n, rows: make([]*tableRowBox, n)}
+	named := make(map[string]*tableCellBox)
+	for r := 0; r < n; r++ {
+		row := &tableRowBox{group: group}
+		if r%5 == 0 {
+			row.node = styled("tr", ComputedStyle{"border-left": "8px dotted orange", "border-right": "8px dotted orange"})
+		}
+		grid.rows[r] = row
+		for c := 0; c < n; c++ {
+			if occupied[r][c] {
+				continue
+			}
+			sp, isForced := forced[[2]int{r, c}]
+			if !isForced {
+				sp = spec{colspan: 1, rowspan: 1, border: fmt.Sprintf("%dpx solid black", (r*3+c*5)%6)}
+				// Interior cells span, clipped away from the perimeter band.
+				if r >= 2 && r < n-2 && c >= 2 && c < n-2 {
+					sp.colspan = min(1+(r+c)%3, n-2-c)
+					sp.rowspan = min(1+(r*c)%3, n-2-r)
+				}
+			}
+			// Clip spans to unoccupied slots: first along the row, then
+			// down to the first row with any occupied slot in the span.
+			for dc := 1; dc < sp.colspan; dc++ {
+				if occupied[r][c+dc] {
+					sp.colspan = dc
+				}
+			}
+			for dr := 1; dr < sp.rowspan; dr++ {
+				for dc := 0; dc < sp.colspan; dc++ {
+					if occupied[r+dr][c+dc] {
+						sp.rowspan = dr
+					}
+				}
+			}
+			for dr := 0; dr < sp.rowspan; dr++ {
+				for dc := 0; dc < sp.colspan; dc++ {
+					occupied[r+dr][c+dc] = true
+				}
+			}
+			cell := &tableCellBox{node: styled("td", allSides(sp.border)), row: r, col: c,
+				colspan: sp.colspan, rowspan: sp.rowspan}
+			row.cells = append(row.cells, cell)
+			if isForced {
+				named[sp.name] = cell
+			}
+		}
+	}
+	grid.cols = make([]*StyledNode, n)
+	for c := range grid.cols {
+		grid.cols[c] = styled("col", ComputedStyle{"border-top": fmt.Sprintf("%dpx dashed teal", c%7)})
+	}
+	grid.cols[0].Style["border-left"] = "3px dashed teal"
+	table := styled("table", ComputedStyle{"border-top": "1px solid black",
+		"border-right": "1px solid black", "border-bottom": "1px solid black", "border-left": "1px solid black"})
+	return grid, table, named
+}
+
+func TestCollapsedPerimeterSegmentsLargeSpanningTable(t *testing.T) {
+	const n = 60
+	grid, table, named := largeCollapsedPerimeterGrid(n)
+	for name, cell := range named {
+		if cell.colspan*cell.rowspan < 2 {
+			t.Fatalf("forced cell %s was clipped to %dx%d", name, cell.colspan, cell.rowspan)
+		}
+	}
+	grid.resolveOuterBorders(table)
+	// The indexed resolution must match the original per-segment scan.
+	for i := 0; i < 4; i++ {
+		want := referencePerimeterSegments(grid, table, i)
+		for segment, w := range want {
+			got := grid.outerBorderAt(i, segment)
+			if (got == nil) != (w == nil) ||
+				(got != nil && (got.node != w.node || got.width != w.width || got.style != w.style)) {
+				t.Fatalf("side %d segment %d = %#v, want %#v", i, segment, got, w)
+			}
+		}
+	}
+	expect := func(side, segment int, cell *tableCellBox, width int) {
+		t.Helper()
+		got := grid.outerBorderAt(side, segment)
+		if got == nil || got.node != cell.node || got.width != width {
+			t.Fatalf("side %d segment %d = %#v, want %dpx from cell at (%d,%d)",
+				side, segment, got, width, cell.row, cell.col)
+		}
+	}
+	notCell := func(side, segment int, cell *tableCellBox) {
+		t.Helper()
+		if got := grid.outerBorderAt(side, segment); got != nil && got.node == cell.node {
+			t.Fatalf("side %d segment %d unexpectedly won by cell at (%d,%d)", side, segment, cell.row, cell.col)
+		}
+	}
+	for segment := 10; segment < 13; segment++ {
+		expect(0, segment, named["top"], 50)
+	}
+	notCell(0, 9, named["top"])
+	notCell(0, 13, named["top"])
+	for segment := n / 2; segment < n/2+2; segment++ {
+		expect(0, segment, named["topHidden"], 0)
+	}
+	for segment := 20; segment < 23; segment++ {
+		expect(3, segment, named["left"], 40)
+	}
+	notCell(3, 19, named["left"])
+	notCell(3, 23, named["left"])
+	for segment := 40; segment < 43; segment++ {
+		expect(1, segment, named["right"], 45)
+	}
+	notCell(1, 43, named["right"])
+	for segment := n - 10; segment < n-7; segment++ {
+		expect(2, segment, named["bottom"], 35)
+	}
+	notCell(2, n-7, named["bottom"])
+	// Row 5's 8px left border beats the 1x1 cells and 3px col 0 border.
+	if got := grid.outerBorderAt(3, 5); got == nil || got.node != grid.rows[5].node || got.width != 8 {
+		t.Fatalf("left segment 5 = %#v, want 8px row border", got)
+	}
+}
+
+func BenchmarkCollapsedPerimeterSegments(b *testing.B) {
+	for _, n := range []int{30, 60, 120} {
+		b.Run(fmt.Sprint(n), func(b *testing.B) {
+			grid, table, _ := largeCollapsedPerimeterGrid(n)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				grid.outerBorderSegments = [4][]*collapsedTableBorder{}
+				grid.resolveOuterBorders(table)
+			}
+		})
 	}
 }
 
