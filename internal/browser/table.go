@@ -93,6 +93,7 @@ type tableGrid struct {
 	rowBorders                  []*collapsedTableBorder
 	rowBorderSegments           [][]*collapsedTableBorder
 	outerBorders                [4]*collapsedTableBorder
+	outerBorderSegments         [4][]*collapsedTableBorder
 	hspacing                    int    // horizontal border-spacing between/around columns
 	vspacing                    int    // vertical border-spacing between/around rows
 	collapse                    bool   // border-collapse: collapse
@@ -874,6 +875,11 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 	}
 	edges := []string{"top", "right", "bottom", "left"}
 	for i, side := range edges {
+		count := g.columns
+		if i == 1 || i == 3 {
+			count = len(g.rows)
+		}
+		segments := make([]*collapsedTableBorder, count)
 		tableCandidate := tableBorderCandidate(table, side)
 		candidates := []collapsedTableBorder{tableCandidate}
 		rowStart, rowEnd := 0, len(g.rows)
@@ -934,7 +940,121 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 			}
 		}
 		g.outerBorders[i] = resolveCollapsedBorder(candidates...)
+		// Resolve each perimeter interval independently.  In particular, a
+		// cell spanning the first two columns must not make its border win
+		// over a different cell at the next perimeter interval.
+		//
+		// Index the cells touching this edge once, keyed by perimeter
+		// segment, so the per-segment work scales with the perimeter rather
+		// than rescanning every cell for every segment. Entries keep the
+		// row-major encounter order used for candidate precedence.
+		touching := g.perimeterCellsBySegment(i, count)
+		for segment := 0; segment < count; segment++ {
+			segmentCandidates := []collapsedTableBorder{tableCandidate}
+			// The row (and row group) touching this segment contributes its
+			// candidates immediately after the cells of that row.
+			candidateRow := segment
+			if i == 0 {
+				candidateRow = 0
+			} else if i == 2 {
+				candidateRow = len(g.rows) - 1
+			}
+			rowAdded := false
+			addRow := func() {
+				rowAdded = true
+				if candidateRow < 0 || candidateRow >= len(g.rows) {
+					return
+				}
+				row := g.rows[candidateRow]
+				if row.node != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.node, side))
+				}
+				if row.group != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(row.group.node, side))
+				}
+			}
+			for _, entry := range touching[segment] {
+				if !rowAdded && entry.rowIndex > candidateRow {
+					addRow()
+				}
+				segmentCandidates = append(segmentCandidates, tableBorderCandidate(entry.cell.node, side))
+			}
+			if !rowAdded {
+				addRow()
+			}
+			col := segment
+			if i == 3 {
+				col = 0
+			} else if i == 1 {
+				col = g.columns - 1
+			}
+			if col >= 0 && col < len(g.cols) {
+				segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.cols[col], side))
+				if col < len(g.colGroups) && g.colGroups[col] != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.colGroups[col], side))
+				}
+			}
+			segments[segment] = resolveCollapsedBorder(segmentCandidates...)
+		}
+		same := true
+		for _, segment := range segments {
+			if (segment == nil) != (g.outerBorders[i] == nil) ||
+				(segment != nil && (segment.node != g.outerBorders[i].node ||
+					segment.width != g.outerBorders[i].width || segment.style != g.outerBorders[i].style)) {
+				same = false
+				break
+			}
+		}
+		if !same {
+			g.outerBorderSegments[i] = segments
+		}
 	}
+}
+
+// perimeterCell is a cell touching a table perimeter edge, with the index of
+// the row whose cell list contains it.
+type perimeterCell struct {
+	rowIndex int
+	cell     *tableCellBox
+}
+
+// perimeterCellsBySegment returns, for each segment of perimeter edge side
+// (0 top, 1 right, 2 bottom, 3 left), the cells touching that segment in
+// row-major order. Top/bottom segments are columns and left/right segments
+// are rows; spanning cells are listed under every segment they cover.
+func (g *tableGrid) perimeterCellsBySegment(side, count int) [][]perimeterCell {
+	index := make([][]perimeterCell, count)
+	for rowIndex, row := range g.rows {
+		for _, cell := range row.cells {
+			var touches bool
+			var first, span int
+			switch side {
+			case 0:
+				touches, first, span = cell.row == 0, cell.col, cell.colspan
+			case 2:
+				touches, first, span = cell.row+cell.rowspan == len(g.rows), cell.col, cell.colspan
+			case 3:
+				touches, first, span = cell.col == 0, cell.row, cell.rowspan
+			case 1:
+				touches, first, span = cell.col+cell.colspan == g.columns, cell.row, cell.rowspan
+			}
+			if !touches {
+				continue
+			}
+			for segment := max(first, 0); segment < first+span && segment < count; segment++ {
+				index[segment] = append(index[segment], perimeterCell{rowIndex, cell})
+			}
+		}
+	}
+	return index
+}
+
+func (g *tableGrid) outerBorderAt(side, segment int) *collapsedTableBorder {
+	if side >= 0 && side < len(g.outerBorderSegments) &&
+		segment >= 0 && segment < len(g.outerBorderSegments[side]) {
+		return g.outerBorderSegments[side][segment]
+	}
+	return g.outerBorders[side]
 }
 
 func (g *tableGrid) collapsedCellBorderWidths(cell *tableCellBox, border [4]int) [4]int {
@@ -975,10 +1095,10 @@ func (g *tableGrid) collapsedCellBorderWidths(cell *tableCellBox, border [4]int)
 			edge  *collapsedTableBorder
 			touch bool
 		}{
-			{0, g.outerBorders[0], cell.row == 0},
-			{1, g.outerBorders[1], cell.col+cell.colspan == g.columns},
-			{2, g.outerBorders[2], cell.row+cell.rowspan == len(g.rows)},
-			{3, g.outerBorders[3], cell.col == 0},
+			{0, g.outerBorderAt(0, cell.col), cell.row == 0},
+			{1, g.outerBorderAt(1, cell.row), cell.col+cell.colspan == g.columns},
+			{2, g.outerBorderAt(2, cell.col), cell.row+cell.rowspan == len(g.rows)},
+			{3, g.outerBorderAt(3, cell.row), cell.col == 0},
 		}
 		for _, side := range sides {
 			if side.touch && side.edge != nil {
@@ -1484,8 +1604,21 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	// Keep the table's outer half of a collapsed perimeter edge in its
 	// border box. The other half is included in the touching cell below.
 	for i, edge := range grid.outerBorders {
+		width := 0
 		if edge != nil {
-			border[i] = edge.width - edge.width/2
+			width = edge.width
+		}
+		// A perimeter can have a different collapsed winner in each
+		// interval. Reserve the widest interval in the table box; the
+		// cells and perimeter painter still use their local winners. The
+		// aggregate winner may be nil when a hidden segment suppresses it.
+		for _, segment := range grid.outerBorderSegments[i] {
+			if segment != nil && segment.width > width {
+				width = segment.width
+			}
+		}
+		if width > 0 {
+			border[i] = width - width/2
 		}
 	}
 	grid.measureCells(faces)
@@ -1743,7 +1876,13 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 					borderStyle(cell.node.Style, "left"),
 				}
 				hasColors := false
-				for side, edge := range grid.outerBorders {
+				for side := range grid.outerBorders {
+					edge := grid.outerBorderAt(side, func() int {
+						if side == 0 || side == 2 {
+							return cell.col
+						}
+						return cell.row
+					}())
 					if edge == nil {
 						continue
 					}
@@ -1907,6 +2046,11 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	box := &Box{Node: n.Node, Rect: rect, Content: content, Children: children}
 	if grid.collapse {
 		widths := border
+		for side := range grid.outerBorders {
+			if len(grid.outerBorderSegments[side]) != 0 {
+				widths[side] = 0
+			}
+		}
 		box.BorderWidths = &widths
 		colors := [4]color.RGBA{
 			borderColor(n.Style, "top"),
@@ -1921,7 +2065,8 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			borderStyle(n.Style, "left"),
 		}
 		hasColors := false
-		for side, edge := range grid.outerBorders {
+		for side := range grid.outerBorders {
+			edge := grid.outerBorders[side]
 			if edge != nil {
 				colors[side] = borderColor(edge.node.Style, edge.side)
 				styles[side] = edge.style
@@ -1931,6 +2076,40 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 		if hasColors {
 			box.BorderColors = &colors
 			box.BorderStyles = &styles
+		}
+		// Paint the perimeter as independent intervals. The table box still
+		// reserves the maximum width on each side for layout, but must not
+		// paint that maximum winner across intervals won by other cells.
+		for side, segments := range grid.outerBorderSegments {
+			for segment, edge := range segments {
+				if edge == nil || edge.width == 0 {
+					continue
+				}
+				var r image.Rectangle
+				switch side {
+				case 0:
+					r = image.Rect(columnX[segment], rect.Min.Y, columnX[segment+1], rect.Min.Y+edge.width)
+				case 2:
+					r = image.Rect(columnX[segment], rect.Max.Y-edge.width, columnX[segment+1], rect.Max.Y)
+				case 3:
+					row := grid.rows[segment]
+					r = image.Rect(rect.Min.X, row.y, rect.Min.X+edge.width, row.y+row.height)
+				case 1:
+					row := grid.rows[segment]
+					r = image.Rect(rect.Max.X-edge.width, row.y, rect.Max.X, row.y+row.height)
+				}
+				widths := [4]int{}
+				widths[side] = edge.width
+				colors := [4]color.RGBA{}
+				styles := [4]string{}
+				colors[side] = borderColor(edge.node.Style, edge.side)
+				styles[side] = edge.style
+				box.Children = append(box.Children, &Box{
+					Node: box.Node, Rect: r, Content: r,
+					BorderWidths: &widths, BorderColors: &colors,
+					BorderStyles: &styles, BorderOnly: true,
+				})
+			}
 		}
 	}
 	return box, end - y + margin[2]

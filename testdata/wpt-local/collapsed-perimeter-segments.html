@@ -1,0 +1,22 @@
+<!doctype html>
+<style>
+  html, body { margin: 0; background: white }
+  table { border-collapse: collapse; width: 180px; border: 1px solid #222 }
+  col:first-child { border-left: 5px solid #16c }
+  col:nth-child(2) { border-left: 20px solid #2a4 }
+  td { width: 60px; height: 28px; padding: 0; font-size: 0 }
+  .top-a { border-top: 7px solid #e11; border-left: 2px solid #e11 }
+  .top-b { border-top: 2px solid #16c }
+  .left-a { border-left: 3px solid #e11 }
+  .left-span { border-left: 6px solid #f80 }
+  .right-a { border-right: 4px solid #2a4 }
+  .right-b { border-right: 2px solid #16c }
+  .bottom-a { border-bottom: 5px solid #937 }
+</style>
+<table>
+  <colgroup><col><col><col></colgroup>
+  <tr><td class="top-a left-a"></td><td class="top-b"></td><td class="right-a"></td></tr>
+  <tr><td class="left-a"></td><td></td><td class="right-b"></td></tr>
+  <tr><td colspan="2" rowspan="2" class="left-span"></td><td class="right-a"></td></tr>
+  <tr><td class="right-b bottom-a"></td></tr>
+</table>
