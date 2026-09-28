@@ -27,6 +27,23 @@ func TestMathComparisonLengthsGeometry(t *testing.T) {
 			<div id="height" style="height:clamp(5px, 1px, 20px)"></div>
 			<div id="margin" style="margin-left:min(10%, 25px);width:10px"></div>
 			<div id="padding" style="padding:max(5px, 2%) 0;width:10px"></div>
+			<div id="round-nearest" style="width:round(nearest, 257px, 10px)"></div>
+			<div id="round-tie" style="width:round(255px, 10px)"></div>
+			<div id="round-up" style="width:round(up, 251px, 10px)"></div>
+			<div id="round-down" style="width:round(down, 259px, 10px)"></div>
+			<div id="round-zero" style="width:round(to-zero, 259px, 10px)"></div>
+			<div id="round-negative-step" style="width:round(nearest, 257px, -10px)"></div>
+			<div id="round-whitespace" style="width:round( up, 9px, 2px)"></div>
+			<div id="round-whitespace-around-comma" style="width:round( up , 9px , 2px )"></div>
+			<div id="round-percent" style="width:round(up, 51%, 10%)"></div>
+			<div id="abs" style="width:abs(-120px)"></div>
+			<div id="abs-percent" style="width:abs(-50%)"></div>
+			<div id="sign-percent" style="width:calc(sign(-50%) * -100px)"></div>
+			<div id="nested-round" style="width:abs(round(nearest, -257px, 10px))"></div>
+			<div id="round-var" style="--step:10px;width:round(nearest, 257px, var(--step))"></div>
+			<div id="clamp-none-low" style="width:clamp(none, 90%, 300px)"></div>
+			<div id="clamp-none-high" style="width:clamp(100px, 50%, none)"></div>
+			<div id="clamp-none-both" style="width:clamp(none, 50%, none)"></div>
 		</div></body></html>`)
 	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
 	if err != nil {
@@ -61,6 +78,26 @@ func TestMathComparisonLengthsGeometry(t *testing.T) {
 	if p := boxes["padding"].Content.Min.Y - boxes["padding"].Rect.Min.Y; p != 8 {
 		t.Errorf("max() padding-top = %d, want 8", p)
 	}
+	for _, tc := range []struct {
+		id    string
+		width int
+	}{
+		{"round-nearest", 260}, {"round-tie", 260}, {"round-up", 260}, {"round-down", 250},
+		{"round-zero", 250}, {"round-negative-step", 260}, {"round-whitespace", 10},
+		{"round-whitespace-around-comma", 10}, {"round-percent", 240},
+		{"abs", 120}, {"abs-percent", 200}, {"sign-percent", 100}, {"nested-round", 260},
+		{"round-var", 260}, {"clamp-none-low", 300}, {"clamp-none-high", 200},
+		{"clamp-none-both", 200},
+	} {
+		box := boxesByID(got.Root, tc.id)[tc.id]
+		if box == nil {
+			t.Errorf("missing #%s box", tc.id)
+			continue
+		}
+		if box.Rect.Dx() != tc.width {
+			t.Errorf("#%s width = %d, want %d", tc.id, box.Rect.Dx(), tc.width)
+		}
+	}
 }
 
 func TestMathComparisonComputedValues(t *testing.T) {
@@ -72,15 +109,27 @@ func TestMathComparisonComputedValues(t *testing.T) {
 		<div id="bad-empty" style="width:43px;width:max()"></div>
 		<div id="bad-unit" style="width:44px;width:min(10px, 5deg)"></div>
 		<div id="bad-border" style="border:2px solid red;border-left-width:min(10%, 1px)"></div>
-		<div id="invalid-var" style="--bad:2; width:45px; width:min(var(--bad), 10px)"></div>`)
+		<div id="invalid-var" style="--bad:2; width:45px; width:min(var(--bad), 10px)"></div>
+		<div id="zero-step" style="width:46px;width:round(10px, 0px)"></div>
+		<div id="bad-round-strategy" style="width:47px;width:round(sideways, 10px, 2px)"></div>
+		<div id="bad-round-arity" style="width:48px;width:round(10px)"></div>
+		<div id="bad-abs-arity" style="width:49px;width:abs(10px, 2px)"></div>
+		<div id="bad-sign-type" style="width:50px;width:sign(10px)"></div>
+		<div id="bad-clamp-none-middle" style="width:51px;width:clamp(1px, none, 3px)"></div>`)
 	for id, want := range map[string]string{
-		"fixed":      "250px",
-		"mixed":      "calc(max(0px, min(50%, 300px)))",
-		"bad-mixed":  "40px",
-		"bad-clamp":  "41px",
-		"bad-clamp4": "42px",
-		"bad-empty":  "43px",
-		"bad-unit":   "44px",
+		"fixed":                 "250px",
+		"mixed":                 "calc(max(0px, min(50%, 300px)))",
+		"bad-mixed":             "40px",
+		"bad-clamp":             "41px",
+		"bad-clamp4":            "42px",
+		"bad-empty":             "43px",
+		"bad-unit":              "44px",
+		"zero-step":             "46px",
+		"bad-round-strategy":    "47px",
+		"bad-round-arity":       "48px",
+		"bad-abs-arity":         "49px",
+		"bad-sign-type":         "50px",
+		"bad-clamp-none-middle": "51px",
 	} {
 		if got := styledElementByID(doc.StyleRoot, id).Style["width"]; got != want {
 			t.Errorf("#%s computed width = %q, want %q", id, got, want)
@@ -99,9 +148,14 @@ func TestMathComparisonComputedValues(t *testing.T) {
 			t.Errorf("@supports rejected width:%s", v)
 		}
 	}
-	for _, v := range []string{"min(1px, 2)", "clamp(1px, 2px)", "minmax(1px, 2px)", "round(10px, 3px)", "min(1px 2px)"} {
+	for _, v := range []string{"min(1px, 2)", "clamp(1px, 2px)", "minmax(1px, 2px)", "round(10px, 0px)", "round(sideways, 10px, 2px)", "round(10px)", "abs(10px, 2px)", "sign(10px)", "clamp(1px, none, 3px)", "min(1px 2px)"} {
 		if featureSupported("width", v) {
 			t.Errorf("@supports accepted width:%s", v)
+		}
+	}
+	for _, v := range []string{"round(10px, 3px)", "round(up, 10px, 3px)", "round( up, 9px, 2px)", "abs(-10px)", "calc(sign(-10px) * 10px)", "clamp(none, 50%, 100px)", "clamp(1px, 2px, none)"} {
+		if !featureSupported("width", v) {
+			t.Errorf("@supports rejected width:%s", v)
 		}
 	}
 }
@@ -188,6 +242,7 @@ func TestMathComparisonFlexBasisAndCustomPropertyCalc(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	boxes := boxesByID(got.Root, "basis", "basis-clamp", "from-var", "auto-height")
 	if w := boxes["basis"].Rect.Dx(); w != 150 {
 		t.Errorf("flex-basis:min() width = %d, want 150", w)
@@ -202,5 +257,23 @@ func TestMathComparisonFlexBasisAndCustomPropertyCalc(t *testing.T) {
 	// behaves as auto, including inside a comparison function.
 	if h := boxes["auto-height"].Rect.Dy(); h != 7 {
 		t.Errorf("min() percentage height with indefinite basis = %d, want auto (7)", h)
+	}
+}
+
+func TestMathFunctionsDeferMixedPercentageCalculationsToLayout(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0">
+		<div style="width:400px"><div id="abs-positive" style="width:abs(calc(50% - 100px))"></div>
+			<div id="round-mixed" style="width:round(nearest, 50%, 30px)"></div></div>
+		<div style="width:100px"><div id="abs-negative" style="width:abs(calc(50% - 100px))"></div></div>
+	</body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "abs-positive", "abs-negative", "round-mixed")
+	for id, want := range map[string]int{"abs-positive": 100, "abs-negative": 50, "round-mixed": 210} {
+		if boxes[id] == nil || boxes[id].Rect.Dx() != want {
+			t.Errorf("#%s width = %v, want %d", id, boxes[id], want)
+		}
 	}
 }

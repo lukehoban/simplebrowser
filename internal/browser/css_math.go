@@ -240,15 +240,15 @@ func (p *cssMathParser) atom() (cssMathValue, bool) {
 	return cssMathValue{}, false
 }
 
-// function parses a calc(), min(), max() or clamp(). matched reports whether
-// the input started with one of these names, so atom can fall through to
-// numbers otherwise. Comparisons need a common basis: the arguments must be
-// all pixel lengths, all pure percentages, or all numbers. Mixed
-// percentage/pixel comparisons are rejected here; normalizeCalcValues keeps
-// such expressions until layout, where percentages are resolved to pixels.
+// function parses a calc(), min(), max(), clamp(), round(), abs() or sign().
+// matched reports whether the input started with one of these names, so atom
+// can fall through to numbers otherwise. Comparisons and rounding need a
+// common basis. Mixed percentage/pixel operations that need a comparison are
+// rejected here; normalizeCalcValues keeps such expressions until layout,
+// where percentages are resolved to pixels.
 func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	name := ""
-	for _, candidate := range []string{"calc(", "min(", "max(", "clamp("} {
+	for _, candidate := range []string{"calc(", "min(", "max(", "clamp(", "round(", "abs(", "sign("} {
 		if len(p.s)-p.i >= len(candidate) && strings.EqualFold(p.s[p.i:p.i+len(candidate)], candidate) {
 			name = candidate[:len(candidate)-1]
 			break
@@ -263,19 +263,49 @@ func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	p.i += len(name) + 1
 	p.depth++
 	defer func() { p.depth-- }()
+	strategy := "nearest"
+	if name == "round" {
+		start := p.i
+		p.space()
+		strategyStart := p.i
+		for p.i < len(p.s) && (p.s[p.i] >= 'a' && p.s[p.i] <= 'z' || p.s[p.i] >= 'A' && p.s[p.i] <= 'Z' || p.s[p.i] == '-') {
+			p.i++
+		}
+		candidate := strings.ToLower(p.s[strategyStart:p.i])
+		p.space()
+		if p.i < len(p.s) && p.s[p.i] == ',' && (candidate == "nearest" || candidate == "up" || candidate == "down" || candidate == "to-zero") {
+			strategy = candidate
+			p.i++
+		} else {
+			p.i = start
+		}
+	}
 	var args []cssMathValue
+	var noneArgs []bool
 	for {
-		arg, ok := p.sum()
+		p.space()
+		isNone := false
+		if name == "clamp" && (len(args) == 0 || len(args) == 2) &&
+			len(p.s)-p.i >= 4 && strings.EqualFold(p.s[p.i:p.i+4], "none") &&
+			(p.i+4 == len(p.s) || cssSpace(p.s[p.i+4]) || p.s[p.i+4] == ',' || p.s[p.i+4] == ')') {
+			p.i += 4
+			isNone = true
+		}
+		arg, ok := cssMathValue{}, true
+		if !isNone {
+			arg, ok = p.sum()
+		}
 		p.space()
 		if !ok || p.i >= len(p.s) {
 			return cssMathValue{}, false, true
 		}
 		args = append(args, arg)
+		noneArgs = append(noneArgs, isNone)
 		if p.s[p.i] == ')' {
 			p.i++
 			break
 		}
-		if p.s[p.i] != ',' || name == "calc" || name == "clamp" && len(args) == 3 {
+		if p.s[p.i] != ',' || name == "calc" || (name == "clamp" || name == "round" || name == "abs" || name == "sign") && len(args) == 3 {
 			return cssMathValue{}, false, true
 		}
 		p.i++
@@ -283,12 +313,95 @@ func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	if name == "calc" {
 		return args[0], true, true
 	}
+	if name == "abs" || name == "sign" {
+		if len(args) != 1 || noneArgs[0] {
+			return cssMathValue{}, false, true
+		}
+		v := args[0]
+		if !(v.px >= 0 && v.percent >= 0 || v.px <= 0 && v.percent <= 0) {
+			// Opposing pixel and percentage terms can change sign with the
+			// eventual layout basis; leave the expression for used-value evaluation.
+			return cssMathValue{}, false, true
+		}
+		if name == "sign" {
+			sign := 0.0
+			if v.px > 0 || v.percent > 0 {
+				sign = 1
+			} else if v.px < 0 || v.percent < 0 {
+				sign = -1
+			}
+			return cssMathValue{px: sign, number: true}, true, true
+		}
+		if v.px < 0 || v.percent < 0 {
+			v.px, v.percent = -v.px, -v.percent
+		}
+		return v, true, true
+	}
+	if name == "round" {
+		if len(args) != 2 || noneArgs[0] || noneArgs[1] ||
+			args[0].number != args[1].number ||
+			args[0].px != 0 && args[0].percent != 0 ||
+			args[1].px != 0 && args[1].percent != 0 {
+			return cssMathValue{}, false, true
+		}
+		value, step := args[0], args[1]
+		if value.percent != 0 && step.px != 0 || value.px != 0 && step.percent != 0 {
+			// A percentage step and a pixel value have a common length type,
+			// but their ratio depends on the layout basis.
+			return cssMathValue{}, false, true
+		}
+		component := func(v cssMathValue) float64 {
+			if v.percent != 0 {
+				return v.percent
+			}
+			return v.px
+		}
+		stepValue := math.Abs(component(step))
+		if stepValue == 0 {
+			return cssMathValue{}, false, true
+		}
+		q := component(value) / stepValue
+		var multiple float64
+		switch strategy {
+		case "nearest":
+			multiple = math.Floor(q + 0.5)
+		case "up":
+			multiple = math.Ceil(q)
+		case "down":
+			multiple = math.Floor(q)
+		case "to-zero":
+			multiple = math.Trunc(q)
+		default:
+			return cssMathValue{}, false, true
+		}
+		result := multiple * stepValue
+		if value.percent != 0 {
+			return cssMathValue{percent: result}, true, true
+		}
+		return cssMathValue{px: result, number: value.number}, true, true
+	}
 	if name == "clamp" && len(args) != 3 {
 		return cssMathValue{}, false, true
 	}
-	usePercent := args[0].px == 0 && args[0].percent != 0
-	for _, arg := range args {
-		if arg.number != args[0].number {
+	if name == "clamp" && noneArgs[1] {
+		return cssMathValue{}, false, true
+	}
+	first := -1
+	for i, isNone := range noneArgs {
+		if !isNone {
+			first = i
+			break
+		}
+	}
+	if first < 0 {
+		return args[1], true, true
+	}
+	usePercent := args[first].px == 0 && args[first].percent != 0
+	for i, arg := range args {
+		if noneArgs[i] {
+			continue
+		}
+		if arg.number != args[first].number {
 			return cssMathValue{}, false, true
 		}
 		if usePercent && arg.px != 0 || !usePercent && arg.percent != 0 {
@@ -310,6 +423,15 @@ func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	switch name {
 	case "clamp":
 		// clamp(MIN, VAL, MAX) is max(MIN, min(VAL, MAX)); MIN wins a conflict.
+		if noneArgs[0] && noneArgs[2] {
+			return args[1], true, true
+		}
+		if noneArgs[0] {
+			return pick(args[1], args[2], true), true, true
+		}
+		if noneArgs[2] {
+			return pick(args[0], args[1], false), true, true
+		}
 		return pick(args[0], pick(args[1], args[2], true), false), true, true
 	default:
 		result := args[0]
@@ -322,7 +444,7 @@ func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 
 // mathFunctionNames are the CSS math functions accepted in ordinary length
 // declarations.
-var mathFunctionNames = []string{"calc(", "min(", "max(", "clamp("}
+var mathFunctionNames = []string{"calc(", "min(", "max(", "clamp(", "round(", "abs(", "sign("}
 
 // mathFunctionAt reports the length of the math function name (including
 // the opening parenthesis) starting at text[i], or 0. The name must not be
