@@ -11,9 +11,11 @@ The fix gives row flex items a content-based automatic minimum, except when
 the item itself is a scroll container. An explicit `min-width`, including
 `min-width:0`, replaces that automatic floor. This is a bounded min-content
 rule: a definite specified `width` and `max-width` cap the automatic minimum,
-with border-box sizes converted to content-box lengths. Transferred-size
-suggestions and column-axis `min-height:auto` remain unsupported (see
-[flexbox support](flexbox.md)).
+with border-box sizes converted to content-box lengths. Bounded transferred
+size suggestions for replaced row items and the column-axis `min-height:auto`
+floor are now supported too; see [flexbox support](flexbox.md) and issues
+[#381](https://github.com/lukehoban/simplebrowser/issues/381) and
+[#382](https://github.com/lukehoban/simplebrowser/issues/382).
 
 ## Deterministic reproduction
 

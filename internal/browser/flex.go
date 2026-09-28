@@ -30,6 +30,7 @@ type flexItem struct {
 	anonymous     bool
 	margin        [4]int
 	autoMargin    [4]bool
+	inner         [4]int
 	main, grow    float64
 	shrink        float64
 	automaticMin  float64
@@ -158,7 +159,13 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			extra = margin[0] + margin[2] + inner[0] + inner[2]
 		}
 		automaticMin := 0.0
-		if !column && !flexItemIsScrollContainer(child.Style) {
+		if column && !flexItemIsScrollContainer(child.Style) {
+			// A column flex item's automatic minimum is the content's
+			// unflexed height at its used cross size. Measure with an auto
+			// height and without an explicit min-height so the normal
+			// min-height constraint can replace this automatic floor below.
+			automaticMin = flexColumnAutomaticMinimum(child, width, parent.Style["align-items"], faces, cb)
+		} else if !column && !flexItemIsScrollContainer(child.Style) {
 			// A row flex item's automatic minimum main size is content-based.
 			// Without this floor, flex-shrink can reduce a label or its badge
 			// below its min-content width, so inline descendants paint over
@@ -175,7 +182,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			}
 		}
 		items = append(items, flexItem{node: child, margin: margin, autoMargin: autoMarginEdges(child), main: main, grow: grow, shrink: shrink,
-			automaticMin: automaticMin, extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
+			inner: inner, automaticMin: automaticMin, extra: extra, explicitCross: flexHasCrossSize(child, column), anonymous: child.Node.Parent == nil})
 	}
 
 	autoColumnMainSize := 0
@@ -480,33 +487,25 @@ func flexMinMax(item flexItem, column bool, mainSize int) (minimum, maximum floa
 	if column {
 		property = "height"
 	}
-	if !column {
-		minimum = item.automaticMin
-		// The content-based automatic minimum is capped by both the
-		// specified-size suggestion and the author's maximum size suggestion.
-		// These sizes are represented as content-box lengths here, including
-		// when box-sizing makes their CSS values border-box lengths.
-		if specified, ok := flexContentSizeSuggestion(item.node, property, mainSize); ok {
-			minimum = math.Min(minimum, specified)
-		}
-		if maxValue, ok := flexContentSizeSuggestion(item.node, "max-"+property, mainSize); ok {
-			minimum = math.Min(minimum, maxValue)
-		}
+	minimum = item.automaticMin
+	// The content-based automatic minimum is capped by both the
+	// specified-size suggestion and the author's maximum size suggestion.
+	// These sizes are represented as content-box lengths here, including
+	// when box-sizing makes their CSS values border-box lengths.
+	if specified, ok := flexContentSizeSuggestion(item, property, mainSize); ok {
+		minimum = math.Min(minimum, specified)
+	}
+	if maxValue, ok := flexContentSizeSuggestion(item, "max-"+property, mainSize); ok {
+		minimum = math.Min(minimum, maxValue)
 	}
 	maximum = math.Inf(1)
 	if v := strings.TrimSpace(item.node.Style["min-"+property]); v != "" && v != "auto" {
-		// An explicit min-width, including zero, replaces the automatic
-		// content-based minimum.
-		minimum = math.Max(0, px(v, float64(mainSize), 0))
-		if !column {
-			minimum = flexContentSizeValue(item.node, v, mainSize)
-		}
+		// An explicit min-width/min-height, including zero, replaces the
+		// automatic content-based minimum.
+		minimum = flexContentSizeValue(item.node, v, mainSize, property, item.inner)
 	}
 	if v := strings.TrimSpace(item.node.Style["max-"+property]); v != "" && v != "none" {
-		maximum = math.Max(0, px(v, float64(mainSize), 0))
-		if !column {
-			maximum = flexContentSizeValue(item.node, v, mainSize)
-		}
+		maximum = flexContentSizeValue(item.node, v, mainSize, property, item.inner)
 	}
 	if maximum < minimum {
 		maximum = minimum
@@ -514,21 +513,54 @@ func flexMinMax(item flexItem, column bool, mainSize int) (minimum, maximum floa
 	return
 }
 
+func flexColumnAutomaticMinimum(item *StyledNode, width int, alignItems string, faces *faceSet, cb containingBlock) float64 {
+	if isReplacedHTMLImage(item.Node) {
+		measure := *item
+		measure.Style = cloneStyle(item.Style)
+		measure.Style["height"] = "auto"
+		measure.Style["min-height"] = "0"
+		_, height := flexImageDimensions(&measure, faces.images[item.Node], width, cb)
+		return float64(height)
+	}
+
+	// A stretched column item uses the container's cross size. Non-stretched
+	// auto-width items use the same intrinsic width chosen by layoutFlex.
+	alignItems = strings.ToLower(strings.TrimSpace(alignItems))
+	if alignItems == "" || alignItems == "normal" {
+		alignItems = "stretch"
+	}
+	itemWidth := width
+	if flexItemAlignment(item.Style["align-self"], alignItems) != "stretch" && !flexHasCrossSize(item, true) {
+		minWidth, maxWidth := intrinsicWidths(item, faces)
+		itemWidth = min(max(minWidth, width), maxWidth)
+	}
+
+	measure := *item
+	measure.Style = cloneStyle(item.Style)
+	measure.Style["height"] = "auto"
+	measure.Style["min-height"] = "0"
+	box, _ := layoutBlock(asFlexItem(&measure), 0, 0, itemWidth, faces, cb)
+	return float64(box.Content.Dy())
+}
+
 // flexContentSizeSuggestion resolves a definite preferred/min/max size into
 // the content-box coordinate system used by flexItem.main and automaticMin.
-func flexContentSizeSuggestion(node *StyledNode, property string, mainSize int) (float64, bool) {
-	value := strings.TrimSpace(node.Style[property])
+func flexContentSizeSuggestion(item flexItem, property string, mainSize int) (float64, bool) {
+	value := strings.TrimSpace(item.node.Style[property])
 	if value == "" || strings.EqualFold(value, "auto") || strings.EqualFold(value, "none") {
 		return 0, false
 	}
-	return flexContentSizeValue(node, value, mainSize), true
+	return flexContentSizeValue(item.node, value, mainSize, property, item.inner), true
 }
 
-func flexContentSizeValue(node *StyledNode, value string, mainSize int) float64 {
+func flexContentSizeValue(node *StyledNode, value string, mainSize int, property string, inner [4]int) float64 {
 	size := math.Max(0, px(value, float64(mainSize), 0))
 	if strings.EqualFold(strings.TrimSpace(node.Style["box-sizing"]), "border-box") {
-		inner := inlineInnerEdges(node, mainSize)
-		size -= float64(inner[1] + inner[3])
+		if strings.HasSuffix(property, "height") {
+			size -= float64(inner[0] + inner[2])
+		} else {
+			size -= float64(inner[1] + inner[3])
+		}
 	}
 	return math.Max(0, size)
 }
