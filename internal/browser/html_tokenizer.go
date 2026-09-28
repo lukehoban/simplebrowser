@@ -331,7 +331,7 @@ func isHTMLBreakoutStartTag(token Token) bool {
 		"dl", "dt", "em", "embed", "h1", "h2", "h3", "h4", "h5", "h6", "head",
 		"hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p",
 		"pre", "ruby", "s", "small", "span", "strong", "strike", "sub", "sup",
-		"table", "tt", "u", "ul":
+		"table", "tt", "u", "ul", "var":
 		return true
 	case "font":
 		for _, attr := range token.Attributes {
