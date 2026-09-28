@@ -577,15 +577,13 @@ func (s *svgExpansion) renderPatternTile(p *svgPattern, bx, by, bw, bh float64) 
 	// stays transparent; slice is cropped to the tile).
 	frame := svgDefaultFrame()
 	frame.userWidth, frame.userHeight, frame.dashBasis = oldImg.userWidth, oldImg.userHeight, oldImg.dashBasis
+	// Without a viewBox the content origin is the tile origin whatever the
+	// patternUnits or shape position; objectBoundingBox content is scaled by
+	// the box size only, not translated to the box (as in Blink and Gecko).
 	frame.transform = svgIdentity
-	if p.objectUnits {
-		// User-space content retains its document coordinates while the
-		// object-bounding-box tile is rasterized at its bound location.
-		frame.transform = svgAffine{a: 1, d: 1, e: -x, f: -y}
-	}
 	if p.objectContent {
 		frame.userWidth, frame.userHeight, frame.dashBasis = 1, 1, 1
-		frame.transform = svgAffine{a: bw, d: bh, e: bx - x, f: by - y}
+		frame.transform = svgAffine{a: bw, d: bh}
 	}
 	if p.viewBoxState == svgPatternViewBoxValid {
 		frame.transform = svgViewTransform(p.viewBox, p.align, p.slice, width, height)

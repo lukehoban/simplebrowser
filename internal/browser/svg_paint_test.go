@@ -425,8 +425,10 @@ func TestSVGObjectBoundingBoxPattern(t *testing.T) {
 		points                  [][2]int
 		empty                   [][2]int
 	}{
+		// Content starts at each tile's origin, so on the 8x8 rect at x=20
+		// the 4x4 content fills every 4x4 tile (#436).
 		{"default geometry, user-space content", "", `<rect width="4" height="4" fill="red"/>`,
-			[][2]int{{2, 2}, {10, 2}}, [][2]int{{6, 2}, {22, 2}, {26, 2}}},
+			[][2]int{{2, 2}, {10, 2}, {22, 2}, {26, 2}}, [][2]int{{6, 2}, {14, 2}, {30, 2}}},
 		{"bounding box content", `patternContentUnits="objectBoundingBox"`, `<rect width=".25" height=".5" fill="red"/>`,
 			[][2]int{{2, 2}, {10, 2}, {21, 2}}, [][2]int{{6, 2}, {22, 2}, {26, 2}}},
 		{"transformed tiles", `patternTransform="translate(0.25 0)" patternContentUnits="objectBoundingBox"`, `<rect width=".25" height=".5" fill="red"/>`,
@@ -1139,5 +1141,54 @@ func TestSVGPatternScaledTilesBoundedPerDocument(t *testing.T) {
 		if again := s.pattern.tileFor(s.toLocal.then(device)); again != first {
 			t.Error("repeated tile request is not deterministic")
 		}
+	}
+}
+
+// Pattern content coordinates start at the tile origin for shapes at any
+// position (#436); objectBoundingBox content is scaled by the box size only.
+func TestSVGPatternContentRelativeToTileOnOffsetShapes(t *testing.T) {
+	red := color.RGBA{255, 0, 0, 255}
+	for _, tc := range []struct {
+		name, pattern  string
+		painted, empty [][2]int
+	}{
+		{"bbox tile, user-space content", `<pattern id="p" width=".5" height=".5"><rect width="2" height="2" fill="red"/></pattern>`,
+			[][2]int{{41, 1}, {51, 1}, {41, 11}, {51, 11}}, [][2]int{{44, 1}, {41, 4}, {55, 15}}},
+		{"bbox tile, bbox content", `<pattern id="p" width=".5" height=".5" patternContentUnits="objectBoundingBox"><rect width=".1" height=".1" fill="red"/></pattern>`,
+			[][2]int{{41, 1}, {51, 1}, {41, 11}, {51, 11}}, [][2]int{{44, 1}, {41, 4}, {55, 15}}},
+		{"bbox tile, viewBox", `<pattern id="p" width=".5" height=".5" viewBox="0 0 5 5"><rect width="1" height="1" fill="red"/></pattern>`,
+			[][2]int{{41, 1}, {51, 1}, {41, 11}, {51, 11}}, [][2]int{{44, 1}, {41, 4}, {55, 15}}},
+		{"offset bbox tile, user-space content", `<pattern id="p" x=".25" y=".25" width=".5" height=".5"><rect width="2" height="2" fill="red"/></pattern>`,
+			[][2]int{{46, 6}, {56, 16}}, [][2]int{{41, 1}, {49, 6}}},
+		{"offset bbox tile, bbox content", `<pattern id="p" x=".25" y=".25" width=".5" height=".5" patternContentUnits="objectBoundingBox"><rect width=".1" height=".1" fill="red"/></pattern>`,
+			[][2]int{{46, 6}, {56, 16}}, [][2]int{{41, 1}, {49, 6}}},
+		{"user-space tile, bbox content", `<pattern id="p" patternUnits="userSpaceOnUse" width="10" height="10" patternContentUnits="objectBoundingBox"><rect width=".1" height=".1" fill="red"/></pattern>`,
+			[][2]int{{41, 1}, {51, 1}, {41, 11}, {51, 11}}, [][2]int{{44, 1}, {41, 4}, {55, 15}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img := decodeSVGString(t, svgOpen+`width="80" height="40"><defs>`+tc.pattern+
+				`</defs><rect x="40" y="0" width="20" height="20" fill="url(#p) blue"/></svg>`)
+			for _, xy := range tc.painted {
+				if got := img.RGBAAt(xy[0], xy[1]); !near(got, red, 1) {
+					t.Errorf("painted %v = %v, want red", xy, got)
+				}
+			}
+			for _, xy := range tc.empty {
+				if got := img.RGBAAt(xy[0], xy[1]); got.A != 0 {
+					t.Errorf("gap %v = %v, want transparent", xy, got)
+				}
+			}
+		})
+	}
+	// Offset on the y axis too.
+	img := decodeSVGString(t, svgOpen+`width="40" height="80"><defs><pattern id="p" width=".5" height=".5">`+
+		`<rect width="2" height="2" fill="red"/></pattern></defs><rect x="10" y="40" width="20" height="20" fill="url(#p)"/></svg>`)
+	for _, xy := range [][2]int{{11, 41}, {21, 51}} {
+		if got := img.RGBAAt(xy[0], xy[1]); !near(got, red, 1) {
+			t.Errorf("y-offset painted %v = %v, want red", xy, got)
+		}
+	}
+	if got := img.RGBAAt(14, 41); got.A != 0 {
+		t.Errorf("y-offset gap = %v, want transparent", got)
 	}
 }
