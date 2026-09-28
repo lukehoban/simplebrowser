@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Inline and flex image min-height</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 12px;
+      background: white;
+      color: #222;
+      font: 14px sans-serif;
+    }
+    .sample {
+      margin-bottom: 12px;
+    }
+    .label {
+      margin-bottom: 4px;
+    }
+    .inline img {
+      min-height: 50px;
+      vertical-align: top;
+    }
+    .flex {
+      display: flex;
+      height: 60px;
+      align-items: flex-start;
+    }
+    .flex img {
+      min-height: 50px;
+    }
+  </style>
+</head>
+<body>
+  <div class="sample">
+    <div class="label">Inline replaced image</div>
+    <div class="inline"><img src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='20'%3E%3Crect width='40' height='20' fill='%23008000'/%3E%3C/svg%3E"></div>
+  </div>
+  <div class="sample">
+    <div class="label">Flex-item replaced image</div>
+    <div class="flex"><img src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='20'%3E%3Crect width='40' height='20' fill='%23008000'/%3E%3C/svg%3E"></div>
+  </div>
+</body>
+</html>
