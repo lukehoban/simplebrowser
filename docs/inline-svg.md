@@ -6,6 +6,10 @@
 
 ![A blue inline SVG path between “before” and “after”.](screenshots/inline-svg-host-css.png)
 
+![A blue host-styled inline SVG path at the maximum accepted serialization depth, between “before” and “after”.](screenshots/inline-svg-host-css-depth-boundary.png)
+
+This boundary render comes from [`testdata/svg/host-css-depth-boundary.html`](../testdata/svg/host-css-depth-boundary.html): host CSS still styles a path at depth 64, while deeper content is rejected by the bounded serializer.
+
 The fixtures are [`testdata/svg/inline-html.html`](../testdata/svg/inline-html.html) and [`testdata/svg/host-css.html`](../testdata/svg/host-css.html); the flex-item case is [`testdata/flex/inline-svg-item.html`](../testdata/flex/inline-svg-item.html), rendered at 800×600 below.
 
 ![Inline SVG flex item with its following sibling](screenshots/flex-inline-svg-item.png)
