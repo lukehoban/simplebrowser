@@ -1287,7 +1287,8 @@ func layoutBlock(n *StyledNode, x, y, width int, faces *faceSet, cb containingBl
 	var childBottom int
 	var trailing collapsedMargin
 	if isFlexContainer(n) {
-		children, childBottom = layoutFlex(n, contentX, contentY, contentWidth, usedHeight, definite, faces, childCB)
+		children, childBottom = layoutFlex(n, contentX, contentY, contentWidth, usedHeight, definite,
+			minHeight, maxHeight, hasMaxHeight, faces, childCB)
 	} else if isGridContainer(n) {
 		children, childBottom = layoutGrid(n, contentX, contentY, contentWidth, faces, childCB)
 	} else {

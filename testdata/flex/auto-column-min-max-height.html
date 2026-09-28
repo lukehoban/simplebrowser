@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Auto-height flex column min/max height</title>
+  <style>
+    body { margin: 0; padding: 16px; font: 16px sans-serif; color: #222; }
+    h2 { margin: 0 0 6px; font-size: 16px; }
+    .column {
+      display: flex;
+      flex-direction: column;
+      width: 180px;
+      margin-bottom: 14px;
+      border: 1px solid #555;
+    }
+    .minimum { min-height: 100px; }
+    .maximum { max-height: 100px; }
+    .grow { flex: 1; background: #e53935; }
+    .blue { height: 80px; background: #1e88e5; }
+    .green { height: 80px; background: #43a047; }
+  </style>
+</head>
+<body>
+  <h2>min-height: 100px grows flex item</h2>
+  <div class="column minimum"><div class="grow"></div></div>
+  <h2>max-height: 100px shrinks flex items</h2>
+  <div class="column maximum"><div class="blue"></div><div class="green"></div></div>
+</body>
+</html>
