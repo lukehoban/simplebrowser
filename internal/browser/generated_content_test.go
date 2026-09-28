@@ -319,10 +319,11 @@ func TestGeneratedContentStableAcrossViewportRestyle(t *testing.T) {
 
 func TestGeneratedContentStringEscapesEndToEnd(t *testing.T) {
 	viewport := image.Rect(0, 0, 300, 100)
-	// An escaped closing quote never terminates the string, so the
-	// declaration is invalid and generates no box.
-	if got := allText(t, `<style>p::before{content:"x\"}</style><p>T</p>`, viewport); got != "T|" {
-		t.Errorf("escaped closing quote: text = %q, want %q", got, "T|")
+	// An escaped closing quote never terminates the string. EOF then closes
+	// both the string and the block (CSS Syntax 3 §4.3.5), so the rest of
+	// the sheet is the generated text, as in Chrome (#347).
+	if got := allText(t, `<style>p::before{content:"x\"}</style><p>T</p>`, viewport); got != `x"}|T|` {
+		t.Errorf("escaped closing quote: text = %q, want %q", got, `x"}|T|`)
 	}
 	// A backslash before a form feed continues the string.
 	if got := allText(t, "<style>p::before{content:\"a\\\fb\"}</style><p>T</p>", viewport); got != "ab|T|" {
@@ -359,7 +360,10 @@ func TestGeneratedContentLegacySyntaxSpecificityMatchesDoubleColon(t *testing.T)
 func TestInvalidContentDeclarationDoesNotOverrideValidOne(t *testing.T) {
 	for _, tc := range []struct{ name, rule, want string }{
 		{"bad string after valid", "p::before{content:\"OK\";content:\"bad\nstring\"}", "OK|x|"},
-		{"bad string before valid", "p::before{content:\"bad\nstring\";content:\"OK\"}", "OK|x|"},
+		// Tokenizing restarts after the newline, so `";content:"` is a new
+		// string and the later declaration is swallowed, as in Chrome (#347).
+		{"bad string before valid", "p::before{content:\"bad\nstring\";content:\"OK\"}", "x|"},
+		{"bad string line before valid", "p::before{content:\"bad\n;content:\"OK\"}", "OK|x|"},
 		{"length after valid", `p::before{content:"OK";content:12px}`, "OK|x|"},
 		{"unknown keyword after valid", `p::before{content:"OK";content:bogus}`, "OK|x|"},
 		{"invalid important after valid important",

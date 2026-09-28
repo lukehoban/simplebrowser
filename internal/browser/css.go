@@ -124,22 +124,14 @@ func (p *cssScanner) ident() string {
 }
 
 // readUntil respects strings, comments and parentheses. It returns the first
-// top-level delimiter; malformed quotes consume the rest rather than spinning.
+// top-level delimiter. Strings end as scanCSSString describes, so a raw
+// newline ends a bad string and later quotes pair up as they do in browsers.
 func (p *cssScanner) readUntil(delims string) (string, byte) {
 	start := p.i
-	var quote byte
 	depth := 0
 	for p.i < len(p.s) {
 		c := p.s[p.i]
-		if quote != 0 {
-			if c == '\\' && p.i+1 < len(p.s) {
-				p.i += 2
-				continue
-			}
-			if c == quote {
-				quote = 0
-			}
-		} else if strings.HasPrefix(p.s[p.i:], "/*") {
+		if strings.HasPrefix(p.s[p.i:], "/*") {
 			end := strings.Index(p.s[p.i+2:], "*/")
 			if end < 0 {
 				p.i = len(p.s)
@@ -148,7 +140,8 @@ func (p *cssScanner) readUntil(delims string) (string, byte) {
 			p.i += end + 4
 			continue
 		} else if c == '"' || c == '\'' {
-			quote = c
+			p.i, _ = scanCSSString(p.s, p.i)
+			continue
 		} else if c == '(' {
 			depth++
 		} else if c == ')' && depth > 0 {
@@ -163,6 +156,96 @@ func (p *cssScanner) readUntil(delims string) (string, byte) {
 	return p.s[start:p.i], 0
 }
 
+// cssNewline reports a CSS newline. CSS preprocessing folds CR, CRLF and FF
+// into LF, so all three end a string.
+func cssNewline(b byte) bool { return b == '\n' || b == '\r' || b == '\f' }
+
+// scanCSSString consumes the string token whose opening quote is at s[i] and
+// returns the index just past it (CSS Syntax 3 §4.3.5). A matching quote ends
+// the string; an escaped newline continues it; EOF ends it as a valid string;
+// an unescaped newline ends it as a <bad-string-token> without consuming the
+// newline, so tokenizing restarts on the next line.
+func scanCSSString(s string, i int) (end int, bad bool) {
+	quote := s[i]
+	for i++; i < len(s); {
+		switch c := s[i]; {
+		case c == quote:
+			return i + 1, false
+		case cssNewline(c):
+			return i, true
+		case c == '\\' && strings.HasPrefix(s[i+1:], "\r\n"):
+			i += 3
+		case c == '\\' && i+1 < len(s):
+			i += 2
+		default:
+			i++
+		}
+	}
+	return i, false
+}
+
+// cssHasBadString reports whether s contains a <bad-string-token> outside
+// comments. Any construct containing one is invalid: a declaration with one
+// is dropped, and so is a rule whose prelude has one.
+func cssHasBadString(s string) bool {
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "/*"):
+			end := strings.Index(s[i+2:], "*/")
+			if end < 0 {
+				return false
+			}
+			i += end + 4
+		case s[i] == '"' || s[i] == '\'':
+			end, bad := scanCSSString(s, i)
+			if bad {
+				return true
+			}
+			i = end
+		default:
+			i++
+		}
+	}
+	return false
+}
+
+// closeCSSStringAtEOF adds the closing quote when s ends inside a string. EOF
+// ends a string token cleanly (CSS Syntax 3 §4.3.5), so `content:"OK` at the
+// end of a stylesheet or style attribute means "OK". Closing it once here
+// lets every later pass treat the value as an ordinary, terminated string. A
+// trailing backslash in such a string escapes nothing and is dropped.
+func closeCSSStringAtEOF(s string) string {
+	for i := 0; i < len(s); {
+		switch {
+		case strings.HasPrefix(s[i:], "/*"):
+			end := strings.Index(s[i+2:], "*/")
+			if end < 0 {
+				return s
+			}
+			i += end + 4
+		case s[i] == '"' || s[i] == '\'':
+			end, _ := scanCSSString(s, i)
+			if end == len(s) && (end-i < 2 || s[end-1] != s[i] || escapedAt(s, i+1, end-1)) {
+				return strings.TrimSuffix(s, "\\") + string(s[i])
+			}
+			i = end
+		default:
+			i++
+		}
+	}
+	return s
+}
+
+// escapedAt reports whether s[j] is escaped by an odd run of backslashes that
+// starts at or after from.
+func escapedAt(s string, from, j int) bool {
+	n := 0
+	for k := j - 1; k >= from && s[k] == '\\'; k-- {
+		n++
+	}
+	return n%2 == 1
+}
+
 func stripComments(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); {
@@ -174,20 +257,9 @@ func stripComments(s string) string {
 			b.WriteByte(' ')
 			i += end + 4
 		} else if s[i] == '"' || s[i] == '\'' {
-			q := s[i]
-			b.WriteByte(s[i])
-			i++
-			for i < len(s) {
-				b.WriteByte(s[i])
-				if s[i] == '\\' && i+1 < len(s) {
-					i++
-					b.WriteByte(s[i])
-				} else if s[i] == q {
-					i++
-					break
-				}
-				i++
-			}
+			end, _ := scanCSSString(s, i)
+			b.WriteString(s[i:end])
+			i = end
 		} else {
 			b.WriteByte(s[i])
 			i++
@@ -200,7 +272,7 @@ func stripComments(s string) string {
 // skipped, so a broken rule does not suppress later valid rules.
 func ParseCSS(input string) Stylesheet {
 	var sheet Stylesheet
-	parseCSSRules(input, "", "", &sheet)
+	parseCSSRules(closeCSSStringAtEOF(input), "", "", &sheet)
 	assignLayerOrder([]Stylesheet{sheet}, image.Pt(placeholderWidth, placeholderHeight))
 	return sheet
 }
@@ -230,6 +302,10 @@ func parseCSSRules(input, media, layer string, sheet *Stylesheet) {
 		body, ok := readCSSBlock(&p)
 		if !ok {
 			break
+		}
+		if cssHasBadString(prelude) {
+			// A bad string makes the prelude, and so the whole rule, invalid.
+			continue
 		}
 		prelude = strings.TrimSpace(stripComments(prelude))
 		if strings.HasPrefix(strings.ToLower(prelude), "@media") {
@@ -288,30 +364,25 @@ func combineMediaConditions(parent, child string) string {
 	return strings.Join(combined, ", ")
 }
 
+// readCSSBlock reads a {} block body after its opening brace. EOF closes the
+// block, so it only reports false when there is nothing left to read.
 func readCSSBlock(p *cssScanner) (string, bool) {
 	start := p.i
 	depth := 1
-	var quote byte
 	for p.i < len(p.s) {
 		c := p.s[p.i]
-		if quote != 0 {
-			if c == '\\' && p.i+1 < len(p.s) {
-				p.i += 2
-				continue
-			}
-			if c == quote {
-				quote = 0
-			}
-		} else if strings.HasPrefix(p.s[p.i:], "/*") {
+		if strings.HasPrefix(p.s[p.i:], "/*") {
 			end := strings.Index(p.s[p.i+2:], "*/")
 			if end < 0 {
+				// An unterminated comment runs to EOF, which closes the block.
 				p.i = len(p.s)
-				return "", false
+				break
 			}
 			p.i += end + 4
 			continue
 		} else if c == '"' || c == '\'' {
-			quote = c
+			p.i, _ = scanCSSString(p.s, p.i)
+			continue
 		} else if c == '{' {
 			depth++
 		} else if c == '}' {
@@ -324,7 +395,8 @@ func readCSSBlock(p *cssScanner) (string, bool) {
 		}
 		p.i++
 	}
-	return "", false
+	// EOF closes every open block (CSS Syntax 3 §5.4.8); the rule still counts.
+	return p.s[start:], true
 }
 
 func parseSelectorGroup(s string) ([]Selector, bool) {
@@ -577,7 +649,7 @@ func parsePseudo(p *cssScanner) (string, string, bool) {
 
 // ParseDeclarations also handles inline style attributes.
 func ParseDeclarations(input string) []Declaration {
-	p := cssScanner{s: input}
+	p := cssScanner{s: closeCSSStringAtEOF(input)}
 	var result []Declaration
 	for p.i < len(p.s) {
 		p.skip()
@@ -589,6 +661,14 @@ func ParseDeclarations(input string) []Declaration {
 			continue
 		}
 		value, end := p.readUntil(";}")
+		if cssHasBadString(name) || cssHasBadString(value) {
+			// No property grammar, custom properties included, accepts a
+			// <bad-string-token>, so the whole declaration is dropped.
+			if end == '}' {
+				break
+			}
+			continue
+		}
 		name = strings.TrimSpace(stripComments(name))
 		// Custom property names are case-sensitive; ordinary CSS names are not.
 		if !strings.HasPrefix(name, "--") {
@@ -648,32 +728,15 @@ func parseValues(s string) []CSSValue {
 		}
 		start := i
 		if s[i] == '"' || s[i] == '\'' {
-			q := s[i]
-			i++
-			for i < len(s) {
-				if s[i] == '\\' && i+1 < len(s) {
-					i += 2
-				} else if s[i] == q {
-					i++
-					break
-				} else {
-					i++
-				}
-			}
+			i, _ = scanCSSString(s, i)
 			result = append(result, CSSValue{Kind: "string", Text: s[start:i]})
 			continue
 		}
 		depth := 0
-		var quote byte
 		for i < len(s) {
-			if quote != 0 {
-				if s[i] == '\\' && i+1 < len(s) {
-					i += 2
-					continue
-				}
-				if s[i] == quote {
-					quote = 0
-				}
+			if s[i] == '"' || s[i] == '\'' {
+				i, _ = scanCSSString(s, i)
+				continue
 			} else if s[i] == '\\' {
 				// An optional whitespace terminator belongs to a hex escape,
 				// not to the boundary between values.
@@ -681,8 +744,6 @@ func parseValues(s string) []CSSValue {
 					i = end
 					continue
 				}
-			} else if s[i] == '"' || s[i] == '\'' {
-				quote = s[i]
 			} else if s[i] == '(' {
 				depth++
 			} else if s[i] == ')' && depth > 0 {
