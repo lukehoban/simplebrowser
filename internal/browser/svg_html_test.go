@@ -95,6 +95,11 @@ func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 			want: color.NRGBA{R: 20, G: 80, B: 160, A: 255},
 		},
 		{
+			name: "earlier host important layer beats later embedded SVG layer",
+			html: `<style>@layer foundation, theme; @layer foundation { svg path { fill: red !important } }</style><svg width="10" height="10" viewBox="0 0 10 10"><style>@layer theme { #shape { fill: blue !important } }</style><path id="shape" d="M0 0H10V10H0Z"/></svg>`,
+			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
+		},
+		{
 			name: "inherited host fill crosses the HTML SVG boundary",
 			html: `<div style="fill: blue"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z"/></svg></div>`,
 			want: color.NRGBA{R: 0, G: 0, B: 255, A: 255},

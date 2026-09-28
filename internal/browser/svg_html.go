@@ -163,7 +163,8 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		rgba = color.RGBA{A: 255}
 	}
 	inherited := color.NRGBA{R: rgba.R, G: rgba.G, B: rgba.B, A: rgba.A}
-	img, err := decodeSVGWithHostStyles(source.Bytes(), inherited, true, inlineSVGHostInheritedStyle(n.Style, n.StylePriority))
+	img, err := decodeSVGWithHostStyles(source.Bytes(), inherited, true,
+		inlineSVGHostInheritedStyle(n.Style, n.StylePriority), n.StyleLayerOrder)
 	if err != nil {
 		return nil
 	}

@@ -62,10 +62,11 @@ type StylePriority struct {
 
 // StyledNode retains its source DOM node while adding its computed style.
 type StyledNode struct {
-	Node          *Node
-	Style         ComputedStyle
-	StylePriority map[string]StylePriority
-	Children      []*StyledNode
+	Node            *Node
+	Style           ComputedStyle
+	StylePriority   map[string]StylePriority
+	StyleLayerOrder map[string]int
+	Children        []*StyledNode
 	// flexItem marks a flex item being laid out. Flex items establish an
 	// independent formatting context (css-flexbox §4), so their floats
 	// neither escape into the container nor persist across re-layouts.

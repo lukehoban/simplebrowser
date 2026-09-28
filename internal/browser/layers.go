@@ -86,6 +86,20 @@ func layerCount(sheets []Stylesheet, viewport image.Point) int {
 	return len(seen)
 }
 
+// layerOrders exposes the same document-wide layer ranks used by the host
+// cascade to renderers that perform a second cascade over a subtree.
+func layerOrders(sheets []Stylesheet, viewport image.Point) map[string]int {
+	orders := map[string]int{"": layerCount(sheets, viewport)}
+	for _, sheet := range sheets {
+		for _, rule := range sheet.Rules {
+			if rule.Layer != "" {
+				orders[rule.Layer] = rule.LayerOrder
+			}
+		}
+	}
+	return orders
+}
+
 func joinLayerName(parent, child string) string {
 	if parent == "" {
 		return child

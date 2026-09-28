@@ -52,6 +52,7 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 	// later layout pass can restyle the same loaded document at another size.
 	document.Stylesheets = cloneStylesheetsForLayerOrder(document.Stylesheets)
 	assignLayerOrder(document.Stylesheets, viewport)
+	styleLayerOrder := layerOrders(document.Stylesheets, viewport)
 	styles := make(map[*Node]ComputedStyle)
 	pseudoNodes := document.pseudoNodes
 	if pseudoNodes == nil {
@@ -70,7 +71,7 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 				textStyle = cloneStyle(parent)
 				delete(textStyle, "position")
 			}
-			result := &StyledNode{Node: n, Style: textStyle}
+			result := &StyledNode{Node: n, Style: textStyle, StyleLayerOrder: styleLayerOrder}
 			for _, child := range n.Children {
 				result.Children = append(result.Children, makeTree(child, textStyle))
 			}
@@ -85,7 +86,8 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 			rootFontSize = computedFontSize(computed)
 		}
 		styles[n] = computed
-		result := &StyledNode{Node: n, Style: computed, StylePriority: exportedStylePriorities(stylePriority)}
+		result := &StyledNode{Node: n, Style: computed, StylePriority: exportedStylePriorities(stylePriority),
+			StyleLayerOrder: styleLayerOrder}
 		// A generated box is the originating element's first or last child
 		// (CSS Content 3 §2), inheriting from it like a real child element.
 		if before := pseudoStyledNode(n, "before", computed, rootFontSize, document, viewport, pseudoNodes); before != nil {
