@@ -1087,6 +1087,57 @@ func TestSVGStrokeJoinsAndNoDoubleAlpha(t *testing.T) {
 	}
 }
 
+func TestSVGMiterInnerCornerFixture(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "miter-inner-corner.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.RGBAAt(9, 9); got != (color.RGBA{0, 0, 0, 255}) {
+		t.Errorf("miter inner-corner pixel (9,9) = %v, want opaque black", got)
+	}
+	if got := img.RGBAAt(10, 10); got != (color.RGBA{0, 0, 0, 255}) {
+		t.Errorf("miter vertex pixel (10,10) = %v, want opaque black", got)
+	}
+	if got := img.RGBAAt(6, 6); got != (color.RGBA{255, 255, 255, 255}) {
+		t.Errorf("outside corner pixel (6,6) = %v, want opaque white", got)
+	}
+	for _, join := range []string{"miter", "bevel", "round"} {
+		src := `<svg width="40" height="40"><rect width="40" height="40" fill="#fff"/><rect x="10" y="10" width="20" height="20" fill="none" stroke="#000" stroke-width="6" stroke-linejoin="` + join + `"/></svg>`
+		joined, err := decodeSVG([]byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := joined.RGBAAt(20, 20); got != (color.RGBA{255, 255, 255, 255}) {
+			t.Errorf("%s join changed the unfilled interior pixel: %v", join, got)
+		}
+		if got := joined.RGBAAt(10, 20); got != (color.RGBA{0, 0, 0, 255}) {
+			t.Errorf("%s join edge pixel = %v, want opaque black", join, got)
+		}
+	}
+	filled, err := decodeSVG([]byte(`<svg width="40" height="40"><rect width="40" height="40" fill="#fff"/><rect x="10" y="10" width="20" height="20" fill="#00ff00" stroke="#000" stroke-width="6"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := filled.RGBAAt(20, 20); got != (color.RGBA{0, 255, 0, 255}) {
+		t.Errorf("filled shape interior = %v, want opaque green", got)
+	}
+	if path := os.Getenv("SVG_MITER_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if err != nil || closeErr != nil {
+			t.Fatalf("write miter render: %v, %v", err, closeErr)
+		}
+	}
+}
+
 func TestSVGHackerNewsAssets(t *testing.T) {
 	read := func(name string) *svgImage {
 		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "hn", name))

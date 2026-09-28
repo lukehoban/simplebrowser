@@ -225,7 +225,10 @@ func strokeSVGSolidSubpath(r *vector.Rasterizer, pts []svgPoint, closed bool, sh
 			if denom > 0 {
 				tip := a.add(b).mul(1 / denom)
 				if math.Hypot(tip.x, tip.y) <= shape.miterLimit*half {
-					svgStrokePolygon(r, m, v.add(a), v.add(tip), v.add(b))
+					// The miter triangle fills only the outside of the join.
+					// Include the vertex so the polygon also covers the inner
+					// corner between the two stroke rectangles.
+					svgStrokePolygon(r, m, v, v.add(a), v.add(tip), v.add(b))
 					continue
 				}
 			}
