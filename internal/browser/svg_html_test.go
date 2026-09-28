@@ -63,6 +63,39 @@ func TestInlineSVGInheritsHTMLCurrentColor(t *testing.T) {
 	}
 }
 
+func TestInlineSVGUsesAncestorCustomPropertyForGeometry(t *testing.T) {
+	root := ParseHTML(`<div style="--size:20px"><svg width="40" height="20" viewBox="0 0 40 20"><style>rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg></div>`)
+	styled, err := style(Document{Root: root}, &Fetcher{})
+	if err != nil {
+		t.Fatalf("style document: %v", err)
+	}
+	var svgNode *StyledNode
+	var find func(*StyledNode)
+	find = func(node *StyledNode) {
+		if node == nil || svgNode != nil {
+			return
+		}
+		if node.Node != nil && node.Node.Type == ElementNode && node.Node.Name == "svg" {
+			svgNode = node
+			return
+		}
+		for _, child := range node.Children {
+			find(child)
+		}
+	}
+	find(styled.StyleRoot)
+	img, ok := inlineSVGImage(svgNode).(*svgImage)
+	if !ok || img == nil {
+		t.Fatal("inlineSVGImage() did not decode the SVG")
+	}
+	if got := color.NRGBAModel.Convert(img.At(10, 10)).(color.NRGBA); got.R < 240 || got.G > 20 || got.B > 20 {
+		t.Fatalf("resolved geometry pixel = %#v, want red", got)
+	}
+	if got := color.NRGBAModel.Convert(img.At(30, 10)).(color.NRGBA); got.A != 0 {
+		t.Fatalf("pixel outside var() width = %#v, want transparent", got)
+	}
+}
+
 func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 	tests := []struct {
 		name string
@@ -142,6 +175,11 @@ func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 		{
 			name: "SVG root presentation attribute overrides inherited host fill",
 			html: `<div style="fill: blue"><svg fill="red" width="10" height="10" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z"/></svg></div>`,
+			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
+		},
+		{
+			name: "ancestor custom property resolves SVG geometry",
+			html: `<div style="--size: 20px"><svg width="40" height="20" viewBox="0 0 40 20"><style>rect { width: var(--size); height: 20px; fill: red }</style><rect/></svg></div>`,
 			want: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
 		},
 	}

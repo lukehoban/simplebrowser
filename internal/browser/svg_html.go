@@ -180,11 +180,36 @@ func inlineSVGImage(n *StyledNode) image.Image {
 	}
 	inherited := color.NRGBA{R: rgba.R, G: rgba.G, B: rgba.B, A: rgba.A}
 	img, err := decodeSVGWithHostStyles(source.Bytes(), inherited, true,
-		inlineSVGHostInheritedStyle(n.Style, n.StylePriority), n.StyleLayerOrder)
+		inlineSVGHostInheritedStyle(n.Style, n.StylePriority), n.StyleLayerOrder,
+		inlineSVGHostCustomProperties(n.Style))
 	if err != nil {
 		return nil
 	}
 	return img
+}
+
+// inlineSVGHostCustomProperties carries the already-computed HTML custom
+// property token streams across the inline SVG boundary. Keep this snapshot
+// bounded: it is input to the SVG variable resolver, not serialized markup.
+func inlineSVGHostCustomProperties(style ComputedStyle) ComputedStyle {
+	const maxProperties = 256
+	result := make(ComputedStyle)
+	total := 0
+	for property, value := range style {
+		if !strings.HasPrefix(property, "--") || !validProperty(property) ||
+			value == invalidVariable || len(value) > maxSVGBytes-total {
+			continue
+		}
+		result[property] = value
+		total += len(value)
+		if len(result) >= maxProperties {
+			break
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func inlineSVGHostInheritedStyle(style ComputedStyle, priorities map[string]StylePriority) map[string]string {

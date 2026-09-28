@@ -177,11 +177,12 @@ func decodeSVG(data []byte) (*svgImage, error) {
 // inherit from the surrounding HTML element. Standalone image documents keep
 // the ordinary initial black color through decodeSVG.
 func decodeSVGWithInheritedColor(data []byte, inherited color.NRGBA) (*svgImage, error) {
-	return decodeSVGWithHostStyles(data, inherited, false, nil, nil)
+	return decodeSVGWithHostStyles(data, inherited, false, nil, nil, nil)
 }
 
 func decodeSVGWithHostStyles(data []byte, inherited color.NRGBA, allowHostStyles bool,
-	inheritedHostStyle map[string]string, hostLayerOrder map[string]int) (*svgImage, error) {
+	inheritedHostStyle map[string]string, hostLayerOrder map[string]int,
+	inheritedHostCustomProperties ComputedStyle) (*svgImage, error) {
 	if len(data) > maxSVGBytes {
 		return nil, errUnsupportedSVG
 	}
@@ -301,6 +302,7 @@ func decodeSVGWithHostStyles(data []byte, inherited color.NRGBA, allowHostStyles
 		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA),
 		hostLayers: hostLayers}
 	state.inheritedHostStyle = inheritedHostStyle
+	state.inheritedHostCustomProperties = inheritedHostCustomProperties
 	rootAttrs := state.cascadedAttributes(root)
 	// Root sizing precedes the SVG viewport. Resolve absolute CSS lengths
 	// against the normal initial viewport, just as bare root attributes are.
@@ -351,10 +353,11 @@ type svgExpansion struct {
 	// patternBudget bounds lazily scaled pattern tiles for the document.
 	patternBudget *svgPatternBudget
 	// colors memoizes computed color values for non-rendered gradient trees.
-	colors             map[*svgNode]color.NRGBA
-	elements           int
-	segments           int
-	inheritedHostStyle map[string]string
+	colors                        map[*svgNode]color.NRGBA
+	elements                      int
+	segments                      int
+	inheritedHostStyle            map[string]string
+	inheritedHostCustomProperties ComputedStyle
 	// hostLayers maps host cascade layer ranks to the merged host/SVG ranks.
 	hostLayers       map[int]int
 	customProperties map[*svgNode]ComputedStyle
@@ -1155,6 +1158,11 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 			s.cascadedAttributes(node.parent)
 		}
 		custom := make(ComputedStyle)
+		if node == s.root {
+			for property, value := range s.inheritedHostCustomProperties {
+				custom[property] = value
+			}
+		}
 		for key, value := range s.customProperties[node.parent] {
 			custom[key] = value
 		}
