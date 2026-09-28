@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="80" viewBox="0 0 240 80">
+  <rect width="240" height="80" fill="#f5f6fa"/>
+  <style>
+    .tile { fill: #e1e5ee }
+    #calc { width: calc(50% - 84px); height: 36px; fill: #d3264a }
+    #variable { --size: 36px; width: var(--size); height: 36px; fill: #229959 }
+    #inherited { width: inherit; height: 36px; fill: #3366cc }
+  </style>
+  <rect class="tile" x="16" y="16" width="36" height="36"/>
+  <rect class="tile" x="92" y="16" width="36" height="36"/>
+  <rect class="tile" x="168" y="16" width="36" height="36"/>
+  <rect id="calc" x="16" y="16"/>
+  <rect id="variable" x="92" y="16"/>
+  <svg x="168" y="16" width="36" height="36" overflow="hidden">
+    <rect id="inherited"/>
+  </svg>
+</svg>

@@ -341,7 +341,9 @@ type svgExpansion struct {
 	segments           int
 	inheritedHostStyle map[string]string
 	// hostLayers maps host cascade layer ranks to the merged host/SVG ranks.
-	hostLayers map[int]int
+	hostLayers       map[int]int
+	customProperties map[*svgNode]ComputedStyle
+	computedGeometry map[*svgNode]map[string]string
 }
 
 func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, useDepth int) error {
@@ -392,6 +394,7 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		horizontal: parent.userWidth, vertical: parent.userHeight, diagonal: parent.dashBasis,
 		fontSize: current.fontSize, rootFontSize: s.img.rootFontSize, ratios: current.fontRatios,
 	}
+	s.resolveGeometry(node, a, basis)
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
 		current.opacity = n // inherited property, not ancestor compositing
 	}
@@ -808,6 +811,7 @@ var svgStyleProperties = map[string]bool{
 // presentation hint with the lowest priority. Polyline points, line endpoints
 // and use x/y stay attribute-sourced.
 var svgGeometryProperties = map[string]map[string]bool{
+	"svg":     {"x": true, "y": true, "width": true, "height": true},
 	"path":    {"d": true},
 	"rect":    {"x": true, "y": true, "width": true, "height": true, "rx": true, "ry": true},
 	"circle":  {"cx": true, "cy": true, "r": true},
@@ -818,8 +822,8 @@ var svgGeometryProperties = map[string]map[string]bool{
 // svgGeometryDeclaration validates a CSS geometry declaration and returns its
 // specified value. Invalid declarations are dropped, as a CSS parser would,
 // so a lower-priority declaration or the presentation attribute applies.
-// Unlike attributes, CSS requires units on non-zero lengths. initial/unset
-// resolve to the initial value; inherit, calc() and var() are unsupported.
+// Unlike attributes, CSS requires units on non-zero lengths. Validation of
+// var() is deferred until after substitution; invalid computed values unset.
 func svgGeometryDeclaration(property, value string) (string, bool) {
 	value = strings.TrimSpace(value)
 	lower := strings.ToLower(value)
@@ -833,8 +837,17 @@ func svgGeometryDeclaration(property, value string) (string, bool) {
 			return "auto", true
 		}
 		return "0", true
+	case "inherit":
+		return "inherit", true
 	case "auto":
 		return "auto", autoAllowed
+	}
+	if containsVarFunction(value) {
+		return value, true
+	}
+	if strings.HasPrefix(lower, "calc(") {
+		_, ok := svgCalc(value, svgLengthBasis{horizontal: 1, vertical: 1, diagonal: 1, fontSize: 1, rootFontSize: 1, ratios: fontRatios{ex: 1, ch: 1}}, svgHorizontal)
+		return value, ok
 	}
 	if n, err := strconv.ParseFloat(value, 64); err == nil {
 		return value, n == 0 // unitless zero only
@@ -849,6 +862,99 @@ func svgGeometryDeclaration(property, value string) (string, bool) {
 		_, ok = check.length(value, svgHorizontal)
 	}
 	return value, ok
+}
+
+// svgCalc shares the bounded CSS math parser with HTML while retaining SVG's
+// own supported units and axis-specific percentage basis.
+func svgCalc(value string, basis svgLengthBasis, axis svgAxis) (float64, bool) {
+	v, ok := parseCSSMath(value, func(n float64, unit string) (cssMathValue, bool) {
+		switch unit {
+		case "%":
+			base := basis.horizontal
+			if axis == svgVertical {
+				base = basis.vertical
+			} else if axis == svgDiagonal {
+				base = basis.diagonal
+			}
+			return cssMathValue{px: base * n / 100}, true
+		case "px", "in", "cm", "mm", "q", "pt", "pc":
+			factor, _ := svgAbsoluteUnit(unit)
+			return cssMathValue{px: n * factor}, true
+		case "em":
+			return cssMathValue{px: n * basis.fontSize}, true
+		case "rem":
+			return cssMathValue{px: n * basis.rootFontSize}, true
+		case "ex":
+			return cssMathValue{px: n * basis.fontSize * basis.ratios.ex}, true
+		case "ch":
+			return cssMathValue{px: n * basis.fontSize * basis.ratios.ch}, true
+		}
+		return cssMathValue{}, false
+	})
+	return v.px, ok && !v.number && v.percent == 0 && finite(v.px) && math.Abs(v.px) <= maxSVGGeometry
+}
+
+func svgGeometryInitial(property string) string {
+	if property == "width" || property == "height" || property == "rx" || property == "ry" {
+		return "auto"
+	}
+	return "0"
+}
+
+// resolveGeometry runs after font-size and viewport bases are known, before
+// children are visited. Store computed px values so inherit does not rebase
+// parent em/% lengths against the child's font or viewport.
+func (s *svgExpansion) resolveGeometry(node *svgNode, attrs map[string]string, basis svgLengthBasis) {
+	computed := make(map[string]string)
+	for property := range svgGeometryProperties[node.name] {
+		if property == "d" {
+			continue
+		}
+		value, present := attrs[property]
+		if !present {
+			continue
+		}
+		if strings.EqualFold(value, "inherit") {
+			value = s.computedGeometry[node.parent][property]
+			if value == "" {
+				value = svgGeometryInitial(property)
+			}
+		} else if containsVarFunction(value) {
+			resolved, ok := substituteVars(value, s.customProperties[node], nil)
+			if !ok {
+				value = svgGeometryInitial(property)
+			} else {
+				value = strings.TrimSpace(resolved)
+				if _, valid := svgGeometryDeclaration(property, value); !valid {
+					value = svgGeometryInitial(property)
+				}
+			}
+		}
+		axis := svgHorizontal
+		if property == "y" || property == "cy" || property == "height" || property == "ry" {
+			axis = svgVertical
+		} else if property == "r" {
+			axis = svgDiagonal
+		}
+		if strings.HasPrefix(strings.ToLower(value), "calc(") {
+			n, ok := svgCalc(value, basis, axis)
+			if !ok || n < 0 && property != "x" && property != "y" && property != "cx" && property != "cy" {
+				value = svgGeometryInitial(property)
+			} else {
+				value = strconv.FormatFloat(n, 'f', -1, 64) + "px"
+			}
+		}
+		attrs[property] = value
+		if value == "auto" {
+			computed[property] = value
+		} else if n, ok := basis.coordinate(value, axis); ok {
+			computed[property] = strconv.FormatFloat(n, 'f', -1, 64) + "px"
+		}
+	}
+	if s.computedGeometry == nil {
+		s.computedGeometry = make(map[*svgNode]map[string]string)
+	}
+	s.computedGeometry[node] = computed
 }
 
 // svgPathDeclaration accepts SVG 2's deliberately narrow CSS syntax for d.
@@ -949,7 +1055,9 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 	order := 0
 	geometry := svgGeometryProperties[node.name]
 	add := func(d Declaration, spec [3]int, inline bool, layer int, hostPriority ...StylePriority) {
-		if geometry[d.Property] {
+		if strings.HasPrefix(d.Property, "--") {
+			// Custom properties use the same author cascade as geometry.
+		} else if geometry[d.Property] {
 			value, ok := svgGeometryDeclaration(d.Property, d.Value)
 			if !ok {
 				return
@@ -1005,6 +1113,51 @@ func (s *svgExpansion) cascadedAttributes(node *svgNode) map[string]string {
 		add(d, [3]int{maxSVGElements + 1, 0, 0}, true, 0)
 		if !svgStyleProperties[d.Property] && !geometry[d.Property] {
 			attrs[d.Property] = d.Value // preserve existing inline geometry behavior
+		}
+	}
+	// Compute inherited custom token streams, including declarations on groups
+	// that have no geometry of their own.
+	if s.customProperties == nil {
+		s.customProperties = make(map[*svgNode]ComputedStyle)
+	}
+	if _, exists := s.customProperties[node]; !exists {
+		if node.parent != nil {
+			s.cascadedAttributes(node.parent)
+		}
+		custom := make(ComputedStyle)
+		for key, value := range s.customProperties[node.parent] {
+			custom[key] = value
+		}
+		for property, winner := range winners {
+			if !strings.HasPrefix(property, "--") {
+				continue
+			}
+			switch strings.ToLower(winner.d.Value) {
+			case "inherit", "unset":
+				// Keep the inherited computed stream.
+			case "initial":
+				custom[property] = invalidVariable
+			default:
+				custom[property] = winner.d.Value
+			}
+			delete(winners, property)
+		}
+		raw := cloneStyle(custom)
+		for property, value := range custom {
+			if strings.HasPrefix(property, "--") && value != invalidVariable {
+				if resolved, ok := substituteVars(value, raw, map[string]bool{property: true}); ok {
+					custom[property] = resolved
+				} else {
+					custom[property] = invalidVariable
+				}
+			}
+		}
+		s.customProperties[node] = custom
+	} else {
+		for property := range winners {
+			if strings.HasPrefix(property, "--") {
+				delete(winners, property)
+			}
 		}
 	}
 	for property, winner := range winners {

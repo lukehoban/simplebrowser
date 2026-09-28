@@ -31,6 +31,59 @@ func TestSVGStylesheetGeometryRepro(t *testing.T) {
 	}
 }
 
+// Issue #161: CSS math and custom properties resolve against the current SVG
+// viewport and font; inherit retains the parent's computed geometry.
+func TestSVGComputedGeometry(t *testing.T) {
+	for _, tc := range []struct {
+		name, source string
+		x, y         int
+		want         color.RGBA
+	}{
+		{"mixed calc", `<style>rect { width: calc(50% + 4px); height: calc(1cm - 17.795px) }</style><rect/>`, 23, 5, geomRed},
+		{"mixed calc boundary", `<style>rect { width: calc(50% + 4px); height: 20px }</style><rect/>`, 25, 5, geomClear},
+		{"axis and font", `<style>circle { cx: calc(10% + 1em); cy: calc(50% - 1ex); r: calc(5px + 5%) }</style><circle font-size="10" />`, 14, 20, geomRed},
+		{"group variable", `<style>g { --w: 10px } rect { width: calc(var(--w) + 5px); height: 10px }</style><g><rect/></g>`, 14, 5, geomRed},
+		{"local variable overrides group", `<style>g { --w: 10px } rect { --w: 25px; width: var(--w); height: 10px }</style><g><rect/></g>`, 24, 5, geomRed},
+		{"var fallback", `<style>rect { width: var(--missing, 15px); height: 10px }</style><rect/>`, 14, 5, geomRed},
+		{"unresolved var unsets not attribute", `<style>rect { width: var(--missing); height: 10px }</style><rect width="20"/>`, 5, 5, geomClear},
+		{"invalid substituted value unsets", `<style>rect { --bad: 12; width: var(--bad); height: 10px }</style><rect width="20"/>`, 5, 5, geomClear},
+		{"malformed calc falls through", `<style>rect { width: 15px } .a { width: calc(5px +) }</style><rect class="a" height="10"/>`, 14, 5, geomRed},
+		{"negative calc unsets", `<style>rect { width: calc(5px - 10px); height: 10px }</style><rect width="20"/>`, 5, 5, geomClear},
+		{"inherit parent computed", `<style>svg { width: 40px } rect { width: inherit; height: 10px }</style><rect/>`, 35, 5, geomRed},
+		{"inherit not inherited by default", `<style>svg { width: 40px }</style><rect height="10"/>`, 5, 5, geomClear},
+		{"inherit initial on group", `<style>rect { width: inherit; height: 10px }</style><g><rect width="20"/></g>`, 5, 5, geomClear},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			img, err := decodeSVG([]byte(`<svg width="40" height="40" fill="red">` + tc.source + `</svg>`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := img.RGBAAt(tc.x, tc.y); got != tc.want {
+				t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSVGComputedGeometryVisual(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "svg", "computed-geometry.svg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := decodeSVG(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		x    int
+		want color.RGBA
+	}{{32, color.RGBA{211, 38, 74, 255}}, {108, color.RGBA{34, 153, 89, 255}}, {184, color.RGBA{51, 102, 204, 255}}} {
+		if got := img.RGBAAt(tc.x, 32); got != tc.want {
+			t.Errorf("visual pixel (%d,32) = %v, want %v", tc.x, got, tc.want)
+		}
+	}
+}
+
 func TestSVGGeometryCascade(t *testing.T) {
 	for _, tc := range []struct {
 		name, style, shape string
@@ -55,7 +108,7 @@ func TestSVGGeometryCascade(t *testing.T) {
 		{"auto width hides rect", `rect { width: auto }`, `<rect width="10" height="10"/>`, 5, 5, geomClear},
 		{"initial width hides rect", `rect { width: initial }`, `<rect width="10" height="10"/>`, 5, 5, geomClear},
 		{"initial x resets to zero", `rect { x: initial }`, `<rect x="20" width="10" height="10"/>`, 5, 5, geomRed},
-		{"inherit unsupported, attribute applies", `rect { width: inherit }`, `<rect width="10" height="10"/>`, 5, 5, geomRed},
+		{"inherit root computed width", `rect { width: inherit }`, `<rect width="10" height="10"/>`, 5, 5, geomRed},
 		{"unitless zero valid", `rect { x: 0 }`, `<rect x="20" width="10" height="10"/>`, 5, 5, geomRed},
 		{"not inherited from group", `g { width: 30px; height: 30px }`, `<g><rect/></g>`, 5, 5, geomClear},
 		{"circle", `circle { cx: 20px; cy: 20px; r: 10px }`, `<circle r="1"/>`, 20, 20, geomRed},
@@ -159,9 +212,9 @@ func TestSVGGeometryDeclarationValidation(t *testing.T) {
 		{"r", "auto", "auto", false},
 		{"r", "-1px", "-1px", false},
 		{"rx", "auto", "auto", true},
-		{"height", "calc(1px + 2px)", "calc(1px + 2px)", false},
-		{"height", "var(--h)", "var(--h)", false},
-		{"height", "inherit", "inherit", false},
+		{"height", "calc(1px + 2px)", "calc(1px + 2px)", true},
+		{"height", "var(--h)", "var(--h)", true},
+		{"height", "inherit", "inherit", true},
 		{"height", "1e99px", "1e99px", false},
 		{"d", `path("M0 0H1V1Z")`, "M0 0H1V1Z", true},
 		{"d", `PATH( 'M0 0H1V1Z' )`, "M0 0H1V1Z", true},
