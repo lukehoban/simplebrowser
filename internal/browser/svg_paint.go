@@ -54,9 +54,10 @@ type svgGradient struct {
 	transform svgAffine
 	spread    string // "pad", "reflect" or "repeat"
 	stops     []svgStop
-	// Linear: x1,y1 → x2,y2. Radial: centre (x1,y1), radius r, focus (fx,fy).
+	// Linear: x1,y1 → x2,y2. Radial: centre (x1,y1), radius r, focus
+	// (fx,fy), and focal-circle radius fr.
 	x1, y1, x2, y2 float64
-	r, fx, fy      float64
+	r, fr, fx, fy  float64
 }
 
 // svgPaintServer is a server bound to one shape: toLocal maps paint-server
@@ -366,6 +367,11 @@ func (s *svgExpansion) resolveGradient(id string) *svgGradient {
 		g.x1 = coord("cx", "50%", vw)
 		g.y1 = coord("cy", "50%", vh)
 		g.r = coord("r", "50%", math.Hypot(vw, vh)/math.Sqrt2)
+		if v, ok := attr("fr", true); ok {
+			if n, ok := svgGradientLength(v, math.Hypot(vw, vh)/math.Sqrt2, g.userSpace); ok {
+				g.fr = math.Max(0, n)
+			}
+		}
 		g.fx, g.fy = g.x1, g.y1
 		if v, ok := attr("fx", true); ok {
 			if n, ok := svgGradientLength(v, vw, g.userSpace); ok {
@@ -799,9 +805,27 @@ func (g *svgGradient) offset(x, y float64) float64 {
 	}
 	fx, fy := g.x1-ex, g.y1-ey
 	dx, dy := x-fx, y-fy
-	a := ex*ex + ey*ey - g.r*g.r
-	de := dx*ex + dy*ey
-	return (de - math.Sqrt(de*de-a*(dx*dx+dy*dy))) / a
+	distance := math.Hypot(dx, dy)
+	if distance == 0 {
+		if g.fr > 0 {
+			return -1
+		}
+		return 0
+	}
+	// The focal circle cannot extend past the outer circle. This also keeps
+	// the interpolation denominator positive for every ray.
+	fr := math.Min(math.Max(0, g.fr), g.r-math.Hypot(ex, ey))
+	ux, uy := dx/distance, dy/distance
+	centerDistance := ux*ex + uy*ey
+	outerDistance := centerDistance + math.Sqrt(math.Max(0,
+		g.r*g.r-ex*ex-ey*ey+centerDistance*centerDistance))
+	if outerDistance <= fr {
+		if distance <= fr {
+			return -1
+		}
+		return 1
+	}
+	return (distance - fr) / (outerDistance - fr)
 }
 
 // degenerate reports whether the gradient vector or radius is empty, in
