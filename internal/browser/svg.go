@@ -301,7 +301,22 @@ func decodeSVGWithHostStyles(data []byte, inherited color.NRGBA, allowHostStyles
 		gradients: make(map[*svgNode]*svgGradient), patterns: make(map[*svgNode]*svgPattern), colors: make(map[*svgNode]color.NRGBA),
 		hostLayers: hostLayers}
 	state.inheritedHostStyle = inheritedHostStyle
-	if err := img.parseRoot(state.cascadedAttributes(root)); err != nil {
+	rootAttrs := state.cascadedAttributes(root)
+	// Root sizing precedes the SVG viewport. Resolve absolute CSS lengths
+	// against the normal initial viewport, just as bare root attributes are.
+	rootFontSize := 16.0
+	if n, ok := svgFontSize(rootAttrs["font-size"], 16, 16); ok {
+		rootFontSize = n
+	}
+	state.resolveGeometry(root, rootAttrs, svgLengthBasis{
+		horizontal: defaultSVGWidth, vertical: defaultSVGHeight,
+		diagonal: math.Hypot(defaultSVGWidth/math.Sqrt2, defaultSVGHeight/math.Sqrt2),
+		fontSize: rootFontSize, rootFontSize: rootFontSize,
+		ratios: ratiosFor(ComputedStyle{
+			"font-family": rootAttrs["font-family"], "font-style": rootAttrs["font-style"], "font-weight": rootAttrs["font-weight"],
+		}),
+	})
+	if err := img.parseRoot(rootAttrs); err != nil {
 		return nil, err
 	}
 	frame := svgDefaultFrame()
@@ -394,7 +409,13 @@ func (s *svgExpansion) walk(node *svgNode, parent svgFrame, referenced bool, use
 		horizontal: parent.userWidth, vertical: parent.userHeight, diagonal: parent.dashBasis,
 		fontSize: current.fontSize, rootFontSize: s.img.rootFontSize, ratios: current.fontRatios,
 	}
-	s.resolveGeometry(node, a, basis)
+	if node == s.root {
+		for property, value := range s.computedGeometry[node] {
+			a[property] = value
+		}
+	} else {
+		s.resolveGeometry(node, a, basis)
+	}
 	if n, ok := svgUnitInterval(a["fill-opacity"]); ok {
 		current.opacity = n // inherited property, not ancestor compositing
 	}
@@ -926,6 +947,15 @@ func (s *svgExpansion) resolveGeometry(node *svgNode, attrs map[string]string, b
 			} else {
 				value = strings.TrimSpace(resolved)
 				if _, valid := svgGeometryDeclaration(property, value); !valid {
+					value = svgGeometryInitial(property)
+				}
+			}
+			switch strings.ToLower(value) {
+			case "initial", "unset":
+				value = svgGeometryInitial(property)
+			case "inherit":
+				value = s.computedGeometry[node.parent][property]
+				if value == "" {
 					value = svgGeometryInitial(property)
 				}
 			}

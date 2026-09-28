@@ -45,6 +45,9 @@ func TestSVGComputedGeometry(t *testing.T) {
 		{"group variable", `<style>g { --w: 10px } rect { width: calc(var(--w) + 5px); height: 10px }</style><g><rect/></g>`, 14, 5, geomRed},
 		{"local variable overrides group", `<style>g { --w: 10px } rect { --w: 25px; width: var(--w); height: 10px }</style><g><rect/></g>`, 24, 5, geomRed},
 		{"var fallback", `<style>rect { width: var(--missing, 15px); height: 10px }</style><rect/>`, 14, 5, geomRed},
+		{"var fallback calc", `<style>rect { width: var(--missing, calc(50% - 5px)); height: 10px }</style><rect/>`, 14, 5, geomRed},
+		{"var resolves inherit", `<style>rect { width: var(--missing, inherit); height: 10px }</style><rect/>`, 35, 5, geomRed},
+		{"var resolves initial", `<style>rect { width: var(--missing, initial); height: 10px }</style><rect width="20"/>`, 5, 5, geomClear},
 		{"unresolved var unsets not attribute", `<style>rect { width: var(--missing); height: 10px }</style><rect width="20"/>`, 5, 5, geomClear},
 		{"invalid substituted value unsets", `<style>rect { --bad: 12; width: var(--bad); height: 10px }</style><rect width="20"/>`, 5, 5, geomClear},
 		{"malformed calc falls through", `<style>rect { width: 15px } .a { width: calc(5px +) }</style><rect class="a" height="10"/>`, 14, 5, geomRed},
@@ -52,6 +55,8 @@ func TestSVGComputedGeometry(t *testing.T) {
 		{"inherit parent computed", `<style>svg { width: 40px } rect { width: inherit; height: 10px }</style><rect/>`, 35, 5, geomRed},
 		{"inherit not inherited by default", `<style>svg { width: 40px }</style><rect height="10"/>`, 5, 5, geomClear},
 		{"inherit initial on group", `<style>rect { width: inherit; height: 10px }</style><g><rect width="20"/></g>`, 5, 5, geomClear},
+		{"inherit computed percent from nested viewport", `<svg width="50%" height="20"><style>rect { width: inherit; height: 10px }</style><rect/></svg>`, 19, 5, geomRed},
+		{"inherit percent boundary", `<svg width="50%" height="20"><style>rect { width: inherit; height: 10px }</style><rect/></svg>`, 21, 5, geomClear},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			img, err := decodeSVG([]byte(`<svg width="40" height="40" fill="red">` + tc.source + `</svg>`))
@@ -62,6 +67,19 @@ func TestSVGComputedGeometry(t *testing.T) {
 				t.Errorf("pixel (%d,%d) = %v, want %v", tc.x, tc.y, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSVGRootComputedGeometry(t *testing.T) {
+	img, err := decodeSVG([]byte(`<svg style="--w: 40px; width: calc(var(--w) + 4px)" height="20"><rect width="inherit" height="20" fill="red"/></svg>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := img.Bounds().Dx(); got != 44 {
+		t.Fatalf("root computed width = %d, want 44", got)
+	}
+	if got := img.RGBAAt(42, 5); got != geomRed {
+		t.Fatalf("inherited root width pixel = %v, want red", got)
 	}
 }
 
@@ -80,6 +98,17 @@ func TestSVGComputedGeometryVisual(t *testing.T) {
 	}{{32, color.RGBA{211, 38, 74, 255}}, {108, color.RGBA{34, 153, 89, 255}}, {184, color.RGBA{51, 102, 204, 255}}} {
 		if got := img.RGBAAt(tc.x, 32); got != tc.want {
 			t.Errorf("visual pixel (%d,32) = %v, want %v", tc.x, got, tc.want)
+		}
+	}
+	if path := os.Getenv("SVG_COMPUTED_GEOMETRY_VISUAL_PATH"); path != "" {
+		f, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encodeErr := png.Encode(f, img.RGBA)
+		closeErr := f.Close()
+		if encodeErr != nil || closeErr != nil {
+			t.Fatalf("write visual: %v, %v", encodeErr, closeErr)
 		}
 	}
 }
