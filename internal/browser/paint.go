@@ -717,7 +717,11 @@ func (p *painter) paintBackground(box *Box) {
 				draw.Draw(dst, dst.Bounds(), backgroundLayer, dst.Bounds().Min, draw.Src)
 			})
 		} else {
-			drawBordersWithWidths(p.canvas, box.Rect, style, widths)
+			if box.BorderColors != nil {
+				drawBordersWithColors(p.canvas, box.Rect, style, widths, box.BorderColors)
+			} else {
+				drawBordersWithWidths(p.canvas, box.Rect, style, widths)
+			}
 		}
 	}
 }
