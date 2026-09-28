@@ -812,6 +812,7 @@ func TestCollapsedBorderConflictPrecedence(t *testing.T) {
 			Style: ComputedStyle{"border-right": border},
 		}
 	}
+
 	candidate := func(name, border string) collapsedTableBorder {
 		return tableBorderCandidate(node(name, border), "right")
 	}
@@ -876,6 +877,38 @@ func TestCollapsedBorderConflictPrecedence(t *testing.T) {
 				t.Fatalf("winner = %#v, want %s %s %dpx", winner, tc.wantNode, tc.wantStyle, tc.wantWidth)
 			}
 		})
+	}
+}
+
+func TestCollapsedRowBordersResolveEachSpanSegment(t *testing.T) {
+	node := func(name, bottom, top string) *StyledNode {
+		return &StyledNode{
+			Node: &Node{Type: ElementNode, Name: name},
+			Style: ComputedStyle{
+				"display": "table-cell", "border-bottom": bottom,
+				"border-top": top,
+			},
+		}
+	}
+	aboveLeft := &tableCellBox{node: node("td", "5px solid red", ""), col: 0, colspan: 1, rowspan: 1, row: 0}
+	aboveRight := &tableCellBox{node: node("td", "1px solid blue", ""), col: 1, colspan: 1, rowspan: 1, row: 0}
+	below := &tableCellBox{node: node("td", "", "3px solid green"), col: 0, colspan: 2, rowspan: 1, row: 1}
+	grid := &tableGrid{
+		collapse: true, columns: 2,
+		rows: []*tableRowBox{
+			{cells: []*tableCellBox{aboveLeft, aboveRight}},
+			{cells: []*tableCellBox{below}},
+		},
+	}
+	grid.resolveRowBorderSegments()
+	if len(grid.rowBorderSegments) != 2 || len(grid.rowBorderSegments[1]) != 2 {
+		t.Fatalf("segments = %#v, want two columns", grid.rowBorderSegments)
+	}
+	if got := grid.rowBorderSegments[1][0]; got == nil || got.width != 5 || got.node != aboveLeft.node {
+		t.Fatalf("left segment = %#v, want 5px upper cell", got)
+	}
+	if got := grid.rowBorderSegments[1][1]; got == nil || got.width != 3 || got.node != below.node {
+		t.Fatalf("right segment = %#v, want 3px spanning cell", got)
 	}
 }
 
