@@ -100,6 +100,50 @@ func TestTableAdjacentCellsRetainFractionalTextPen(t *testing.T) {
 	}
 }
 
+func TestTableNestedFlexFilenameTextUsesItsOwnInlineOrigin(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "testdata", "github-vscode", "repros", "filename-clipping.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := LayoutWithViewport(styledForLayout(t, string(source)), image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	filenameIDs := []string{"filename-0", "filename-1", "filename-2", "filename-3", "filename-4", "filename-5"}
+	filenames := boxesByID(layout.Root, filenameIDs...)
+	filenameIDByText := map[string]string{
+		".agents/skills/launch": "filename-0",
+		".config":               "filename-1",
+		".devcontainer":         "filename-2",
+		".eslint-plugin-local":  "filename-3",
+		".github":               "filename-4",
+		".vscode":               "filename-5",
+	}
+	runs := make(map[string]*TextRun, len(filenameIDs))
+	var walk func(*Box)
+	walk = func(box *Box) {
+		for i := range box.Text {
+			if id, ok := filenameIDByText[box.Text[i].Text]; ok {
+				runs[id] = &box.Text[i]
+			}
+		}
+		for _, child := range box.Children {
+			walk(child)
+		}
+	}
+	walk(layout.Root)
+	for _, id := range filenameIDs {
+		run := runs[id]
+		if run == nil {
+			t.Fatalf("filename text run for %s not found", id)
+		}
+		filename := filenames[id]
+		if run.Rect.Min.X < filename.Rect.Min.X || run.Rect.Max.X > filename.Rect.Max.X {
+			t.Errorf("%s text %q at %v escapes its truncation box %v", id, run.Text, run.Rect, filename.Rect)
+		}
+	}
+}
+
 // checkGeometry asserts that every box has non-negative geometry and that no
 // table is wider than the viewport it was laid out in.
 func checkGeometry(t *testing.T, root *Box, viewport image.Rectangle) {

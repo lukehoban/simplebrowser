@@ -852,8 +852,8 @@ func topMargin(n *StyledNode, kind flowKind, width int) collapsedMargin {
 type containingBlock struct {
 	x, y, width, height int
 	viewport            image.Rectangle
-	inlinePenX          fixed.Int26_6
-	hasInlinePenX       bool
+	inlinePenPhase      fixed.Int26_6
+	hasInlinePenPhase   bool
 	// flowHeight is the content height of the nearest block container, the
 	// basis for in-flow percentage heights (CSS 2.1 §10.5). It is only used
 	// when flowHeightDefinite is set; otherwise such percentages act as auto.
@@ -1041,8 +1041,12 @@ func layoutFlow(parent *StyledNode, x, y, width int, faces *faceSet, absorbTop, 
 			return
 		}
 		inlineX := fixed.I(x)
-		if cb.hasInlinePenX {
-			inlineX = cb.inlinePenX
+		if cb.hasInlinePenPhase {
+			// Table cells carry only the fractional phase of their column's
+			// text origin. Rebase it on this line's own start: nested blocks
+			// (including flex items) have their own x coordinate and must not
+			// reuse the table cell's absolute text origin.
+			inlineX += cb.inlinePenPhase
 		}
 		if b, h := layoutInlineAt(parent.Node, parent.Style, inline, x, cursor+pending.value(), width, inlineX, faces, cb); b != nil {
 			cursor += pending.value()
