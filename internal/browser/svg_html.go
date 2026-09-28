@@ -5,8 +5,31 @@ import (
 	"encoding/xml"
 	"image"
 	"image/color"
+	"strconv"
 	"strings"
 )
+
+const inlineSVGHostStyleAttribute = "data-simplebrowser-host-css"
+const inlineSVGHostPriorityAttribute = "data-simplebrowser-host-css-priority"
+
+var inlineSVGHostStyleProperties = []string{
+	"color",
+	"fill", "fill-rule", "fill-opacity",
+	"stroke", "stroke-opacity", "stroke-width",
+	"stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
+	"stroke-dasharray", "stroke-dashoffset",
+	"font-size", "font-family", "font-style", "font-weight",
+	"opacity", "stop-color", "stop-opacity",
+}
+
+var inlineSVGHostInheritedProperties = []string{
+	"fill", "fill-rule", "fill-opacity",
+	"stroke", "stroke-opacity", "stroke-width",
+	"stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
+	"stroke-dasharray", "stroke-dashoffset",
+	"font-size", "font-family", "font-style", "font-weight",
+	"stop-color", "stop-opacity",
+}
 
 // inlineSVGImage bridges an HTML SVG subtree to the existing bounded SVG
 // decoder. HTML's tokenizer lowercases element and attribute names, so restore
@@ -20,11 +43,24 @@ func inlineSVGImage(n *StyledNode) image.Image {
 	elements := 0
 	rootEnd := 0
 	rootHasXLinkNamespace := false
+	styledByNode := make(map[*Node]*StyledNode)
+	var collectStyled func(*StyledNode)
+	collectStyled = func(styled *StyledNode) {
+		if styled == nil || styled.Node == nil {
+			return
+		}
+		styledByNode[styled.Node] = styled
+		for _, child := range styled.Children {
+			collectStyled(child)
+		}
+	}
+	collectStyled(n)
 	var writeNode func(*Node, int) bool
 	writeNode = func(node *Node, depth int) bool {
 		if node == nil || depth > 64 {
 			return false
 		}
+		styled := styledByNode[node]
 		if node.Type == TextNode {
 			var escaped bytes.Buffer
 			_ = xml.EscapeText(&escaped, []byte(node.Data))
@@ -46,6 +82,9 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		source.WriteString(name)
 		hasXLinkNamespace := false
 		for _, attr := range node.Attributes {
+			if strings.EqualFold(attr.Name, inlineSVGHostStyleAttribute) {
+				continue
+			}
 			attrName := svgHTMLAttributeName(attr.Name)
 			if strings.EqualFold(attrName, "xlink:href") {
 				hasXLinkHref = true
@@ -59,6 +98,27 @@ func inlineSVGImage(n *StyledNode) image.Image {
 			}
 			source.WriteByte(' ')
 			source.WriteString(attrName)
+			source.WriteString("=\"")
+			source.WriteString(escaped)
+			source.WriteByte('"')
+		}
+		var hostCSS, hostPriorityCSS string
+		if styled != nil {
+			hostCSS, hostPriorityCSS = inlineSVGHostStyle(styled.Style, styled.StylePriority)
+		}
+		for _, bridge := range []struct{ name, value string }{
+			{inlineSVGHostStyleAttribute, hostCSS},
+			{inlineSVGHostPriorityAttribute, hostPriorityCSS},
+		} {
+			if bridge.value == "" {
+				continue
+			}
+			escaped := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;").Replace(bridge.value)
+			if source.Len()+len(bridge.name)+len(escaped)+4 > maxSVGBytes {
+				return false
+			}
+			source.WriteByte(' ')
+			source.WriteString(bridge.name)
 			source.WriteString("=\"")
 			source.WriteString(escaped)
 			source.WriteByte('"')
@@ -102,11 +162,92 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		rgba = color.RGBA{A: 255}
 	}
 	inherited := color.NRGBA{R: rgba.R, G: rgba.G, B: rgba.B, A: rgba.A}
-	img, err := decodeSVGWithInheritedColor(source.Bytes(), inherited)
+	img, err := decodeSVGWithHostStyles(source.Bytes(), inherited, true, inlineSVGHostInheritedStyle(n.Style, n.StylePriority))
 	if err != nil {
 		return nil
 	}
 	return img
+}
+
+func inlineSVGHostInheritedStyle(style ComputedStyle, priorities map[string]StylePriority) map[string]string {
+	inherited := make(map[string]string)
+	for _, property := range inlineSVGHostInheritedProperties {
+		value := strings.TrimSpace(style[property])
+		// A direct declaration on the SVG root is carried separately with its
+		// cascade priority; only values inherited through the host DOM seed the
+		// SVG root's inherited frame.
+		if value != "" && value != invalidVariable {
+			if _, direct := priorities[property]; !direct {
+				inherited[property] = value
+			}
+		}
+	}
+	if len(inherited) == 0 {
+		return nil
+	}
+	return inherited
+}
+
+// inlineSVGHostStyle bridges the HTML cascade's final declarations for the
+// presentation properties the bounded SVG decoder understands. They remain
+// stylesheet declarations in that decoder: SVG inline declarations retain
+// inline priority, and presentation attributes remain lower priority.
+func inlineSVGHostStyle(style ComputedStyle, priorities map[string]StylePriority) (string, string) {
+	var declarations []string
+	var encodedPriorities []string
+	for _, property := range inlineSVGHostStyleProperties {
+		value := strings.TrimSpace(style[property])
+		priority, hasPriority := priorities[property]
+		if value == "" || !hasPriority {
+			continue
+		}
+		declarations = append(declarations, property+":"+value)
+		flag := func(v bool) string {
+			if v {
+				return "1"
+			}
+			return "0"
+		}
+		spec := priority.Specificity
+		encodedPriorities = append(encodedPriorities, property+":"+strings.Join([]string{
+			flag(priority.Important), flag(priority.Inline),
+			strconv.Itoa(spec[0]), strconv.Itoa(spec[1]), strconv.Itoa(spec[2]),
+			strconv.Itoa(priority.Layer), strconv.Itoa(priority.Order),
+		}, ","))
+	}
+	return strings.Join(declarations, ";"), strings.Join(encodedPriorities, ";")
+}
+
+func parseInlineSVGHostPriorities(value string) map[string]StylePriority {
+	priorities := make(map[string]StylePriority)
+	for _, entry := range strings.Split(value, ";") {
+		property, encoded, ok := strings.Cut(entry, ":")
+		if !ok {
+			continue
+		}
+		fields := strings.Split(encoded, ",")
+		if len(fields) != 7 {
+			continue
+		}
+		nums := [7]int{}
+		valid := true
+		for i, field := range fields {
+			number, err := strconv.Atoi(field)
+			if err != nil || number < 0 || number > maxSVGElements {
+				valid = false
+				break
+			}
+			nums[i] = number
+		}
+		if !valid || (nums[0] > 1 || nums[1] > 1) {
+			continue
+		}
+		priorities[property] = StylePriority{
+			Important: nums[0] != 0, Inline: nums[1] != 0,
+			Specificity: [3]int{nums[2], nums[3], nums[4]}, Layer: nums[5], Order: nums[6],
+		}
+	}
+	return priorities
 }
 
 func svgHTMLName(name string) string {

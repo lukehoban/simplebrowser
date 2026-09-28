@@ -77,14 +77,15 @@ func computeStyles(document StyledDocument, viewport image.Point) StyledDocument
 			return result
 		}
 		isRootElement := !rootElementSeen
+		stylePriority := map[string]winningDeclaration{}
 		computed := cascade(n, parent, rootFontSize, isRootElement, document.UserAgent,
-			document.Stylesheets, document.InlineStyles[n], viewport, "")
+			document.Stylesheets, document.InlineStyles[n], viewport, "", stylePriority)
 		if !rootElementSeen {
 			rootElementSeen = true
 			rootFontSize = computedFontSize(computed)
 		}
 		styles[n] = computed
-		result := &StyledNode{Node: n, Style: computed}
+		result := &StyledNode{Node: n, Style: computed, StylePriority: exportedStylePriorities(stylePriority)}
 		// A generated box is the originating element's first or last child
 		// (CSS Content 3 §2), inheriting from it like a real child element.
 		if before := pseudoStyledNode(n, "before", computed, rootFontSize, document, viewport, pseudoNodes); before != nil {
@@ -121,7 +122,7 @@ type winningDeclaration struct {
 // boxes when pseudo is "before" or "after". A generated box has no inline
 // style attribute and no presentational attributes of its own.
 func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement bool, ua Stylesheet, sheets []Stylesheet,
-	inline []Declaration, viewport image.Point, pseudo string) ComputedStyle {
+	inline []Declaration, viewport image.Point, pseudo string, priorityOutput ...map[string]winningDeclaration) ComputedStyle {
 	values := ComputedStyle{"display": "inline", "color": "black", "font-family": "serif",
 		"font-size": "16px", "font-style": "normal", "font-variant": "normal", "font-weight": "normal",
 		"lang": language.Und.String(), "line-height": "normal", "text-align": "start", "visibility": "visible",
@@ -135,6 +136,13 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 		"white-space"} {
 		if parent != nil {
 			values[p] = parent[p]
+		}
+	}
+	for _, p := range inlineSVGHostInheritedProperties {
+		if parent != nil {
+			if value, ok := parent[p]; ok {
+				values[p] = value
+			}
 		}
 	}
 	for p, v := range parent {
@@ -384,7 +392,32 @@ func cascade(n *Node, parent ComputedStyle, rootFontSize float64, isRootElement 
 	}
 	resolveFontRelativeValues(values, rootFontSize)
 	normalizeCalcValues(values, viewport.X, viewport.Y, rootFontSize)
+	if len(priorityOutput) > 0 && priorityOutput[0] != nil {
+		for property, winner := range winners {
+			if winner.d.Value != invalidVariable {
+				priorityOutput[0][property] = winner
+			}
+		}
+	}
 	return values
+}
+
+func exportedStylePriorities(winners map[string]winningDeclaration) map[string]StylePriority {
+	result := make(map[string]StylePriority)
+	for _, property := range inlineSVGHostStyleProperties {
+		winner, ok := winners[property]
+		if !ok {
+			continue
+		}
+		result[property] = StylePriority{
+			Important: winner.important, Inline: winner.inline, Specificity: winner.spec,
+			Layer: winner.layer, Order: winner.order,
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 // The current layout engine only supports horizontal writing modes, where
@@ -462,6 +495,11 @@ var inheritedCSSProperties = map[string]bool{
 	"border-spacing": true, "color": true, "font-family": true, "font-size": true,
 	"font-style": true, "font-variant": true, "font-weight": true, "line-height": true,
 	"text-align": true, "visibility": true, "white-space": true,
+	"fill": true, "fill-rule": true, "fill-opacity": true,
+	"stroke": true, "stroke-opacity": true, "stroke-width": true,
+	"stroke-linecap": true, "stroke-linejoin": true, "stroke-miterlimit": true,
+	"stroke-dasharray": true, "stroke-dashoffset": true,
+	"stop-color": true, "stop-opacity": true,
 }
 
 var initialComputedValues = map[string]string{
