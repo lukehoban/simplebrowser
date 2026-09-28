@@ -80,3 +80,20 @@ func TestInlineSVGResolvesXLinkHrefWithoutHTMLNamespaceDeclaration(t *testing.T)
 		t.Fatalf("xlink:href pixel = %#v, want opaque rgb(20, 80, 160)", got)
 	}
 }
+
+func TestInlineSVGXLinkDiscoveryRespectsSerializationDepthLimit(t *testing.T) {
+	root := &Node{Type: ElementNode, Name: "svg"}
+	child := root
+	for range 64 {
+		next := &Node{Type: ElementNode, Name: "g"}
+		child.Children = []*Node{next}
+		child = next
+	}
+	// A cycle below the accepted serialization depth must not be traversed by
+	// a separate xlink discovery pass. The bounded serializer rejects it first.
+	child.Children = []*Node{child}
+
+	if got := inlineSVGImage(&StyledNode{Node: root}); got != nil {
+		t.Fatalf("inlineSVGImage() = %T, want nil beyond the depth limit", got)
+	}
+}

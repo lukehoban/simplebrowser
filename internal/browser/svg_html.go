@@ -16,25 +16,10 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		return nil
 	}
 	hasXLinkHref := false
-	var findXLinkHref func(*Node)
-	findXLinkHref = func(node *Node) {
-		if node == nil || hasXLinkHref {
-			return
-		}
-		for _, attr := range node.Attributes {
-			if strings.EqualFold(attr.Name, "xlink:href") {
-				hasXLinkHref = true
-				return
-			}
-		}
-		for _, child := range node.Children {
-			findXLinkHref(child)
-		}
-	}
-	findXLinkHref(n.Node)
-
 	var source bytes.Buffer
 	elements := 0
+	rootEnd := 0
+	rootHasXLinkNamespace := false
 	var writeNode func(*Node, int) bool
 	writeNode = func(node *Node, depth int) bool {
 		if node == nil || depth > 64 {
@@ -62,6 +47,9 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		hasXLinkNamespace := false
 		for _, attr := range node.Attributes {
 			attrName := svgHTMLAttributeName(attr.Name)
+			if strings.EqualFold(attrName, "xlink:href") {
+				hasXLinkHref = true
+			}
 			if strings.EqualFold(attrName, "xmlns:xlink") {
 				hasXLinkNamespace = true
 			}
@@ -75,12 +63,9 @@ func inlineSVGImage(n *StyledNode) image.Image {
 			source.WriteString(escaped)
 			source.WriteByte('"')
 		}
-		if depth == 0 && hasXLinkHref && !hasXLinkNamespace {
-			const declaration = ` xmlns:xlink="http://www.w3.org/1999/xlink"`
-			if source.Len()+len(declaration) > maxSVGBytes {
-				return false
-			}
-			source.WriteString(declaration)
+		if depth == 0 {
+			rootEnd = source.Len()
+			rootHasXLinkNamespace = hasXLinkNamespace
 		}
 		source.WriteByte('>')
 		if source.Len() > maxSVGBytes {
@@ -98,6 +83,19 @@ func inlineSVGImage(n *StyledNode) image.Image {
 	}
 	if !writeNode(n.Node, 0) {
 		return nil
+	}
+	if hasXLinkHref && !rootHasXLinkNamespace {
+		const declaration = ` xmlns:xlink="http://www.w3.org/1999/xlink"`
+		if source.Len()+len(declaration) > maxSVGBytes {
+			return nil
+		}
+		serialized := source.Bytes()
+		withNamespace := make([]byte, 0, len(serialized)+len(declaration))
+		withNamespace = append(withNamespace, serialized[:rootEnd]...)
+		withNamespace = append(withNamespace, declaration...)
+		withNamespace = append(withNamespace, serialized[rootEnd:]...)
+		source.Reset()
+		source.Write(withNamespace)
 	}
 	rgba, ok := parseColor(n.Style["color"])
 	if !ok {
