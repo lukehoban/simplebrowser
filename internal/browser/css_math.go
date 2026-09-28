@@ -46,6 +46,22 @@ func calcPercentAllowed(property string) bool {
 	return !strings.HasPrefix(property, "border-")
 }
 
+// calcNonNegativeProperty reports properties whose length values are
+// constrained to be non-negative. Math expressions are range-clamped after
+// substitution; a percentage-dependent expression may need to wait until its
+// layout basis is known.
+func calcNonNegativeProperty(property string) bool {
+	switch property {
+	case "width", "height", "min-width", "max-width", "min-height", "max-height",
+		"inline-size", "block-size", "padding", "padding-top", "padding-right",
+		"padding-bottom", "padding-left", "flex-basis", "gap", "row-gap",
+		"column-gap", "border-width", "border-top-width", "border-right-width",
+		"border-bottom-width", "border-left-width":
+		return true
+	}
+	return false
+}
+
 func parseCSSMath(value string, convert func(float64, string) (cssMathValue, bool)) (cssMathValue, bool) {
 	value = strings.TrimSpace(value)
 	if len(value) < 6 || !strings.EqualFold(value[:5], "calc(") || value[len(value)-1] != ')' {
@@ -462,6 +478,18 @@ func normalizeCalcValues(values ComputedStyle, viewportWidth, viewportHeight int
 				return "", false
 			}
 			if v, ok := parseCSSMathFunction(rewritten, convert); ok && !v.number {
+				if calcNonNegativeProperty(property) {
+					switch {
+					case v.px < 0 && v.percent <= 0, v.px <= 0 && v.percent < 0:
+						// For a non-negative percentage basis these terms
+						// can never produce a positive used value.
+						return "0px", true
+					case v.px < 0 && v.percent > 0, v.px > 0 && v.percent < 0:
+						// The sign depends on the property's percentage
+						// basis. Defer range clamping until layout.
+						return "calc(max(0px, " + serializeCSSMath(v) + "))", true
+					}
+				}
 				return serializeCSSMath(v), true
 			}
 			// A comparison between percentages and pixels cannot be
@@ -469,6 +497,12 @@ func normalizeCalcValues(values ComputedStyle, viewportWidth, viewportHeight int
 			// wrapper so used-value callers evaluate it.
 			if v, ok := parseCSSLengthMathShape(rewritten); !ok || v.number {
 				return "", false
+			}
+			if calcNonNegativeProperty(property) && strings.Contains(rewritten, "%") {
+				// Mixed percentage/length comparisons cannot be evaluated
+				// until layout. Keep the expression deferred, but ensure its
+				// eventual used value is clamped to the property's range.
+				return "calc(max(0px, " + rewritten + "))", true
 			}
 			if strings.HasPrefix(strings.ToLower(rewritten), "calc(") {
 				return rewritten, true

@@ -15,9 +15,12 @@ each other and used as a whole declaration value, for example
 the operator. Font- and viewport-relative units are resolved when styles are
 computed. Percentage terms are kept until layout and resolved against the
 property's normal basis; a comparison that mixes percentages with other
-lengths, such as `min(50%, 300px)`, is kept as `calc(min(50%, 300px))` and
-evaluated at layout time. For example, width uses the containing block's
-content width, and `flex-basis` uses the flex container's inner main size.
+lengths, such as `min(50%, 300px)`, is kept for layout evaluation (for a
+non-negative property, as `calc(max(0px, min(50%, 300px)))`). Values for
+non-negative properties are clamped to zero if math evaluates below zero;
+when the sign depends on an unresolved percentage, the clamp is deferred until
+layout. For example, width uses the containing block's content width, and
+`flex-basis` uses the flex container's inner main size.
 Border widths do not accept percentages, so a `calc()` there that includes
 `%` is invalid.
 

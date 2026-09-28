@@ -154,7 +154,7 @@ func TestCalcInvalidVariableUsesUnsetAndValidSupports(t *testing.T) {
 		t.Error("@supports rejected a supported calc() length")
 	}
 
-	if got := supported.Style["width"]; got != "calc(100% - 20px)" {
+	if got := supported.Style["width"]; got != "calc(max(0px, calc(100% - 20px)))" {
 		t.Errorf("computed width before layout = %q", got)
 	}
 	invalid := styledElementByID(doc.StyleRoot, "invalid")

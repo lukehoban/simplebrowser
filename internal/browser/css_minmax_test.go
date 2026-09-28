@@ -75,7 +75,7 @@ func TestMathComparisonComputedValues(t *testing.T) {
 		<div id="invalid-var" style="--bad:2; width:45px; width:min(var(--bad), 10px)"></div>`)
 	for id, want := range map[string]string{
 		"fixed":      "250px",
-		"mixed":      "calc(min(50%, 300px))",
+		"mixed":      "calc(max(0px, min(50%, 300px)))",
 		"bad-mixed":  "40px",
 		"bad-clamp":  "41px",
 		"bad-clamp4": "42px",
@@ -103,6 +103,66 @@ func TestMathComparisonComputedValues(t *testing.T) {
 		if featureSupported("width", v) {
 			t.Errorf("@supports accepted width:%s", v)
 		}
+	}
+}
+
+func TestMathNonNegativePropertyRanges(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0">
+		<div id="fixed" style="padding:min(-1px, 10px);width:20px;height:10px"></div>
+		<div id="var" style="--negative:-2px;padding:clamp(-10px, var(--negative), 5px);width:20px;height:10px"></div>
+		<div style="width:100px"><div id="deferred-low" style="width:10px;padding-top:calc(10% - 20px);height:10px"></div></div>
+		<div style="width:300px"><div id="deferred-high" style="width:10px;padding-top:calc(10% - 20px);height:10px"></div></div>
+		<div id="border" style="border:solid;border-left-width:min(-1px, 10px)"></div>
+		<div id="sized" style="width:max(-5px, -1px);height:10px"></div>
+		<div id="neighbor" style="padding:clamp(1px, 5px, 10px);margin-left:min(-5px, 1px);width:10px"></div>
+		<div id="gap" style="display:flex;width:20px;gap:min(-2px, 10px)"><div id="gap-a" style="width:10px;height:5px"></div><div id="gap-b" style="width:10px;height:5px"></div></div>
+	</body>`)
+	got, err := LayoutWithViewport(doc, image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(got.Root, "fixed", "var", "deferred-low", "deferred-high", "border", "sized", "gap-a", "gap-b")
+	if got := styledElementByID(doc.StyleRoot, "fixed").Style["padding-top"]; got != "0px" {
+		t.Errorf("negative min() padding computed to %q, want 0px", got)
+	}
+	if got := styledElementByID(doc.StyleRoot, "var").Style["padding-top"]; got != "0px" {
+		t.Errorf("negative substituted clamp() padding computed to %q, want 0px", got)
+	}
+	if got := styledElementByID(doc.StyleRoot, "border").Style["border-left-width"]; got != "0px" {
+		t.Errorf("negative min() border width computed to %q, want 0px", got)
+	}
+	if got := styledElementByID(doc.StyleRoot, "sized").Style["width"]; got != "0px" {
+		t.Errorf("negative max() width computed to %q, want 0px", got)
+	}
+	if got := styledElementByID(doc.StyleRoot, "neighbor").Style["padding-top"]; got != "5px" {
+		t.Errorf("valid neighboring clamp() padding computed to %q, want 5px", got)
+	}
+	if got := styledElementByID(doc.StyleRoot, "neighbor").Style["margin-left"]; got != "-5px" {
+		t.Errorf("negative math margin computed to %q, want -5px", got)
+	}
+	if got := styledElementByID(doc.StyleRoot, "gap").Style["gap"]; got != "0px" {
+		t.Errorf("negative math gap computed to %q, want 0px", got)
+	}
+	if p := boxes["deferred-low"].Content.Min.Y - boxes["deferred-low"].Rect.Min.Y; p != 0 {
+		t.Errorf("deferred negative padding used value = %d, want 0", p)
+	}
+	if p := boxes["deferred-high"].Content.Min.Y - boxes["deferred-high"].Rect.Min.Y; p != 10 {
+		t.Errorf("deferred positive padding used value = %d, want 10", p)
+	}
+	if x := boxes["gap-b"].Rect.Min.X; x != boxes["gap-a"].Rect.Max.X {
+		t.Errorf("negative math gap placed second item at x=%d after first ended at %d", x, boxes["gap-a"].Rect.Max.X)
+	}
+	if !featureSupported("padding", "min(-1px, 10px)") {
+		t.Error("@supports rejected valid negative math syntax for padding")
+	}
+	if !featureSupported("border-width", "max(-1px, 0px)") {
+		t.Error("@supports rejected valid border-width math syntax")
+	}
+	if !featureSupported("width", "max(-5px, -1px)") {
+		t.Error("@supports rejected valid negative math syntax for width")
+	}
+	if featureSupported("padding", "min(-1px, 2)") {
+		t.Error("@supports accepted a dimensionally invalid padding expression")
 	}
 }
 
