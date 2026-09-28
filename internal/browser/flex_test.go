@@ -151,6 +151,44 @@ func TestFlexAutomaticMinimumHonorsSpecifiedAndMaximumWidth(t *testing.T) {
 	}
 }
 
+func TestFlexImageAutomaticMinimumClampsTransferredHeightSuggestion(t *testing.T) {
+	const svg = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60'%3E%3Crect width='120' height='60' fill='red'/%3E%3C/svg%3E"
+	const source = `<body style="margin:0">
+	<div id="max-row" style="display:flex;align-items:flex-start;width:60px;height:20px">
+		<img id="max-image" src="` + svg + `" style="height:20px;max-height:10px">
+		<div id="max-next" style="flex:none;width:20px;height:10px;background:blue"></div>
+	</div>
+	<div id="min-row" style="display:flex;align-items:flex-start;width:80px;height:30px">
+		<img id="min-image" src="` + svg + `" style="width:120px;height:20px;min-height:30px">
+		<div id="min-next" style="flex:none;width:20px;height:10px;background:blue"></div>
+	</div></body>`
+	doc := styledForLayout(t, source)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "max-image", "max-next", "min-image", "min-next")
+	for id, want := range map[string]int{"max-image": 20, "min-image": 60} {
+		if got := boxes[id].Rect.Dx(); got != want {
+			t.Errorf("#%s content width = %d, want %d (box=%v)", id, got, want, boxes[id].Rect)
+		}
+	}
+	for id, want := range map[string]int{"max-next": 20, "min-next": 60} {
+		if got := boxes[id].Rect.Min.X; got != want {
+			t.Errorf("#%s starts at x=%d, want %d (box=%v)", id, got, want, boxes[id].Rect)
+		}
+	}
+	if got := boxes["min-image"].Rect.Dy(); got != 30 {
+		t.Errorf("#min-image height = %d, want 30 after min-height clamping", got)
+	}
+
+	rendered := painted(t, source, image.Rect(0, 0, 100, 60))
+	pixel(t, rendered, 19, 5, color.RGBA{255, 0, 0, 255})
+	pixel(t, rendered, 20, 5, color.RGBA{0, 0, 255, 255})
+	pixel(t, rendered, 59, 25, color.RGBA{255, 0, 0, 255})
+	pixel(t, rendered, 60, 25, color.RGBA{0, 0, 255, 255})
+}
+
 func TestFlexAutomaticMinimumHonorsMaxWidthWithoutSpecifiedWidth(t *testing.T) {
 	const source = `<body style="margin:0"><div style="display:flex;width:100px">
 		<div id="item" style="max-width:20px">unbreakableword</div>

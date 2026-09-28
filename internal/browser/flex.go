@@ -166,6 +166,9 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			if isReplacedHTMLImage(child.Node) {
 				minContent, _ := imageDimensions(child, faces.images[child.Node], width)
 				automaticMin = float64(minContent)
+				if transferred, ok := flexImageTransferredWidth(child, faces.images[child.Node], width, cb); ok {
+					automaticMin = math.Min(automaticMin, float64(transferred))
+				}
 			} else {
 				minContent, _ := contentIntrinsicWidths(child, faces)
 				automaticMin = float64(minContent)
@@ -663,6 +666,27 @@ func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containin
 func flexImageDimensions(n *StyledNode, picture image.Image, width int, cb containingBlock) (int, int) {
 	basis, definite := percentageHeightBasis(n, cb)
 	return replacedBlockDimensions(n, picture, width, basis, definite)
+}
+
+// flexImageTransferredWidth returns the transferred-size suggestion for a
+// row flex item's automatic minimum. It exists only when the image has a
+// definite preferred cross size; min/max-height clamp that size before it is
+// transferred through the intrinsic ratio. The specified-width and max-width
+// suggestions remain separate caps in flexMinMax.
+func flexImageTransferredWidth(n *StyledNode, picture image.Image, width int, cb containingBlock) (int, bool) {
+	basis, definite := percentageHeightBasis(n, cb)
+	if _, ok := specifiedHeight(n, basis, definite); !ok {
+		return 0, false
+	}
+
+	// Resolve the cross-size suggestion without letting a specified main size
+	// replace it. That specified size still caps the automatic minimum via
+	// flexMinMax, as required for replaced flex items.
+	transferred := *n
+	transferred.Style = cloneStyle(n.Style)
+	transferred.Style["width"] = "auto"
+	suggestion, _ := flexImageDimensions(&transferred, picture, width, cb)
+	return suggestion, true
 }
 
 // asFlexItem returns n marked as an independent formatting context root.
