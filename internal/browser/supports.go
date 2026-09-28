@@ -375,20 +375,8 @@ func oneOrTwo(valid func(string) bool) func(string) bool {
 }
 
 func gridAreasValue(v string) bool {
-	v = strings.TrimSpace(v)
-	if len(v) < 2 || (v[0] != '"' && v[0] != '\'') || v[len(v)-1] != v[0] {
-		return false
-	}
-	parts := strings.Fields(v[1 : len(v)-1])
-	if len(parts) != 3 {
-		return false
-	}
-	for _, part := range parts {
-		if part != "." && !cssIdentString(part) {
-			return false
-		}
-	}
-	return true
+	_, ok := parseGridTemplateAreas(v)
+	return ok
 }
 
 func gridAreaValue(v string) bool {

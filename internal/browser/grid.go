@@ -17,11 +17,32 @@ func gridTemplateSupported(style ComputedStyle) bool {
 		columns[1] != "minmax(0,auto)" || columns[2] != "min-content" {
 		return false
 	}
-	areas := strings.TrimSpace(style["grid-template-areas"])
-	if len(areas) < 2 || (areas[0] != '"' && areas[0] != '\'') || areas[len(areas)-1] != areas[0] {
-		return false
+	_, ok := parseGridTemplateAreas(style["grid-template-areas"])
+	return ok
+}
+
+// parseGridTemplateAreas accepts only the single-row, three-unique-area
+// shape that layoutGrid places. Dot (null) cells, repeated or spanning names,
+// and multiple rows would fall back to normal flow, so they are rejected here
+// and by @supports, which shares this validator.
+func parseGridTemplateAreas(value string) ([]string, bool) {
+	v := strings.TrimSpace(value)
+	if len(v) < 2 || (v[0] != '"' && v[0] != '\'') || v[len(v)-1] != v[0] {
+		return nil, false
 	}
-	return len(strings.Fields(areas[1:len(areas)-1])) == 3
+	names := strings.Fields(v[1 : len(v)-1])
+	if len(names) != 3 {
+		return nil, false
+	}
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		lower := strings.ToLower(name)
+		if !cssIdentString(name) || seen[lower] {
+			return nil, false
+		}
+		seen[lower] = true
+	}
+	return names, true
 }
 
 func gridAreaNames(style ComputedStyle) []string {

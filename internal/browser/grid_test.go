@@ -76,3 +76,34 @@ func TestGridSubsetDoesNotClaimBroadDisplaySupport(t *testing.T) {
 		t.Fatal("two-column template is outside the narrow subset")
 	}
 }
+
+// @supports must only report grid-template-areas shapes that layoutGrid
+// actually places; anything that would fall back to normal flow is false.
+func TestGridTemplateAreasSupportsMatchesLayout(t *testing.T) {
+	cases := []struct {
+		areas string
+		want  bool
+	}{
+		{`"leading text trailing"`, true},
+		{`'a b c'`, true},
+		{`"leading . trailing"`, false},
+		{`". text trailing"`, false},
+		{`"a a b"`, false},
+		{`"a b A"`, false},
+		{`"leading text text"`, false},
+		{`"a b c" "d e f"`, false},
+		{`"a b c d"`, false},
+		{`leading text trailing`, false},
+	}
+	for _, tc := range cases {
+		cond := "(grid-template-areas: " + tc.areas + ")"
+		if got := supportsConditionMatches(cond); got != tc.want {
+			t.Errorf("supports %s = %v, want %v", cond, got, tc.want)
+		}
+		style := ComputedStyle{"display": "grid", "grid-template-areas": tc.areas,
+			"grid-template-columns": "min-content minmax(0,auto) min-content"}
+		if got := isGridContainer(&StyledNode{Style: style}); got != tc.want {
+			t.Errorf("isGridContainer(%s) = %v, want %v (must agree with @supports)", tc.areas, got, tc.want)
+		}
+	}
+}
