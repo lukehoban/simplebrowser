@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Column flex automatic min-height</title>
+  <style>
+    body { margin: 0; padding: 16px; font: 14px/18px monospace; color: #222; }
+    h1 { margin: 0 0 10px; font: bold 18px sans-serif; }
+    h2 { margin: 0 0 4px; font: bold 13px sans-serif; }
+    .cases { display: flex; align-items: flex-start; gap: 16px; }
+    .case { flex: none; width: 240px; }
+    .column {
+      display: flex;
+      flex-direction: column;
+      width: 240px;
+      height: 50px;
+      border: 1px solid #555;
+    }
+    .content { flex: 1 1 80px; background: #e53935; color: white; }
+    .sibling { flex: 1 1 40px; background: #1e88e5; color: white; }
+    .zero .content { min-height: 0; }
+    .scroll .content { overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <h1>Column flex automatic min-height</h1>
+  <div class="cases">
+    <div class="case visible">
+      <h2>Visible overflow keeps the content floor</h2>
+      <div class="column">
+        <div id="visible-item" class="content">first line<br>second line<br>third line<br>fourth line</div>
+        <div id="visible-sibling" class="sibling">sibling</div>
+      </div>
+    </div>
+    <div class="case zero">
+      <h2>Explicit min-height: 0 replaces the floor</h2>
+      <div class="column">
+        <div id="zero-item" class="content">first line<br>second line<br>third line<br>fourth line</div>
+        <div id="zero-sibling" class="sibling">sibling</div>
+      </div>
+    </div>
+    <div class="case scroll">
+      <h2>Scroll container is exempt from the floor</h2>
+      <div class="column">
+        <div id="scroll-item" class="content">first line<br>second line<br>third line<br>fourth line</div>
+        <div id="scroll-sibling" class="sibling">sibling</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

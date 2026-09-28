@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -207,7 +208,7 @@ func TestFlexAutomaticMinimumHonorsMaxWidthWithoutSpecifiedWidth(t *testing.T) {
 	}
 }
 
-func TestFlexAutomaticMinimumExemptsScrollContainersAndColumns(t *testing.T) {
+func TestFlexAutomaticMinimumExemptsScrollContainers(t *testing.T) {
 	const source = `<body style="margin:0"><div id="scroll-row" style="display:flex;width:20px"><div id="scroll-item" style="width:40px;overflow:auto">unbreakableword</div><div style="flex:none;width:10px"></div></div></body>`
 	layout, err := LayoutWithViewport(styledForLayout(t, source), image.Rect(0, 0, 50, 50))
 	if err != nil {
@@ -218,27 +219,91 @@ func TestFlexAutomaticMinimumExemptsScrollContainersAndColumns(t *testing.T) {
 		t.Errorf("scroll-container row item width = %d, want 10px after shrink; box=%v", got, boxes["scroll-item"].Rect)
 	}
 
-	columnDoc := styledForLayout(t, `<div style="display:flex;flex-direction:column"><div id="column-item" style="height:40px">unbreakableword</div></div>`)
-	var columnItem *StyledNode
-	var find func(*StyledNode)
-	find = func(node *StyledNode) {
-		if node.Node != nil {
-			if id, ok := node.Node.Attribute("id"); ok && id.Value == "column-item" {
-				columnItem = node
+}
+
+func TestFlexColumnAutomaticMinimumHeightGeometryAndTextOverflow(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/flex/column-auto-min-height.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := LayoutWithViewport(styledForLayout(t, string(source)), image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root,
+		"visible-sibling", "zero-sibling", "scroll-sibling")
+	for _, id := range []string{"visible-sibling", "zero-sibling", "scroll-sibling"} {
+		if boxes[id] == nil {
+			t.Fatalf("missing #%s box", id)
+		}
+	}
+	items := map[string]*Box{}
+	for _, id := range []string{"visible-item", "zero-item", "scroll-item"} {
+		items[id] = firstBoxByID(layout.Root, id)
+		if items[id] == nil {
+			t.Fatalf("missing #%s flex item box", id)
+		}
+	}
+	visibleItem, visibleSibling := items["visible-item"], boxes["visible-sibling"]
+	if visibleItem.Rect.Dy() < 72 {
+		t.Errorf("visible-overflow item height = %d, want at least four 18px lines", visibleItem.Rect.Dy())
+	}
+	if visibleSibling.Rect.Min.Y < visibleItem.Rect.Max.Y {
+		t.Errorf("visible-overflow sibling starts at %d before the content floor ends at %d",
+			visibleSibling.Rect.Min.Y, visibleItem.Rect.Max.Y)
+	}
+	for _, prefix := range []string{"zero", "scroll"} {
+		item, sibling := items[prefix+"-item"], boxes[prefix+"-sibling"]
+		if item.Rect.Dy() >= 72 {
+			t.Errorf("%s item height = %d, want flex shrink below its four-line content height", prefix, item.Rect.Dy())
+		}
+		if item.Rect.Max.Y != sibling.Rect.Min.Y {
+			t.Errorf("%s sibling starts at y=%d, want the shrunken item end y=%d",
+				prefix, sibling.Rect.Min.Y, item.Rect.Max.Y)
+		}
+	}
+	for _, prefix := range []string{"zero", "scroll"} {
+		item := items[prefix+"-item"]
+		finalLineOverflows := false
+		for _, run := range flexBoxTextRuns(item) {
+			if strings.HasPrefix(run.Text, "fourth") && run.Rect.Min.Y >= item.Rect.Max.Y {
+				finalLineOverflows = true
 			}
 		}
-		for _, child := range node.Children {
-			find(child)
+		if !finalLineOverflows {
+			t.Errorf("%s final text line does not overflow its shrunken item box %v", prefix, item.Rect)
 		}
 	}
-	find(columnDoc.StyleRoot)
-	if columnItem == nil {
-		t.Fatal("column flex item not found")
+	lastVisibleLineFits := false
+	for _, run := range flexBoxTextRuns(visibleItem) {
+		if strings.HasPrefix(run.Text, "fourth") && run.Rect.Max.Y <= visibleItem.Rect.Max.Y {
+			lastVisibleLineFits = true
+		}
 	}
-	minimum, _ := flexMinMax(flexItem{node: columnItem, automaticMin: 40}, true, 20)
-	if minimum != 0 {
-		t.Errorf("column automatic main-axis minimum = %v, want 0", minimum)
+	if !lastVisibleLineFits {
+		t.Errorf("visible-overflow item's final text line does not fit its %v floor", visibleItem.Rect)
 	}
+	rendered := painted(t, string(source), image.Rect(0, 0, 800, 600))
+	if got := rendered.RGBAAt(250, visibleItem.Rect.Min.Y+visibleItem.Rect.Dy()-2); got.R <= got.G || got.R <= got.B {
+		t.Errorf("visible item background near its bottom = %v, want its red fill", got)
+	}
+}
+
+func firstBoxByID(root *Box, id string) *Box {
+	if root == nil {
+		return nil
+	}
+	if root.Node != nil {
+		if value, ok := root.Node.Attribute("id"); ok && value.Value == id {
+			return root
+		}
+	}
+	for _, child := range root.Children {
+		if match := firstBoxByID(child, id); match != nil {
+			return match
+		}
+	}
+	return nil
 }
 
 func TestFlexAnonymousTextItemsRowAndColumn(t *testing.T) {

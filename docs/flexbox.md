@@ -29,8 +29,13 @@ its second item must stay inside the 180px container.
   shrunken items from painting their min-content text over neighboring
   controls, as in the [GitHub count-badge repro](github-vscode-count-badges.md)
   ([#375](https://github.com/lukehoban/simplebrowser/issues/375)). Transferred
-  size suggestions for replaced elements and column-axis `min-height:auto`
-  remain unsupported.
+  size suggestions for replaced elements are supported for row items. Column
+  items use a content-based `min-height:auto` floor for visible overflow;
+  explicit `min-height` and scroll-container exemptions still apply
+  ([#382](https://github.com/lukehoban/simplebrowser/issues/382)).
+  [Column min-height fixture](screenshots/flex-column-auto-min-height.png)
+  ([before](screenshots/flex-column-auto-min-height-before.png) ·
+  [`testdata/flex/column-auto-min-height.html`](../testdata/flex/column-auto-min-height.html)).
 - `gap`, `row-gap`, `column-gap` between items and between lines.
 - `justify-content`: start/flex-start, end/flex-end, center, space-between,
   space-around, space-evenly (per line).
@@ -96,4 +101,4 @@ its second item must stay inside the 180px container.
   ([#325](https://github.com/lukehoban/simplebrowser/issues/325)).
 - `order`, baseline alignment, `safe`/`unsafe` and
   `first`/`last` keywords, `place-content`, and the remaining automatic
-  minimum-size rules (including the column-axis `min-height:auto` behavior).
+  minimum-size rules.
