@@ -41,6 +41,38 @@ func TestCSSMediaRulesAreBalancedAndConditional(t *testing.T) {
 	}
 }
 
+func TestLogicalSizePropertiesMapInHorizontalWritingMode(t *testing.T) {
+	doc := styledForLayout(t, `<div id="logical-later" style="width:20px;inline-size:36px;height:10px;block-size:32px"></div>
+		<div id="physical-later" style="inline-size:36px;width:20px;block-size:32px;height:10px"></div>
+		<div id="logical-var" style="inline-size:var(--control-size);--control-size:32px;block-size:24px"></div>`)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 100, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]image.Rectangle{}
+	var visit func(*Box)
+	visit = func(box *Box) {
+		if box.Node != nil {
+			if id, ok := box.Node.Attribute("id"); ok && id.Value != "" {
+				got[id.Value] = box.Content
+			}
+		}
+		for _, child := range box.Children {
+			visit(child)
+		}
+	}
+	visit(layout.Root)
+	if got["logical-later"].Size() != image.Pt(36, 32) {
+		t.Errorf("logical-later content = %v, want 36×32", got["logical-later"])
+	}
+	if got["physical-later"].Size() != image.Pt(20, 10) {
+		t.Errorf("physical-later content = %v, want 20×10", got["physical-later"])
+	}
+	if got["logical-var"].Size() != image.Pt(32, 24) {
+		t.Errorf("logical-var content = %v, want 32×24", got["logical-var"])
+	}
+}
+
 func TestCSSNestedMediaListsDistributeConditions(t *testing.T) {
 	sheet := ParseCSS(`
 		@media screen, print {

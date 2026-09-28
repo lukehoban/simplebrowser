@@ -1,5 +1,25 @@
 # Live GitHub first-viewport check (2026-09-27)
 
+## Appearance-control sizing check on `6bb9df2`
+
+This fresh 800×600 public, logged-out `microsoft/vscode` capture renders
+[`6bb9df2`](https://github.com/lukehoban/simplebrowser/commit/6bb9df2), which
+maps the horizontal-writing-mode `inline-size` property to the used width.
+
+![Live GitHub capture after appearance-control sizing](screenshots/live-github-330/simplebrowser-issue351-logical-size-6bb9df2-2026-09-27.png)
+
+The appearance trigger now reserves its outlined control box beside
+**Sign in** rather than collapsing to zero width. The slider glyph is still
+absent because HTML inline-SVG painting is tracked separately in
+[#390](https://github.com/lukehoban/simplebrowser/issues/390); the tooltip
+remains hidden. This capture verifies sizing only and does not establish the
+expected icon-only appearance control in [#351](https://github.com/lukehoban/simplebrowser/issues/351).
+
+CLI command:
+`go run ./cmd/simplebrowser -o docs/screenshots/live-github-330/simplebrowser-issue351-logical-size-6bb9df2-2026-09-27.png https://github.com/microsoft/vscode`.
+The PNG is 800×600 RGB with SHA-256
+`358f2f9d0c898bf7c701874493e5184f18dc4e691fc64589a5103ff079927008`.
+
 ## Post-row-flex recheck on `main` `1478bb5` (23:52 UTC)
 
 This fresh 800×600 capture renders the public, logged-out
