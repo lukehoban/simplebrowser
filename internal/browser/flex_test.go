@@ -48,6 +48,30 @@ func TestFlexImageUsesReplacedLayoutAndPaint(t *testing.T) {
 	pixel(t, rendered.(*image.RGBA), 2, 2, color.RGBA{255, 0, 0, 255})
 }
 
+func TestInlineSVGFlexItemUsesReplacedDimensionsAndPaint(t *testing.T) {
+	source, err := os.ReadFile("../../testdata/flex/inline-svg-item.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := LayoutWithViewport(styledForLayout(t, string(source)), image.Rect(0, 0, 800, 600))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "icon", "next")
+	if got := boxes["icon"].Rect.Size(); got != image.Pt(16, 16) {
+		t.Fatalf("flex-item SVG box = %v, want 16×16", boxes["icon"].Rect)
+	}
+	if got := boxes["next"].Rect.Min.X; got != boxes["icon"].Rect.Max.X {
+		t.Fatalf("following flex item starts at x=%d, want SVG end x=%d", got, boxes["icon"].Rect.Max.X)
+	}
+	rendered := painted(t, string(source), image.Rect(0, 0, 800, 600))
+	center := boxes["icon"].Rect.Min.Add(image.Pt(8, 8))
+	r, g, b, _ := rendered.At(center.X, center.Y).RGBA()
+	if r < 0x7000 || g > 0x5000 || b > 0x5000 {
+		t.Fatalf("SVG center pixel at %v = (%04x,%04x,%04x), want the red path to be painted", center, r, g, b)
+	}
+}
+
 func TestFlexTabCountStaysBesideLabelWhenTabsOverflow(t *testing.T) {
 	source, err := os.ReadFile("../../testdata/github-vscode/repros/count-badge-overlap.html")
 	if err != nil {

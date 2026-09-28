@@ -123,7 +123,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 				main = basis
 			} else if h, ok := specifiedHeight(child, containerHeight, heightDefinite); ok {
 				main = float64(h)
-			} else if strings.EqualFold(child.Node.Name, "img") {
+			} else if isReplacedHTMLImage(child.Node) {
 				_, h := imageDimensions(child, faces.images[child.Node], width)
 				main = float64(h)
 			} else {
@@ -137,7 +137,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 				main = basis
 			} else if value := strings.TrimSpace(child.Style["width"]); value != "" && !strings.EqualFold(value, "auto") {
 				main = px(value, float64(width), 0)
-			} else if strings.EqualFold(child.Node.Name, "img") {
+			} else if isReplacedHTMLImage(child.Node) {
 				w, _ := imageDimensions(child, faces.images[child.Node], width)
 				main = float64(w)
 			} else {
@@ -157,7 +157,7 @@ func layoutFlex(parent *StyledNode, x, y, width, containerHeight int, heightDefi
 			// Without this floor, flex-shrink can reduce a label or its badge
 			// below its min-content width, so inline descendants paint over
 			// adjacent flex items (as GitHub's repository tabs demonstrate).
-			if strings.EqualFold(child.Node.Name, "img") {
+			if isReplacedHTMLImage(child.Node) {
 				minContent, _ := imageDimensions(child, faces.images[child.Node], width)
 				automaticMin = float64(minContent)
 			} else {
@@ -627,7 +627,7 @@ func flexBasisIsLength(style ComputedStyle) bool {
 }
 
 func layoutFlexItem(n *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) *Box {
-	if strings.EqualFold(n.Node.Name, "img") {
+	if isReplacedHTMLImage(n.Node) {
 		box, _ := layoutReplacedBlock(n, x, y, width, faces)
 		return box
 	}
