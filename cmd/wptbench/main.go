@@ -88,8 +88,9 @@ var tests = []benchmark{
 	{Test: "canvas-background-image.html", Area: "Backgrounds", Suite: "Local", Diagnostic: true, NotCovered: "Positioning, sizing, non-solid tiles, multiple layers, and root-image propagation.", Issue: "#63"},
 	{Test: "float-clearance-margin-collapse.html", Area: "Floats and clear", Suite: "Local", Diagnostic: true, NotCovered: "Right floats, multiple floats, inline wrapping, and negative margins.", Issue: "#68"},
 	{Test: "float-clearance-sides.html", Area: "Floats and clear", Suite: "Local", Diagnostic: true, NotCovered: "Inline wrapping after clearance, negative margins, and clearance on a first child that collapses through its parent (#275).", Issue: "#68"},
-	{Test: "collapsed-border-conflict.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Row/table borders, style precedence, spans, and multi-row conflicts.", Issue: "#66"},
-	{Test: "collapsed-row-cell-border.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multi-row segmentation, table edges, row groups, border styles, and spanning cells.", Issue: "#66"},
+	{Test: "collapsed-border-conflict.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318).", Issue: "#66"},
+	{Test: "collapsed-border-precedence.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318).", Issue: "#396"},
+	{Test: "collapsed-row-cell-border.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318).", Issue: "#66"},
 	{Test: "inline-table-line-edge.html", Area: "Tables", Suite: "Local", Diagnostic: true, NotCovered: "Multiple cells, spans, captions, bidi, and vertical alignment variants.", Issue: "#209"},
 }
 

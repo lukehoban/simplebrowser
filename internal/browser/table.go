@@ -652,8 +652,7 @@ func (g *tableGrid) collapsedGapBefore(i int) int {
 
 // resolveSingleColumnRowBorders handles the unspanned, one-cell-per-row
 // subset of collapsed row edges. It is intentionally bounded: the full grid
-// conflict algorithm must segment borders at cell/span boundaries and account
-// for columns, row groups, and table edges.
+// conflict algorithm must segment borders at cell/span boundaries.
 func (g *tableGrid) resolveSingleColumnRowBorders() {
 	g.rowBorders = make([]*collapsedTableBorder, len(g.rows))
 	if !g.collapse || g.columns != 1 || len(g.rows) < 2 {

@@ -1,6 +1,6 @@
 # Compatibility coverage matrix
 
-**Blocking regression set: 40/40 pinned WPT reference assertions passing.** New coverage is diagnostic: WPT 3/5, repo-owned references 5/6.
+**Blocking regression set: 40/40 pinned WPT reference assertions passing.** New coverage is diagnostic: WPT 3/5, repo-owned references 6/7.
 
 Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github.com/web-platform-tests/wpt/commit/647d3bdf133159739b57cfb7afa0be3f5d76b9db). Viewport: 800x600. Exact PNG pixels. The selected tests are a bounded coverage matrix, not a general conformance score. See [benchmark notes](../testdata/wpt/README.md) and [machine-readable results](compatibility.json).
 
@@ -21,7 +21,7 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | WPT | Line boxes | 1 | 0 | 0 | 1 |
 | Local | Backgrounds | 1 | 0 | 0 | 1 |
 | Local | Floats and clear | 2 | 0 | 0 | 2 |
-| Local | Tables | 2 | 1 | 0 | 3 |
+| Local | Tables | 3 | 1 | 0 | 4 |
 
 ## Assertions
 
@@ -75,8 +75,9 @@ Pinned WPT revision: [`647d3bdf133159739b57cfb7afa0be3f5d76b9db`](https://github
 | Local | Backgrounds | `canvas-background-image.html` ([#63](https://github.com/lukehoban/simplebrowser/issues/63)) | `canvas-background-image-ref.html` (match) | **pass** | 0 | Positioning, sizing, non-solid tiles, multiple layers, and root-image propagation. |
 | Local | Floats and clear | `float-clearance-margin-collapse.html` ([#68](https://github.com/lukehoban/simplebrowser/issues/68)) | `float-clearance-margin-collapse-ref.html` (match) | **pass** | 0 | Right floats, multiple floats, inline wrapping, and negative margins. |
 | Local | Floats and clear | `float-clearance-sides.html` ([#68](https://github.com/lukehoban/simplebrowser/issues/68)) | `float-clearance-sides-ref.html` (match) | **pass** | 0 | Inline wrapping after clearance, negative margins, and clearance on a first child that collapses through its parent (#275). |
-| Local | Tables | `collapsed-border-conflict.html` ([#66](https://github.com/lukehoban/simplebrowser/issues/66)) | `collapsed-border-conflict-ref.html` (match) | **pass** | 0 | Row/table borders, style precedence, spans, and multi-row conflicts. |
-| Local | Tables | `collapsed-row-cell-border.html` ([#66](https://github.com/lukehoban/simplebrowser/issues/66)) | `collapsed-row-cell-border-ref.html` (match) | **pass** | 0 | Multi-row segmentation, table edges, row groups, border styles, and spanning cells. |
+| Local | Tables | `collapsed-border-conflict.html` ([#66](https://github.com/lukehoban/simplebrowser/issues/66)) | `collapsed-border-conflict-ref.html` (match) | **pass** | 0 | Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318). |
+| Local | Tables | `collapsed-border-precedence.html` ([#396](https://github.com/lukehoban/simplebrowser/issues/396)) | `collapsed-border-precedence-ref.html` (match) | **pass** | 0 | Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318). |
+| Local | Tables | `collapsed-row-cell-border.html` ([#66](https://github.com/lukehoban/simplebrowser/issues/66)) | `collapsed-row-cell-border-ref.html` (match) | **pass** | 0 | Multi-row/column segmentation, spanning cells, and padded row geometry (#397, #318). |
 | Local | Tables | `inline-table-line-edge.html` ([#209](https://github.com/lukehoban/simplebrowser/issues/209)) | `inline-table-line-edge-ref.html` (match) | **fail** | 244 | Multiple cells, spans, captions, bidi, and vertical alignment variants. |
 
 The first 38 WPT assertions are blocking regressions. New WPT and local assertions are diagnostic: mismatches remain visible without making CI fail. On failures, run `make compatibility` and inspect `artifacts/wpt/<suite>/<test>/` (test, reference, red pixel diff).
