@@ -33,6 +33,8 @@ func TestMathComparisonLengthsGeometry(t *testing.T) {
 			<div id="round-down" style="width:round(down, 259px, 10px)"></div>
 			<div id="round-zero" style="width:round(to-zero, 259px, 10px)"></div>
 			<div id="round-negative-step" style="width:round(nearest, 257px, -10px)"></div>
+			<div id="round-whitespace" style="width:round( up, 9px, 2px)"></div>
+			<div id="round-whitespace-around-comma" style="width:round( up , 9px , 2px )"></div>
 			<div id="round-percent" style="width:round(up, 51%, 10%)"></div>
 			<div id="abs" style="width:abs(-120px)"></div>
 			<div id="abs-percent" style="width:abs(-50%)"></div>
@@ -81,7 +83,8 @@ func TestMathComparisonLengthsGeometry(t *testing.T) {
 		width int
 	}{
 		{"round-nearest", 260}, {"round-tie", 260}, {"round-up", 260}, {"round-down", 250},
-		{"round-zero", 250}, {"round-negative-step", 260}, {"round-percent", 240},
+		{"round-zero", 250}, {"round-negative-step", 260}, {"round-whitespace", 10},
+		{"round-whitespace-around-comma", 10}, {"round-percent", 240},
 		{"abs", 120}, {"abs-percent", 200}, {"sign-percent", 100}, {"nested-round", 260},
 		{"round-var", 260}, {"clamp-none-low", 300}, {"clamp-none-high", 200},
 		{"clamp-none-both", 200},
@@ -150,7 +153,7 @@ func TestMathComparisonComputedValues(t *testing.T) {
 			t.Errorf("@supports accepted width:%s", v)
 		}
 	}
-	for _, v := range []string{"round(10px, 3px)", "round(up, 10px, 3px)", "abs(-10px)", "calc(sign(-10px) * 10px)", "clamp(none, 50%, 100px)", "clamp(1px, 2px, none)"} {
+	for _, v := range []string{"round(10px, 3px)", "round(up, 10px, 3px)", "round( up, 9px, 2px)", "abs(-10px)", "calc(sign(-10px) * 10px)", "clamp(none, 50%, 100px)", "clamp(1px, 2px, none)"} {
 		if !featureSupported("width", v) {
 			t.Errorf("@supports rejected width:%s", v)
 		}

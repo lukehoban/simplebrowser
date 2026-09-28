@@ -266,10 +266,12 @@ func (p *cssMathParser) function() (v cssMathValue, ok, matched bool) {
 	strategy := "nearest"
 	if name == "round" {
 		start := p.i
+		p.space()
+		strategyStart := p.i
 		for p.i < len(p.s) && (p.s[p.i] >= 'a' && p.s[p.i] <= 'z' || p.s[p.i] >= 'A' && p.s[p.i] <= 'Z' || p.s[p.i] == '-') {
 			p.i++
 		}
-		candidate := strings.ToLower(p.s[start:p.i])
+		candidate := strings.ToLower(p.s[strategyStart:p.i])
 		p.space()
 		if p.i < len(p.s) && p.s[p.i] == ',' && (candidate == "nearest" || candidate == "up" || candidate == "down" || candidate == "to-zero") {
 			strategy = candidate
