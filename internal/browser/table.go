@@ -967,15 +967,15 @@ func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 				}
 			}
 			col := segment
-			if i == 1 {
+			if i == 3 {
+				col = 0
+			} else if i == 1 {
 				col = g.columns - 1
 			}
-			if i == 0 || i == 2 || i == 1 || i == 3 {
-				if col >= 0 && col < len(g.cols) {
-					segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.cols[col], side))
-					if col < len(g.colGroups) && g.colGroups[col] != nil {
-						segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.colGroups[col], side))
-					}
+			if col >= 0 && col < len(g.cols) {
+				segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.cols[col], side))
+				if col < len(g.colGroups) && g.colGroups[col] != nil {
+					segmentCandidates = append(segmentCandidates, tableBorderCandidate(g.colGroups[col], side))
 				}
 			}
 			segments[segment] = resolveCollapsedBorder(segmentCandidates...)

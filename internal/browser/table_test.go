@@ -968,6 +968,37 @@ func TestCollapsedPerimeterBordersResolveEachSpanSegment(t *testing.T) {
 	}
 }
 
+func TestCollapsedPerimeterLeftSegmentsUseLeftmostColumn(t *testing.T) {
+	node := func(name, left string) *StyledNode {
+		return &StyledNode{
+			Node:  &Node{Type: ElementNode, Name: name},
+			Style: ComputedStyle{"display": "table-cell", "border-left": left},
+		}
+	}
+	rows := []*tableRowBox{
+		{cells: []*tableCellBox{{node: node("td", "2px solid red"), col: 0, colspan: 1, rowspan: 1, row: 0}, {col: 1, colspan: 1, rowspan: 1, row: 0}}},
+		{cells: []*tableCellBox{{node: node("td", "3px solid red"), col: 0, colspan: 1, rowspan: 1, row: 1}, {col: 1, colspan: 1, rowspan: 1, row: 1}}},
+		{cells: []*tableCellBox{{node: node("td", "6px solid red"), col: 0, colspan: 1, rowspan: 1, row: 2}, {col: 1, colspan: 1, rowspan: 1, row: 2}}},
+	}
+	col0 := &StyledNode{Node: &Node{Type: ElementNode, Name: "col"}, Style: ComputedStyle{"border-left": "5px solid blue"}}
+	col1 := &StyledNode{Node: &Node{Type: ElementNode, Name: "col"}, Style: ComputedStyle{"border-left": "20px solid green"}}
+	table := &StyledNode{Node: &Node{Type: ElementNode, Name: "table"}, Style: ComputedStyle{}}
+	grid := &tableGrid{
+		collapse: true, columns: 2, rows: rows,
+		cols: []*StyledNode{col0, col1},
+	}
+	grid.resolveOuterBorders(table)
+	if got := grid.outerBorderAt(3, 0); got == nil || got.width != 5 || got.node != col0 {
+		t.Fatalf("first left segment = %#v, want 5px col 0 border", got)
+	}
+	if got := grid.outerBorderAt(3, 1); got == nil || got.width != 5 || got.node != col0 {
+		t.Fatalf("middle left segment = %#v, want 5px col 0 border", got)
+	}
+	if got := grid.outerBorderAt(3, 2); got == nil || got.width != 6 || got.node != rows[2].cells[0].node {
+		t.Fatalf("last left segment = %#v, want 6px left cell", got)
+	}
+}
+
 func TestTableCollapsedHiddenBorderSuppressesSharedEdge(t *testing.T) {
 	doc := styledForLayout(t, `<body style="margin:0"><table style="border-collapse:collapse">`+
 		`<tr><td style="padding:0;width:40px;height:20px;border-right:10px solid red"></td>`+
