@@ -228,6 +228,8 @@ var supportValidators = map[string]func(string) bool{
 	"background-repeat":    keywordValidator("repeat", "no-repeat", "repeat-x", "repeat-y"),
 	"width":                supportsOr(keywordValidator("auto"), nonNegativeLength),
 	"height":               supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"inline-size":          supportsOr(keywordValidator("auto"), nonNegativeLength),
+	"block-size":           supportsOr(keywordValidator("auto"), nonNegativeLength),
 	"top":                  supportsOr(keywordValidator("auto"), lengthOrPercentage),
 	"right":                supportsOr(keywordValidator("auto"), lengthOrPercentage),
 	"bottom":               supportsOr(keywordValidator("auto"), lengthOrPercentage),

@@ -18,6 +18,8 @@ func TestSupportsConditionEvaluation(t *testing.T) {
 		{"(display: block !important)", true},
 		{"(color: #0f0)", true},
 		{"(color: rebeccapurple)", true},
+		{"(inline-size: 32px)", true},
+		{"(block-size: 24px)", true},
 		{"(margin: 0 auto 4px 10%)", true},
 		{"(fill: none)", true},
 		{"(color: inherit)", true},
