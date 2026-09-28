@@ -90,6 +90,11 @@ func TestInlineSVGAppliesHostCSSWithCascadePriority(t *testing.T) {
 			want: color.NRGBA{R: 0, G: 128, B: 0, A: 255},
 		},
 		{
+			name: "CDATA-wrapped SVG style applies",
+			html: `<svg width="10" height="10" viewBox="0 0 10 10"><style><![CDATA[#shape { fill: blue }]]></style><path id="shape" d="M0 0H10V10H0Z"/></svg>`,
+			want: color.NRGBA{R: 0, G: 0, B: 255, A: 255},
+		},
+		{
 			name: "host important declaration beats normal SVG inline style",
 			html: `<style>.mark path { fill: rgb(20, 80, 160) !important }</style><svg class="mark" width="10" height="10" viewBox="0 0 10 10"><path style="fill: green" d="M0 0H10V10H0Z"/></svg>`,
 			want: color.NRGBA{R: 20, G: 80, B: 160, A: 255},

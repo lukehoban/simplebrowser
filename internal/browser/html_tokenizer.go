@@ -40,6 +40,16 @@ type Tokenizer struct {
 	pos   int
 	raw   string
 	xhtml bool
+	// elements tracks the namespace context needed by HTML's foreign-content
+	// rules. Integration points are foreign elements whose children are
+	// tokenized using HTML rules.
+	elements []tokenizerElement
+}
+
+type tokenizerElement struct {
+	name        string
+	namespace   string
+	integration bool
 }
 
 func NewTokenizer(input string) *Tokenizer { return &Tokenizer{input: input} }
@@ -84,7 +94,7 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	s = t.input[t.pos:]
-	if t.xhtml && strings.HasPrefix(s, "<![CDATA[") {
+	if (t.xhtml || t.inForeignContent()) && strings.HasPrefix(s, "<![CDATA[") {
 		return t.cdataToken(s)
 	}
 	if s[0] != '<' {
@@ -151,6 +161,7 @@ func (t *Tokenizer) Next() Token {
 			i++
 		}
 		t.pos += i
+		t.popElement(token.Name)
 		return token
 	}
 	seen := map[string]bool{}
@@ -213,6 +224,7 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	t.pos += i
+	t.pushElement(token)
 	if token.Name == "script" || token.Name == "style" {
 		if !token.SelfClosing {
 			t.raw = token.Name
@@ -221,12 +233,13 @@ func (t *Tokenizer) Next() Token {
 	return token
 }
 
-// nextRawCDATA splits XHTML raw text at a CDATA opener so the next call can
-// consume it without exposing the delimiters to the style or script content.
+// nextRawCDATA splits raw text at a CDATA opener so the next call can consume
+// it without exposing the delimiters to the style or script content.
 func (t *Tokenizer) nextRawCDATA(s string, before int) (Token, bool) {
-	if !t.xhtml {
+	if !t.xhtml && !t.inForeignContent() {
 		return Token{}, false
 	}
+
 	i := strings.Index(s[:before], "<![CDATA[")
 	if i < 0 {
 		return Token{}, false
@@ -248,6 +261,105 @@ func (t *Tokenizer) cdataToken(s string) Token {
 	}
 	t.pos += len(opener) + end + len("]]>")
 	return Token{Type: TextToken, Data: content[:end]}
+}
+
+func (t *Tokenizer) inForeignContent() bool {
+	if len(t.elements) == 0 {
+		return false
+	}
+	current := t.elements[len(t.elements)-1]
+	return current.namespace != "" && !current.integration
+}
+
+func (t *Tokenizer) pushElement(token Token) {
+	if t.inForeignContent() && isHTMLBreakoutStartTag(token) {
+		t.leaveForeignContent()
+	}
+	if token.SelfClosing || voidElement(token.Name) {
+		return
+	}
+	parentNamespace := ""
+	if len(t.elements) > 0 {
+		parent := t.elements[len(t.elements)-1]
+		parentNamespace = parent.namespace
+		if parent.integration {
+			parentNamespace = ""
+		}
+		if parent.namespace == "math" && isMathTextIntegrationPoint(parent.name) &&
+			(token.Name == "mglyph" || token.Name == "malignmark") {
+			parentNamespace = "math"
+		}
+	}
+	namespace := parentNamespace
+	if token.Name == "svg" {
+		namespace = "svg"
+	} else if token.Name == "math" {
+		namespace = "math"
+	}
+	element := tokenizerElement{name: token.Name, namespace: namespace}
+	if namespace == "svg" {
+		element.integration = token.Name == "foreignobject" || token.Name == "desc" || token.Name == "title"
+	} else if namespace == "math" {
+		element.integration = isMathTextIntegrationPoint(token.Name) ||
+			token.Name == "annotation-xml" && htmlEncodingAttribute(token.Attributes)
+	}
+	t.elements = append(t.elements, element)
+}
+
+func (t *Tokenizer) leaveForeignContent() {
+	for len(t.elements) > 0 {
+		current := t.elements[len(t.elements)-1]
+		if current.namespace == "" || current.integration {
+			return
+		}
+		t.elements = t.elements[:len(t.elements)-1]
+	}
+}
+
+func (t *Tokenizer) popElement(name string) {
+	for i := len(t.elements) - 1; i >= 0; i-- {
+		if t.elements[i].name == name {
+			t.elements = t.elements[:i]
+			return
+		}
+	}
+}
+
+func isHTMLBreakoutStartTag(token Token) bool {
+	switch token.Name {
+	case "b", "big", "blockquote", "body", "br", "center", "code", "dd", "div",
+		"dl", "dt", "em", "embed", "h1", "h2", "h3", "h4", "h5", "h6", "head",
+		"hr", "i", "img", "li", "listing", "menu", "meta", "nobr", "ol", "p",
+		"pre", "ruby", "s", "small", "span", "strong", "strike", "sub", "sup",
+		"table", "tt", "u", "ul", "var":
+		return true
+	case "font":
+		for _, attr := range token.Attributes {
+			if attr.Name == "color" || attr.Name == "face" || attr.Name == "size" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isMathTextIntegrationPoint(name string) bool {
+	switch name {
+	case "mi", "mo", "mn", "ms", "mtext":
+		return true
+	default:
+		return false
+	}
+}
+
+func htmlEncodingAttribute(attributes []Attribute) bool {
+	for _, attr := range attributes {
+		if attr.Name == "encoding" {
+			return strings.EqualFold(attr.Value, "text/html") ||
+				strings.EqualFold(attr.Value, "application/xhtml+xml")
+		}
+	}
+	return false
 }
 
 func isSpace(b byte) bool  { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' }
