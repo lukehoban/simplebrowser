@@ -40,10 +40,16 @@ type Tokenizer struct {
 	pos   int
 	raw   string
 	xhtml bool
-	// foreignDepth tracks the SVG/MathML foreign-content scope in HTML
-	// mode. CDATA sections are text only in that scope; outside it, the
-	// existing HTML declaration recovery remains unchanged.
-	foreignDepth int
+	// elements tracks the namespace context needed by HTML's foreign-content
+	// rules. Integration points are foreign elements whose children are
+	// tokenized using HTML rules.
+	elements []tokenizerElement
+}
+
+type tokenizerElement struct {
+	name        string
+	namespace   string
+	integration bool
 }
 
 func NewTokenizer(input string) *Tokenizer { return &Tokenizer{input: input} }
@@ -88,7 +94,7 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	s = t.input[t.pos:]
-	if (t.xhtml || t.foreignDepth > 0) && strings.HasPrefix(s, "<![CDATA[") {
+	if (t.xhtml || t.inForeignContent()) && strings.HasPrefix(s, "<![CDATA[") {
 		return t.cdataToken(s)
 	}
 	if s[0] != '<' {
@@ -155,9 +161,7 @@ func (t *Tokenizer) Next() Token {
 			i++
 		}
 		t.pos += i
-		if isForeignRoot(token.Name) && t.foreignDepth > 0 {
-			t.foreignDepth--
-		}
+		t.popElement(token.Name)
 		return token
 	}
 	seen := map[string]bool{}
@@ -220,9 +224,7 @@ func (t *Tokenizer) Next() Token {
 		}
 	}
 	t.pos += i
-	if isForeignRoot(token.Name) && !token.SelfClosing {
-		t.foreignDepth++
-	}
+	t.pushElement(token)
 	if token.Name == "script" || token.Name == "style" {
 		if !token.SelfClosing {
 			t.raw = token.Name
@@ -234,7 +236,7 @@ func (t *Tokenizer) Next() Token {
 // nextRawCDATA splits raw text at a CDATA opener so the next call can consume
 // it without exposing the delimiters to the style or script content.
 func (t *Tokenizer) nextRawCDATA(s string, before int) (Token, bool) {
-	if !t.xhtml && t.foreignDepth == 0 {
+	if !t.xhtml && !t.inForeignContent() {
 		return Token{}, false
 	}
 
@@ -261,8 +263,72 @@ func (t *Tokenizer) cdataToken(s string) Token {
 	return Token{Type: TextToken, Data: content[:end]}
 }
 
-func isForeignRoot(name string) bool {
-	return name == "svg" || name == "math"
+func (t *Tokenizer) inForeignContent() bool {
+	if len(t.elements) == 0 {
+		return false
+	}
+	current := t.elements[len(t.elements)-1]
+	return current.namespace != "" && !current.integration
+}
+
+func (t *Tokenizer) pushElement(token Token) {
+	if token.SelfClosing || voidElement(token.Name) {
+		return
+	}
+	parentNamespace := ""
+	if len(t.elements) > 0 {
+		parent := t.elements[len(t.elements)-1]
+		parentNamespace = parent.namespace
+		if parent.integration {
+			parentNamespace = ""
+		}
+		if parent.namespace == "math" && isMathTextIntegrationPoint(parent.name) &&
+			(token.Name == "mglyph" || token.Name == "malignmark") {
+			parentNamespace = "math"
+		}
+	}
+	namespace := parentNamespace
+	if token.Name == "svg" {
+		namespace = "svg"
+	} else if token.Name == "math" {
+		namespace = "math"
+	}
+	element := tokenizerElement{name: token.Name, namespace: namespace}
+	if namespace == "svg" {
+		element.integration = token.Name == "foreignobject" || token.Name == "desc" || token.Name == "title"
+	} else if namespace == "math" {
+		element.integration = isMathTextIntegrationPoint(token.Name) ||
+			token.Name == "annotation-xml" && htmlEncodingAttribute(token.Attributes)
+	}
+	t.elements = append(t.elements, element)
+}
+
+func (t *Tokenizer) popElement(name string) {
+	for i := len(t.elements) - 1; i >= 0; i-- {
+		if t.elements[i].name == name {
+			t.elements = t.elements[:i]
+			return
+		}
+	}
+}
+
+func isMathTextIntegrationPoint(name string) bool {
+	switch name {
+	case "mi", "mo", "mn", "ms", "mtext":
+		return true
+	default:
+		return false
+	}
+}
+
+func htmlEncodingAttribute(attributes []Attribute) bool {
+	for _, attr := range attributes {
+		if attr.Name == "encoding" {
+			return strings.EqualFold(attr.Value, "text/html") ||
+				strings.EqualFold(attr.Value, "application/xhtml+xml")
+		}
+	}
+	return false
 }
 
 func isSpace(b byte) bool  { return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' }
