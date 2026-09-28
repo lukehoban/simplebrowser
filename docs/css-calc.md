@@ -1,16 +1,21 @@
-# CSS `calc()`, `min()`, `max()` and `clamp()` length support
+# CSS math length support
 
-The renderer evaluates `calc()` values in the length properties its
+The renderer evaluates CSS math functions in the length properties its
 layout engine uses: `width`, `height`, margins, padding, `flex-basis`, `gap`,
 `row-gap`, `column-gap`, border widths, and `top`/`right`/`bottom`/`left` on
 positioned boxes. Vertical offset percentages share the existing
 width-based basis bug tracked in
 [#216](https://github.com/lukehoban/simplebrowser/issues/216). The supported arithmetic is
 `+`, `-`, `*`, and `/` over `px`, `em`, `rem`, `ex`, `ch`, `%`, `vw`, `vh`,
-and unitless numbers, plus the comparison functions `min()`, `max()` (one or
-more comma-separated arguments) and `clamp(MIN, VAL, MAX)` (exactly three;
-`MIN` wins if it exceeds `MAX`). These functions and `calc()` can be nested in
-each other and used as a whole declaration value, for example
+and unitless numbers, plus `min()` and `max()` (one or more comma-separated
+arguments), `clamp(MIN, VAL, MAX)` (three arguments; either bound may be
+`none`, and `MIN` wins if it exceeds `MAX`), `round()` with `nearest`, `up`,
+`down`, and `to-zero` strategies, and the unary `abs()` and `sign()` functions.
+`round()` defaults to `nearest`; halfway values round toward positive infinity.
+Its step must be nonzero. `abs()` returns the absolute value, while `sign()`
+returns the number `-1`, `0`, or `1` and can be combined with a length inside
+`calc()`. These functions and `calc()` can be nested in each other and used as
+a whole declaration value, for example
 `width: min(250px, 300px)` or `width: calc(min(50%, 300px) - 10px)`. Addition and subtraction require CSS whitespace around
 the operator. Font- and viewport-relative units are resolved when styles are
 computed. Percentage terms are kept until layout and resolved against the
@@ -32,11 +37,16 @@ length grammar. The `margin`, `padding`, and `border-width` shorthands accept
 one to four components, including a `calc()` expression in any component;
 whitespace inside each expression is kept intact.
 
+Percentage-only functions can be evaluated as percentages; math whose outcome
+depends on a mixture of percentage and length terms remains deferred until the
+layout basis is available. `sign()` by itself is a number, not a length, so a
+length declaration can use it as a multiplier (for example,
+`width: calc(sign(-50%) * -100px)`).
+
 This is intentionally not a full CSS math implementation. These are not
 supported yet:
 
-- `round()`, `abs()`, `sign()` and other CSS math functions, and the `none`
-  argument of `clamp()`
+- `mod()`, `rem()`, trigonometric functions, and other CSS math functions
 - `calc()` inside the `flex` shorthand
   ([#288](https://github.com/lukehoban/simplebrowser/issues/288)); use
   `flex-basis` instead
@@ -47,8 +57,9 @@ supported yet:
 
 `@supports` accepts only the forms listed above as supported.
 
-Reproduce the `min()`/`max()`/`clamp()` cases
-([#281](https://github.com/lukehoban/simplebrowser/issues/281)):
+Reproduce the `min()`/`max()`/`clamp()` and `round()`/`abs()`/`sign()` cases
+([#281](https://github.com/lukehoban/simplebrowser/issues/281),
+[#445](https://github.com/lukehoban/simplebrowser/issues/445)):
 
 ```sh
 go run ./cmd/simplebrowser -o /tmp/min-max-clamp.png testdata/css-math/min-max-clamp.html
@@ -58,7 +69,9 @@ Inside the 400px gray frame the bars are 250px (`min(250px, 300px)`), 200px
 (`min(50%, 300px)`), 150px (`max(10%, 150px)`), 200px
 (`clamp(100px, 50%, 300px)`), 300px (`clamp(10px, 90%, 300px)`), 190px
 (`calc(min(50%, 300px) - 10px)`) and 220px (`min(var(--w), 60%)` with
-`--w: 220px`):
+`--w: 220px`). Additional bars show `round(nearest, 257px, 10px)` at 260px,
+`abs(-120px)` at 120px, `clamp(none, 90%, 300px)` at 300px, and `sign()` in
+`calc()` at 100px:
 
 ![Rendered min()/max()/clamp() widths](screenshots/css-math/min-max-clamp.png)
 
