@@ -661,30 +661,56 @@ func TestTableCollapsedRowCellBorderConflict(t *testing.T) {
 }
 
 func TestTableCollapsedOuterEdgesResolveAgainstCells(t *testing.T) {
-	markup := `<body style="margin:0"><table style="border-collapse:collapse;border:5px solid red">` +
-		`<tr><td style="padding:0;width:30px;height:20px;border:3px solid blue">cell</td></tr></table></body>`
-	doc := styledForLayout(t, markup)
-	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 80, 80))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tables, cells := collectBoxes(layout.Root, "table"), collectBoxes(layout.Root, "td")
-	if len(tables) != 1 || len(cells) != 1 {
-		t.Fatalf("boxes = table %d, cell %d; want one each", len(tables), len(cells))
-	}
-	if tables[0].BorderWidths == nil || *tables[0].BorderWidths != [4]int{3, 3, 3, 3} {
-		t.Fatalf("table used outer halves = %v, want [3 3 3 3]", tables[0].BorderWidths)
-	}
-	if cells[0].BorderWidths == nil || *cells[0].BorderWidths != [4]int{2, 2, 2, 2} {
-		t.Fatalf("cell used inner halves = %v, want [2 2 2 2]", cells[0].BorderWidths)
-	}
-	img := painted(t, markup, image.Rect(0, 0, 80, 80))
-	// Each perimeter edge is one continuous winning border, not adjacent
-	// table and cell borders. The corner is table-owned and remains red.
-	for _, p := range []image.Point{{3, 3}, {35, 3}, {3, 25}, {35, 25}} {
-		if got := img.At(p.X, p.Y); got != (color.RGBA{255, 0, 0, 255}) {
-			t.Fatalf("outer edge pixel at %v = %v, want red", p, got)
+	assertBorderColor := func(t *testing.T, img image.Image, rect image.Rectangle, widths [4]int, want color.RGBA) {
+		t.Helper()
+		bands := []image.Rectangle{
+			image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+widths[0]),
+			image.Rect(rect.Max.X-widths[1], rect.Min.Y, rect.Max.X, rect.Max.Y),
+			image.Rect(rect.Min.X, rect.Max.Y-widths[2], rect.Max.X, rect.Max.Y),
+			image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+widths[3], rect.Max.Y),
 		}
+		for _, band := range bands {
+			for y := band.Min.Y; y < band.Max.Y; y++ {
+				for x := band.Min.X; x < band.Max.X; x++ {
+					if got := img.At(x, y); got != want {
+						t.Fatalf("border pixel at (%d,%d) = %v, want %v", x, y, got, want)
+					}
+				}
+			}
+		}
+	}
+
+	for _, tc := range []struct {
+		name        string
+		tableBorder string
+		cellBorder  string
+		want        color.RGBA
+	}{
+		{"table wins", "5px solid red", "3px solid blue", color.RGBA{255, 0, 0, 255}},
+		{"cell wins", "1px solid red", "5px solid blue", color.RGBA{0, 0, 255, 255}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			markup := `<body style="margin:0"><table style="border-collapse:collapse;border:` + tc.tableBorder + `">` +
+				`<tr><td style="padding:0;width:30px;height:20px;border:` + tc.cellBorder + `">cell</td></tr></table></body>`
+			doc := styledForLayout(t, markup)
+			layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 80, 80))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tables, cells := collectBoxes(layout.Root, "table"), collectBoxes(layout.Root, "td")
+			if len(tables) != 1 || len(cells) != 1 {
+				t.Fatalf("boxes = table %d, cell %d; want one each", len(tables), len(cells))
+			}
+			if tables[0].BorderWidths == nil || *tables[0].BorderWidths != [4]int{3, 3, 3, 3} {
+				t.Fatalf("table used outer halves = %v, want [3 3 3 3]", tables[0].BorderWidths)
+			}
+			if cells[0].BorderWidths == nil || *cells[0].BorderWidths != [4]int{2, 2, 2, 2} {
+				t.Fatalf("cell used inner halves = %v, want [2 2 2 2]", cells[0].BorderWidths)
+			}
+			img := painted(t, markup, image.Rect(0, 0, 80, 80))
+			assertBorderColor(t, img, tables[0].Rect, *tables[0].BorderWidths, tc.want)
+			assertBorderColor(t, img, cells[0].Rect, *cells[0].BorderWidths, tc.want)
+		})
 	}
 }
 

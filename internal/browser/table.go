@@ -666,7 +666,8 @@ func borderOriginRank(node *StyledNode) int {
 // resolveOuterBorders resolves the four table perimeter edges against the
 // cells which touch them. The collapsed border is a single edge: its width is
 // split between the table and the touching cells rather than painting the
-// table border beside a complete cell border.
+// table border beside a complete cell border. This is intentionally bounded
+// to one winner per side; segmented perimeter winners are tracked separately.
 func (g *tableGrid) resolveOuterBorders(table *StyledNode) {
 	if !g.collapse || len(g.rows) == 0 || g.columns == 0 {
 		return
@@ -1505,7 +1506,12 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 			paintBorders := grid.collapsedCellPaintBorderWidths(cell, cellBorder)
 			cell.box.BorderWidths = &paintBorders
 			if grid.collapse {
-				colors := [4]color.RGBA{}
+				colors := [4]color.RGBA{
+					borderColor(cell.node.Style, "top"),
+					borderColor(cell.node.Style, "right"),
+					borderColor(cell.node.Style, "bottom"),
+					borderColor(cell.node.Style, "left"),
+				}
 				hasColors := false
 				for side, edge := range grid.outerBorders {
 					if edge == nil {
@@ -1647,6 +1653,22 @@ func layoutTable(n *StyledNode, x, y, width int, parentTextAlign string, faces *
 	if grid.collapse {
 		widths := border
 		box.BorderWidths = &widths
+		colors := [4]color.RGBA{
+			borderColor(n.Style, "top"),
+			borderColor(n.Style, "right"),
+			borderColor(n.Style, "bottom"),
+			borderColor(n.Style, "left"),
+		}
+		hasColors := false
+		for side, edge := range grid.outerBorders {
+			if edge != nil {
+				colors[side] = borderColor(edge.node.Style, edge.side)
+				hasColors = true
+			}
+		}
+		if hasColors {
+			box.BorderColors = &colors
+		}
 	}
 	return box, end - y + margin[2]
 }
