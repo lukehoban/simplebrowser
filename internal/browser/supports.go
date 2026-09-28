@@ -387,13 +387,27 @@ func cssIdentString(v string) bool {
 	if v == "" {
 		return false
 	}
+	// A CSS identifier may start with "--", or with "-" followed by a
+	// name-start character, but not with a lone hyphen or a digit after it.
+	// Escape syntax is not accepted here: the bounded Grid parser consumes
+	// raw area strings and cannot match escaped names to grid-area values.
 	for i, r := range v {
-		if !(r == '-' || r == '_' || r >= 'a' && r <= 'z' ||
-			r >= 'A' && r <= 'Z' || i > 0 && r >= '0' && r <= '9') {
+		nameStart := r == '_' || r >= 'a' && r <= 'z' ||
+			r >= 'A' && r <= 'Z' || r >= 0x80
+		if i == 0 {
+			if !nameStart && r != '-' {
+				return false
+			}
+			continue
+		}
+		if i == 1 && v[0] == '-' && !nameStart && r != '-' {
+			return false
+		}
+		if !(nameStart || r == '-' || r >= '0' && r <= '9') {
 			return false
 		}
 	}
-	return true
+	return v != "-"
 }
 
 func boxShorthand(valid func(string) bool) func(string) bool {

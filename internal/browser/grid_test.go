@@ -86,6 +86,12 @@ func TestGridTemplateAreasSupportsMatchesLayout(t *testing.T) {
 	}{
 		{`"leading text trailing"`, true},
 		{`'a b c'`, true},
+		{`"-leading --text _trailing"`, true},
+		{`"naïve text trailing"`, true},
+		{`"- text trailing"`, false},
+		{`"-1 text trailing"`, false},
+		{`"1leading text trailing"`, false},
+		{`"a \31 b c"`, false}, // Escaped names are not resolved by this subset.
 		{`"leading . trailing"`, false},
 		{`". text trailing"`, false},
 		{`"a a b"`, false},
@@ -105,5 +111,45 @@ func TestGridTemplateAreasSupportsMatchesLayout(t *testing.T) {
 		if got := isGridContainer(&StyledNode{Style: style}); got != tc.want {
 			t.Errorf("isGridContainer(%s) = %v, want %v (must agree with @supports)", tc.areas, got, tc.want)
 		}
+	}
+}
+
+// Unsupported area names must keep every child in ordinary flow rather than
+// entering the narrow grid renderer and placing the children into tracks.
+func TestGridInvalidAreaNameFallsBackToFlow(t *testing.T) {
+	for _, name := range []string{"-", "-1", "1leading"} {
+		t.Run(name, func(t *testing.T) {
+			doc := styledForLayout(t, `<body style="margin:0"><div id="grid" style="display:grid;width:160px;grid-template-columns:min-content minmax(0,auto) min-content;grid-template-areas:'`+name+` text trailing'"><div id="first" style="grid-area:`+name+`">FIRST</div><div id="second" style="grid-area:text">SECOND</div><div id="third" style="grid-area:trailing">THIRD</div></div></body>`)
+			layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 160))
+			if err != nil {
+				t.Fatal(err)
+			}
+			boxes := boxesByID(layout.Root, "first", "second", "third")
+			first, second, third := boxes["first"], boxes["second"], boxes["third"]
+			if first == nil || second == nil || third == nil {
+				t.Fatalf("fallback lost a child: %+v", boxes)
+			}
+			if !(first.Rect.Min.Y < second.Rect.Min.Y && second.Rect.Min.Y < third.Rect.Min.Y) {
+				t.Errorf("invalid area %q should retain block-flow order: first=%v second=%v third=%v",
+					name, first.Rect, second.Rect, third.Rect)
+			}
+		})
+	}
+}
+
+func TestGridLeadingHyphenAreasKeepNamedPlacement(t *testing.T) {
+	doc := styledForLayout(t, `<body style="margin:0"><div style="display:grid;width:160px;grid-template-columns:min-content minmax(0,auto) min-content;grid-template-areas:'-leading --text _trailing'"><div id="third" style="grid-area:_trailing">T</div><div id="second" style="grid-area:--text">M</div><div id="first" style="grid-area:-leading">L</div></div></body>`)
+	layout, err := LayoutWithViewport(doc, image.Rect(0, 0, 200, 100))
+	if err != nil {
+		t.Fatal(err)
+	}
+	boxes := boxesByID(layout.Root, "first", "second", "third")
+	first, second, third := boxes["first"], boxes["second"], boxes["third"]
+	if first == nil || second == nil || third == nil {
+		t.Fatalf("valid area lost a child: %+v", boxes)
+	}
+	if !(first.Rect.Min.X < second.Rect.Min.X && second.Rect.Min.X < third.Rect.Min.X) {
+		t.Errorf("named tracks should override DOM order: first=%v second=%v third=%v",
+			first.Rect, second.Rect, third.Rect)
 	}
 }
