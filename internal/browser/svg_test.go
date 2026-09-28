@@ -1536,6 +1536,103 @@ func TestSVGEvenOddExactMaskDensePath(t *testing.T) {
 	}
 }
 
+func TestSVGEvenOddDenseCrossingsBoundedFallbackAccuracy(t *testing.T) {
+	// Issue #441's 130 triangles have 260 non-horizontal edges and more than
+	// 8,192 interior crossings. That deliberately exceeds exact arrangement
+	// discovery while remaining small enough for bounded quality sampling.
+	paths := denseCrossingSVGPaths()
+	if mask, ok := svgEvenOddExactMask(paths, 20, 20); ok || mask != nil {
+		t.Fatal("dense crossing repro should exceed the exact intersection budget")
+	}
+	if samples := svgEvenOddFallbackSampleCount(260*20, 20, 20); samples != svgFillQualitySubSamples {
+		t.Fatalf("dense crossing repro samples = %d, want %d", samples, svgFillQualitySubSamples)
+	}
+	if samples := svgEvenOddFallbackSampleCount(maxSVGExactEdges*20, 20, 20); samples != svgFillSubSamples {
+		t.Fatalf("pathological fallback samples = %d, want safety ceiling %d", samples, svgFillSubSamples)
+	}
+
+	low := svgEvenOddSampledMaskWithSamples(paths, 20, 20, svgFillSubSamples)
+	got := svgEvenOddSampledMask(paths, 20, 20)
+	reference := svgEvenOddSampledMaskWithSamples(paths, 20, 20, 1024)
+	lowMax, gotMax := 0, 0
+	for i, want := range reference.Pix {
+		lowDelta := absSVGInt(int(low.Pix[i]) - int(want))
+		gotDelta := absSVGInt(int(got.Pix[i]) - int(want))
+		lowMax = max(lowMax, lowDelta)
+		gotMax = max(gotMax, gotDelta)
+	}
+	if lowMax < 3 {
+		t.Fatalf("16-sample evidence did not expose its alpha error: max delta %d", lowMax)
+	}
+	if gotMax > 1 {
+		t.Errorf("bounded quality fallback max alpha delta = %d, want <= 1 (16-sample delta %d)", gotMax, lowMax)
+	}
+
+	if path := os.Getenv("SVG_DENSE_FALLBACK_VISUAL_PATH"); path != "" {
+		writeSVGMaskComparison(t, path, low, got, reference)
+	}
+}
+
+func denseCrossingSVGPaths() []svgSubpath {
+	paths := make([]svgSubpath, 130)
+	for i := range paths {
+		x := float64(i) / 10
+		paths[i] = svgSubpath{points: []svgPoint{
+			{x, 0},
+			{20 - x, 20},
+			{20 - x + 0.05, 20},
+		}}
+	}
+	return paths
+}
+
+func BenchmarkSVGEvenOddDenseCrossingsFallback(b *testing.B) {
+	paths := denseCrossingSVGPaths()
+	b.ResetTimer()
+	for range b.N {
+		svgEvenOddMask(paths, 20, 20)
+	}
+}
+
+func absSVGInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+// writeSVGMaskComparison enlarges the 16-sample result, bounded quality
+// result, and high-sample reference for review.
+func writeSVGMaskComparison(t *testing.T, path string, masks ...*image.Alpha) {
+	t.Helper()
+	const scale, gap = 12, 8
+	panel := 20 * scale
+	out := image.NewRGBA(image.Rect(0, 0, panel*len(masks)+gap*(len(masks)-1), panel))
+	for panelIndex, mask := range masks {
+		offset := panelIndex * (panel + gap)
+		for y := 0; y < 20; y++ {
+			for x := 0; x < 20; x++ {
+				alpha := mask.AlphaAt(x, y).A
+				c := color.RGBA{255 - alpha, 255 - alpha, 255 - alpha, 255}
+				for yy := 0; yy < scale; yy++ {
+					for xx := 0; xx < scale; xx++ {
+						out.SetRGBA(offset+x*scale+xx, y*scale+yy, c)
+					}
+				}
+			}
+		}
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = png.Encode(f, out)
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		t.Fatalf("write dense fallback comparison: %v, %v", err, closeErr)
+	}
+}
+
 func TestSVGFillRuleExactCoverageKeepsHole(t *testing.T) {
 	const d = "M1.25 1.5L18.75 1.5L18.75 18.5L1.25 18.5Z M5 5L15 5L15 15L5 15Z"
 	_, evenodd := renderSVGFillRulePair(t, d)

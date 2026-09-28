@@ -12,7 +12,14 @@ import (
 // svgFillSubSamples sub-scanlines whose parity spans are accumulated with
 // analytic horizontal coverage.
 
-const svgFillSubSamples = 16
+const (
+	svgFillSubSamples        = 16
+	svgFillQualitySubSamples = 128
+	// Quality sampling is only selected when this conservative estimate of
+	// edge visits plus covered pixel visits remains bounded. Larger inputs
+	// retain the 16-sample fallback.
+	maxSVGQualitySampleWork = 1 << 22
+)
 
 // The exact even-odd rasterizer splits the path into y-monotone trapezoids.
 // These caps keep intersection discovery and per-pixel clipping bounded;
@@ -422,7 +429,16 @@ func clipSVGPolygonX(in [6]svgPoint, n int, x float64, keepGreater bool) ([6]svg
 
 // svgEvenOddSampledMask is the bounded fallback used when exact arrangement
 // construction would exceed its explicit edge, event, or pixel-work budget.
+// Moderately sized inputs receive higher-quality sampling; large inputs keep
+// the original 16-sample ceiling.
 func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
+	return svgEvenOddSampledMaskWithSamples(paths, w, h, 0)
+}
+
+// svgEvenOddSampledMaskWithSamples uses the requested sample count, or picks
+// the higher-quality bounded fallback when samples is zero. Explicit sample
+// counts are useful for pixel-accuracy regression references.
+func svgEvenOddSampledMaskWithSamples(paths []svgSubpath, w, h, samples int) *image.Alpha {
 	if w <= 0 || h <= 0 {
 		return nil
 	}
@@ -460,6 +476,22 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 	if yEnd > h {
 		yEnd = h
 	}
+	if samples <= 0 {
+		samples = svgFillSubSamples
+		// Each edge can be visited once per overlapping row and parity spans
+		// visit no more than the visible row width per sample. This estimate
+		// therefore bounds the dominant loops without allocating by sample
+		// count or relaxing the exact rasterizer's hostile-input safeguards.
+		edgeRows := int64(0)
+		for _, e := range edges {
+			first := max(yStart, int(math.Floor(e.y0)))
+			last := min(yEnd, int(math.Ceil(e.y1)))
+			if last > first {
+				edgeRows += int64(last - first)
+			}
+		}
+		samples = svgEvenOddFallbackSampleCount(edgeRows, w, yEnd-yStart)
+	}
 	cov := make([]float64, w)
 	var xs []float64
 	next := 0
@@ -478,8 +510,8 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 			}
 		}
 		active = kept
-		for s := 0; s < svgFillSubSamples; s++ {
-			sy := float64(y) + (float64(s)+0.5)/svgFillSubSamples
+		for s := 0; s < samples; s++ {
+			sy := float64(y) + (float64(s)+0.5)/float64(samples)
 			xs = xs[:0]
 			for _, e := range active {
 				if sy >= e.y0 && sy < e.y1 {
@@ -491,7 +523,7 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 			}
 			sort.Float64s(xs)
 			for i := 0; i+1 < len(xs); i += 2 {
-				addSVGSpan(cov, xs[i], xs[i+1], 1.0/svgFillSubSamples)
+				addSVGSpan(cov, xs[i], xs[i+1], 1.0/float64(samples))
 			}
 		}
 		row := mask.Pix[y*mask.Stride : y*mask.Stride+w]
@@ -506,6 +538,14 @@ func svgEvenOddSampledMask(paths []svgSubpath, w, h int) *image.Alpha {
 		}
 	}
 	return mask
+}
+
+func svgEvenOddFallbackSampleCount(edgeRows int64, width, rows int) int {
+	qualityWork := (edgeRows + int64(width)*int64(rows)) * svgFillQualitySubSamples
+	if qualityWork <= maxSVGQualitySampleWork {
+		return svgFillQualitySubSamples
+	}
+	return svgFillSubSamples
 }
 
 // addSVGSpan adds weight*coverage for the horizontal span [x0,x1) to cov,
