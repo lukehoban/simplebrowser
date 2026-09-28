@@ -608,6 +608,57 @@ func (s *svgExpansion) computedColor(node *svgNode) color.NRGBA {
 	return c
 }
 
+// svgComputedFont is the inherited font state of a node outside walk.
+type svgComputedFont struct {
+	size                  float64
+	family, style, weight string
+	ratios                fontRatios
+}
+
+// computedFont mirrors walk's font-size and font-family inheritance for nodes
+// such as paint servers in <defs> that walk does not visit. em, ex and ch in
+// their geometry resolve against the node's own computed font; rem uses the
+// document root font size.
+func (s *svgExpansion) computedFont(node *svgNode) svgComputedFont {
+	if f, ok := s.fonts[node]; ok {
+		return f
+	}
+	def := svgDefaultFrame()
+	parent := svgComputedFont{size: def.fontSize, ratios: def.fontRatios}
+	if node.parent != nil {
+		parent = s.computedFont(node.parent)
+	}
+	current := parent
+	a := s.cascadedAttributes(node)
+	for _, property := range []struct {
+		key string
+		dst *string
+	}{
+		{"font-family", &current.family},
+		{"font-style", &current.style},
+		{"font-weight", &current.weight},
+	} {
+		if value := strings.TrimSpace(a[property.key]); value != "" && !strings.EqualFold(value, "inherit") {
+			*property.dst = value
+		}
+	}
+	current.ratios = ratiosFor(ComputedStyle{
+		"font-family": current.family, "font-style": current.style, "font-weight": current.weight,
+	})
+	rootFontSize := s.img.rootFontSize
+	if node == s.root {
+		rootFontSize = 16
+	}
+	if n, ok := svgFontSize(a["font-size"], parent.size, rootFontSize, parent.ratios); ok {
+		current.size = n
+	}
+	if s.fonts == nil {
+		s.fonts = make(map[*svgNode]svgComputedFont)
+	}
+	s.fonts[node] = current
+	return current
+}
+
 func svgParseStop(a map[string]string, currentColor color.NRGBA, previous []svgStop) svgStop {
 	offset := 0.0
 	if v := strings.TrimSpace(a["offset"]); v != "" {
@@ -658,9 +709,13 @@ func (s *svgExpansion) svgPaintLength(v string, source *svgNode, basis float64, 
 		v = strings.TrimSpace(resolved)
 	}
 	if strings.HasPrefix(strings.ToLower(v), "calc(") {
+		font := svgComputedFont{size: s.img.rootFontSize, ratios: ratiosFor(nil)}
+		if source != nil {
+			font = s.computedFont(source)
+		}
 		calcBasis := svgLengthBasis{horizontal: basis, vertical: basis, diagonal: basis,
-			fontSize: s.img.rootFontSize, rootFontSize: s.img.rootFontSize,
-			ratios: ratiosFor(nil)}
+			fontSize: font.size, rootFontSize: s.img.rootFontSize,
+			ratios: font.ratios}
 		n, ok := svgCalc(v, calcBasis, axis)
 		return n, ok
 	}
