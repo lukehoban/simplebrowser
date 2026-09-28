@@ -294,6 +294,30 @@ func TestInlineSVGHostCSSFixtureRendersBluePath(t *testing.T) {
 	}
 }
 
+func TestInlineSVGHostCSSDepthBoundaryFixtureRendersBluePath(t *testing.T) {
+	var output bytes.Buffer
+	fixture := filepath.Join("..", "..", "testdata", "svg", "host-css-depth-boundary.html")
+	if err := RenderWithFetcher(fixture, &output, &Fetcher{}); err != nil {
+		t.Fatalf("RenderWithFetcher() error = %v", err)
+	}
+	img, err := png.Decode(&output)
+	if err != nil {
+		t.Fatalf("decode rendered PNG: %v", err)
+	}
+	bluePixels := 0
+	for y := img.Bounds().Min.Y; y < img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
+			r, g, b, _ := img.At(x, y).RGBA()
+			if r > 0 && r < 0x3000 && g > 0x4000 && g < 0x7000 && b > 0x8000 {
+				bluePixels++
+			}
+		}
+	}
+	if bluePixels < 20 {
+		t.Fatalf("blue host-styled path pixels at the SVG depth boundary = %d, want a painted icon", bluePixels)
+	}
+}
+
 func TestInlineSVGHostCSSCanOverrideSupportedGeometry(t *testing.T) {
 	node := ParseHTML(`<style>.mark path { d: path("M0 0H5V5H0Z"); fill: blue }</style><svg class="mark" width="10" height="10" viewBox="0 0 10 10"><path d="M5 5H10V10H5Z" fill="red"/></svg>`)
 	styled, err := style(Document{Root: node}, &Fetcher{})
@@ -373,4 +397,86 @@ func TestInlineSVGXLinkDiscoveryRespectsSerializationDepthLimit(t *testing.T) {
 	if got := inlineSVGImage(&StyledNode{Node: root}); got != nil {
 		t.Fatalf("inlineSVGImage() = %T, want nil beyond the depth limit", got)
 	}
+}
+
+func TestInlineSVGStyleCollectionRespectsSerializationDepthLimit(t *testing.T) {
+	accepted := inlineSVGDepthFixture(63)
+	img, ok := inlineSVGImage(accepted).(*svgImage)
+	if !ok || img == nil {
+		t.Fatal("inlineSVGImage() rejected a styled path at the maximum accepted depth")
+	}
+	got := color.NRGBAModel.Convert(img.At(5, 5)).(color.NRGBA)
+	want := color.NRGBA{B: 255, A: 255}
+	if got != want {
+		t.Fatalf("maximum-depth host-styled pixel = %#v, want %#v", got, want)
+	}
+
+	if got := inlineSVGImage(inlineSVGDepthFixture(64)); got != nil {
+		t.Fatalf("inlineSVGImage() = %T beyond the depth limit, want nil", got)
+	}
+}
+
+func TestInlineSVGStyleCollectionRespectsSerializationElementLimit(t *testing.T) {
+	accepted := inlineSVGElementFixture(maxSVGElements)
+	img, ok := inlineSVGImage(accepted).(*svgImage)
+	if !ok || img == nil {
+		t.Fatal("inlineSVGImage() rejected host-styled output at the element limit")
+	}
+	got := color.NRGBAModel.Convert(img.At(5, 5)).(color.NRGBA)
+	want := color.NRGBA{B: 255, A: 255}
+	if got != want {
+		t.Fatalf("element-limit host-styled pixel = %#v, want %#v", got, want)
+	}
+
+	if got := inlineSVGImage(inlineSVGElementFixture(maxSVGElements + 1)); got != nil {
+		t.Fatalf("inlineSVGImage() = %T beyond the element limit, want nil", got)
+	}
+}
+
+func inlineSVGDepthFixture(groups int) *StyledNode {
+	root := inlineSVGStyledElement("svg", [][2]string{
+		{"width", "10"}, {"height", "10"}, {"viewbox", "0 0 10 10"},
+	}, nil, nil)
+	parent := root
+	for range groups {
+		group := inlineSVGStyledElement("g", nil, nil, nil)
+		parent.Node.Children = append(parent.Node.Children, group.Node)
+		group.Node.Parent = parent.Node
+		parent.Children = append(parent.Children, group)
+		parent = group
+	}
+	rect := inlineSVGStyledElement("rect", [][2]string{
+		{"width", "10"}, {"height", "10"},
+	}, ComputedStyle{"fill": "blue"}, map[string]StylePriority{"fill": {}})
+	parent.Node.Children = append(parent.Node.Children, rect.Node)
+	rect.Node.Parent = parent.Node
+	parent.Children = append(parent.Children, rect)
+	return root
+}
+
+func inlineSVGElementFixture(elements int) *StyledNode {
+	root := inlineSVGStyledElement("svg", [][2]string{
+		{"width", "10"}, {"height", "10"}, {"viewbox", "0 0 10 10"},
+	}, nil, nil)
+	for range elements - 2 {
+		group := inlineSVGStyledElement("g", nil, nil, nil)
+		group.Node.Parent = root.Node
+		root.Node.Children = append(root.Node.Children, group.Node)
+		root.Children = append(root.Children, group)
+	}
+	rect := inlineSVGStyledElement("rect", [][2]string{
+		{"width", "10"}, {"height", "10"},
+	}, ComputedStyle{"fill": "blue"}, map[string]StylePriority{"fill": {}})
+	rect.Node.Parent = root.Node
+	root.Node.Children = append(root.Node.Children, rect.Node)
+	root.Children = append(root.Children, rect)
+	return root
+}
+
+func inlineSVGStyledElement(name string, attrs [][2]string, style ComputedStyle, priorities map[string]StylePriority) *StyledNode {
+	node := &Node{Type: ElementNode, Name: name}
+	for _, attr := range attrs {
+		node.Attributes = append(node.Attributes, Attribute{Name: attr[0], Value: attr[1]})
+	}
+	return &StyledNode{Node: node, Style: style, StylePriority: priorities}
 }

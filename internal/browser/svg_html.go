@@ -44,24 +44,11 @@ func inlineSVGImage(n *StyledNode) image.Image {
 	elements := 0
 	rootEnd := 0
 	rootHasXLinkNamespace := false
-	styledByNode := make(map[*Node]*StyledNode)
-	var collectStyled func(*StyledNode)
-	collectStyled = func(styled *StyledNode) {
-		if styled == nil || styled.Node == nil {
-			return
-		}
-		styledByNode[styled.Node] = styled
-		for _, child := range styled.Children {
-			collectStyled(child)
-		}
-	}
-	collectStyled(n)
-	var writeNode func(*Node, int) bool
-	writeNode = func(node *Node, depth int) bool {
+	var writeNode func(*Node, *StyledNode, int) bool
+	writeNode = func(node *Node, styled *StyledNode, depth int) bool {
 		if node == nil || depth > 64 {
 			return false
 		}
-		styled := styledByNode[node]
 		if node.Type == TextNode {
 			var escaped bytes.Buffer
 			_ = xml.EscapeText(&escaped, []byte(node.Data))
@@ -132,8 +119,37 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		if source.Len() > maxSVGBytes {
 			return false
 		}
+		// Resolve styles only for each source child as serialization reaches
+		// it. This keeps style collection behind the same depth and element
+		// limits as output instead of walking the whole styled subtree up
+		// front. The two trees have source children in the same order; the
+		// styled tree can additionally contain generated pseudo-elements.
+		styledIndex := 0
 		for _, child := range node.Children {
-			if !writeNode(child, depth+1) {
+			if depth+1 > 64 || child != nil && child.Type == ElementNode && elements >= maxSVGElements {
+				return false
+			}
+			var styledChild *StyledNode
+			if styled != nil {
+				for styledIndex < len(styled.Children) {
+					candidate := styled.Children[styledIndex]
+					if candidate != nil && candidate.Node == child {
+						styledIndex++
+						styledChild = candidate
+						break
+					}
+					// Skip generated children, but leave a different source
+					// child for the next match. The latter also tolerates a
+					// source-only child added after styling.
+					if candidate == nil || candidate.Node == nil ||
+						candidate.Node.Name == pseudoBeforeName || candidate.Node.Name == pseudoAfterName {
+						styledIndex++
+						continue
+					}
+					break
+				}
+			}
+			if !writeNode(child, styledChild, depth+1) {
 				return false
 			}
 		}
@@ -142,7 +158,7 @@ func inlineSVGImage(n *StyledNode) image.Image {
 		source.WriteByte('>')
 		return source.Len() <= maxSVGBytes
 	}
-	if !writeNode(n.Node, 0) {
+	if !writeNode(n.Node, n, 0) {
 		return nil
 	}
 	if hasXLinkHref && !rootHasXLinkNamespace {

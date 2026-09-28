@@ -805,6 +805,32 @@ func TestTableCollapsedAdjacentCellsMatchReference(t *testing.T) {
 	}
 }
 
+func TestTableCollapsedRowSpanSegmentsMatchReference(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "wpt-local", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	viewport := image.Rect(0, 0, 220, 90)
+	got := painted(t, read("collapsed-row-span-segments.html"), viewport)
+	want := painted(t, read("collapsed-row-span-segments-ref.html"), viewport)
+	if !bytes.Equal(got.Pix, want.Pix) {
+		differing := 0
+		for i := 0; i < len(got.Pix); i += 4 {
+			if !bytes.Equal(got.Pix[i:i+4], want.Pix[i:i+4]) {
+				differing++
+			}
+		}
+		t.Fatalf("colspan shared border differs from explicit segment reference at %d pixels", differing)
+	}
+	pixel(t, got, 50, 42, color.RGBA{255, 0, 0, 255})
+	pixel(t, got, 150, 41, color.RGBA{0, 128, 0, 255})
+	pixel(t, got, 150, 44, color.RGBA{255, 255, 255, 255})
+}
+
 func TestCollapsedBorderConflictPrecedence(t *testing.T) {
 	node := func(name, border string) *StyledNode {
 		return &StyledNode{
@@ -812,6 +838,7 @@ func TestCollapsedBorderConflictPrecedence(t *testing.T) {
 			Style: ComputedStyle{"border-right": border},
 		}
 	}
+
 	candidate := func(name, border string) collapsedTableBorder {
 		return tableBorderCandidate(node(name, border), "right")
 	}
@@ -876,6 +903,38 @@ func TestCollapsedBorderConflictPrecedence(t *testing.T) {
 				t.Fatalf("winner = %#v, want %s %s %dpx", winner, tc.wantNode, tc.wantStyle, tc.wantWidth)
 			}
 		})
+	}
+}
+
+func TestCollapsedRowBordersResolveEachSpanSegment(t *testing.T) {
+	node := func(name, bottom, top string) *StyledNode {
+		return &StyledNode{
+			Node: &Node{Type: ElementNode, Name: name},
+			Style: ComputedStyle{
+				"display": "table-cell", "border-bottom": bottom,
+				"border-top": top,
+			},
+		}
+	}
+	aboveLeft := &tableCellBox{node: node("td", "5px solid red", ""), col: 0, colspan: 1, rowspan: 1, row: 0}
+	aboveRight := &tableCellBox{node: node("td", "1px solid blue", ""), col: 1, colspan: 1, rowspan: 1, row: 0}
+	below := &tableCellBox{node: node("td", "", "3px solid green"), col: 0, colspan: 2, rowspan: 1, row: 1}
+	grid := &tableGrid{
+		collapse: true, columns: 2,
+		rows: []*tableRowBox{
+			{cells: []*tableCellBox{aboveLeft, aboveRight}},
+			{cells: []*tableCellBox{below}},
+		},
+	}
+	grid.resolveRowBorderSegments()
+	if len(grid.rowBorderSegments) != 2 || len(grid.rowBorderSegments[1]) != 2 {
+		t.Fatalf("segments = %#v, want two columns", grid.rowBorderSegments)
+	}
+	if got := grid.rowBorderSegments[1][0]; got == nil || got.width != 5 || got.node != aboveLeft.node {
+		t.Fatalf("left segment = %#v, want 5px upper cell", got)
+	}
+	if got := grid.rowBorderSegments[1][1]; got == nil || got.width != 3 || got.node != below.node {
+		t.Fatalf("right segment = %#v, want 3px spanning cell", got)
 	}
 }
 
