@@ -43,15 +43,44 @@ func gridGap(style ComputedStyle, width int) int {
 func layoutGrid(parent *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) ([]*Box, int) {
 	names := gridAreaNames(parent.Style)
 	gap := gridGap(parent.Style, width)
-	items, _ := flexChildren(parent)
-	if len(items) > len(names) {
-		items = items[:len(names)]
+	items, outOfFlow := flexChildren(parent)
+	columns := make(map[string]int, len(names))
+	for i, name := range names {
+		name = strings.ToLower(name)
+		if name == "." {
+			return layoutGridFlowFallback(parent, x, y, width, faces, cb)
+		}
+		if _, exists := columns[name]; exists {
+			return layoutGridFlowFallback(parent, x, y, width, faces, cb)
+		}
+		columns[name] = i
+	}
+	// This subset only lays out one item in each named area. Falling back for
+	// every other shape preserves content until placement is implemented;
+	// truncating children here would silently lose page content.
+	if len(names) != 3 || len(items) != len(names) || len(outOfFlow) != 0 {
+		return layoutGridFlowFallback(parent, x, y, width, faces, cb)
+	}
+	itemColumns := make([]int, len(items))
+	seen := make(map[string]bool, len(items))
+	for i, item := range items {
+		area := strings.ToLower(strings.TrimSpace(item.Style["grid-area"]))
+		column, ok := columns[area]
+		if !ok || seen[area] {
+			return layoutGridFlowFallback(parent, x, y, width, faces, cb)
+		}
+		seen[area] = true
+		itemColumns[i] = column
+	}
+	if len(seen) != len(names) {
+		return layoutGridFlowFallback(parent, x, y, width, faces, cb)
 	}
 	tracks := [3]int{}
 	for i, item := range items {
 		minimum, _ := intrinsicWidths(item, faces)
-		if i < 3 {
-			tracks[i] = minimum
+		column := itemColumns[i]
+		if column == 0 || column == 2 {
+			tracks[column] = max(tracks[column], minimum)
 		}
 	}
 	remaining := max(0, width-gap*2-tracks[0]-tracks[2])
@@ -61,15 +90,7 @@ func layoutGrid(parent *StyledNode, x, y, width int, faces *faceSet, cb containi
 	boxes := make([]*Box, 0, len(items))
 	bottom := y
 	for i, item := range items {
-		column := i
-		if area := strings.TrimSpace(item.Style["grid-area"]); area != "" {
-			for j, name := range names {
-				if strings.EqualFold(area, name) {
-					column = j
-					break
-				}
-			}
-		}
+		column := itemColumns[i]
 		box, _ := layoutBlock(asGridItem(item), positions[column], y, tracks[column], faces, cb)
 		boxes = append(boxes, box)
 		bottom = max(bottom, box.Rect.Max.Y)
@@ -84,6 +105,11 @@ func layoutGrid(parent *StyledNode, x, y, width int, faces *faceSet, cb containi
 		}
 	}
 	return boxes, y + height
+}
+
+func layoutGridFlowFallback(parent *StyledNode, x, y, width int, faces *faceSet, cb containingBlock) ([]*Box, int) {
+	boxes, bottom, _ := layoutFlow(parent, x, y, width, faces, false, false, cb)
+	return boxes, bottom
 }
 
 func asGridItem(n *StyledNode) *StyledNode {
