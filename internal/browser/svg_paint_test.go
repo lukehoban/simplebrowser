@@ -266,6 +266,116 @@ func TestSVGPatternGeometryCalcFontRelative(t *testing.T) {
 	}
 }
 
+// Bare unit-bearing pattern lengths (issue #434) resolve with the same basis
+// as calc(): the supplying pattern's font for em/ex/ch, the root font for rem,
+// and CSS absolute-unit factors, instead of invalidating the pattern.
+func TestSVGPatternGeometryBareUnits(t *testing.T) {
+	for _, tc := range []struct {
+		name, defs string
+		tile       int
+	}{
+		{"issue repro em", `<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:10px" width="1em" height="1em">`, 10},
+		{"rem uses root", `<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:10px" width="1rem" height="1rem">`, 20},
+		{"inherited from defs ancestor", `<g style="font-size:12px"><pattern id="p" patternUnits="userSpaceOnUse" width="1em" height="1em">`, 12},
+		{"points", `<pattern id="p" patternUnits="userSpaceOnUse" width="9pt" height="9pt">`, 12},
+		{"picas", `<pattern id="p" patternUnits="userSpaceOnUse" width="1pc" height="1pc">`, 16},
+		{"millimetres", `<pattern id="p" patternUnits="userSpaceOnUse" width="3.175mm" height="3.175mm">`, 12},
+		{"inches", `<pattern id="p" patternUnits="userSpaceOnUse" width="0.125in" height="0.125in">`, 12},
+		{"centimetres", `<pattern id="p" patternUnits="userSpaceOnUse" width="0.3175cm" height="0.3175cm">`, 12},
+		{"uppercase unit", `<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:10px" width="1EM" height="1EM">`, 10},
+		{"href source font", `<pattern id="base" patternUnits="userSpaceOnUse" style="font-size:10px" width="1.1em" height="1.1em"><rect width="2" height="2" fill="red"/></pattern>` +
+			`<pattern id="p" href="#base" style="font-size:30px">`, 11},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			closeTags := `<rect width="2" height="2" fill="red"/></pattern>`
+			if strings.Contains(tc.defs, `href="#base"`) {
+				closeTags = `</pattern>`
+			}
+			if strings.HasPrefix(tc.defs, "<g") {
+				closeTags += `</g>`
+			}
+			src := svgOpen + `width="60" height="60" style="font-size:20px"><defs>` + tc.defs + closeTags +
+				`</defs><rect width="60" height="60" fill="url(#p) blue"/></svg>`
+			img := decodeSVGString(t, src)
+			red := color.RGBA{255, 0, 0, 255}
+			for _, point := range [][2]int{{0, 0}, {tc.tile, 0}, {0, tc.tile}, {tc.tile, tc.tile}} {
+				if got := img.RGBAAt(point[0], point[1]); !near(got, red, 1) {
+					t.Errorf("tile origin %v = %v, want red", point, got)
+				}
+			}
+			if got := img.RGBAAt(tc.tile-1, 0); got.A != 0 {
+				t.Errorf("before tile start (%d,0) = %v, want transparent tile gap", tc.tile-1, got)
+			}
+		})
+	}
+}
+
+// Bare units in x/y offset the tile; unknown units still invalidate the
+// pattern and use the fallback paint.
+func TestSVGPatternGeometryBareUnitsOffsetAndFallback(t *testing.T) {
+	src := svgOpen + `width="40" height="40"><defs>
+		<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:10px" x="0.5em" y="3pt" width="1em" height="1em"><rect width="2" height="2" fill="red"/></pattern>
+		<pattern id="bad" patternUnits="userSpaceOnUse" width="1foo" height="4"><rect width="4" height="4" fill="red"/></pattern>
+		</defs>
+		<rect width="20" height="20" fill="url(#p) blue"/>
+		<rect x="24" width="8" height="8" fill="url(#bad) blue"/></svg>`
+	img := decodeSVGString(t, src)
+	red := color.RGBA{255, 0, 0, 255}
+	for _, point := range [][2]int{{5, 4}, {15, 14}} {
+		if got := img.RGBAAt(point[0], point[1]); !near(got, red, 1) {
+			t.Errorf("offset tile origin %v = %v, want red", point, got)
+		}
+	}
+	if got := img.RGBAAt(0, 0); got.A != 0 {
+		t.Errorf("unshifted origin = %v, want transparent tile gap", got)
+	}
+	if got := img.RGBAAt(25, 1); !near(got, color.RGBA{0, 0, 255, 255}, 1) {
+		t.Errorf("unknown unit fallback = %v, want blue", got)
+	}
+}
+
+// In objectBoundingBox units a bare font-relative length resolves to user
+// units and is then used as a box fraction, like calc(1em).
+func TestSVGPatternGeometryBareUnitsObjectBoundingBox(t *testing.T) {
+	for _, size := range []string{"1em", "calc(1em)"} {
+		src := svgOpen + `width="80" height="80"><defs>
+		<pattern id="p" style="font-size:0.5px" width="` + size + `" height="` + size + `"><rect width="2" height="2" fill="red"/></pattern>
+		</defs><rect width="20" height="20" fill="url(#p) blue"/></svg>`
+		img := decodeSVGString(t, src)
+		red := color.RGBA{255, 0, 0, 255}
+		for _, point := range [][2]int{{0, 0}, {10, 0}, {0, 10}, {10, 10}} {
+			if got := img.RGBAAt(point[0], point[1]); !near(got, red, 1) {
+				t.Errorf("%s: tile origin %v = %v, want red (10px tiles from 0.5 bbox)", size, point, got)
+			}
+		}
+		if got := img.RGBAAt(5, 0); got.A != 0 {
+			t.Errorf("%s: tile gap = %v, want transparent", size, got)
+		}
+	}
+}
+
+// ex and ch depend on measured font ratios, so compare bare units against
+// the already-supported calc() form rather than hard-coding a ratio.
+func TestSVGPatternGeometryBareExChMatchCalc(t *testing.T) {
+	render := func(w string) []byte {
+		src := svgOpen + `width="60" height="60"><defs>
+		<pattern id="p" patternUnits="userSpaceOnUse" style="font-size:24px" width="` + w + `" height="` + w + `"><rect width="2" height="2" fill="red"/></pattern>
+		</defs><rect width="60" height="60" fill="url(#p) blue"/></svg>`
+		return decodeSVGString(t, src).Pix
+	}
+	for _, unit := range []string{"ex", "ch"} {
+		bare, calc := render("1"+unit), render("calc(1"+unit+")")
+		if !bytes.Equal(bare, calc) {
+			t.Errorf("bare 1%s pattern differs from calc(1%s)", unit, unit)
+		}
+	}
+	// Guard that the comparison is meaningful: 1ex must yield a valid tile
+	// rather than the blue fallback.
+	if img := decodeSVGString(t, svgOpen+`width="60" height="60"><defs><pattern id="p" patternUnits="userSpaceOnUse" style="font-size:24px" width="1ex" height="1ex"><rect width="2" height="2" fill="red"/></pattern></defs><rect width="60" height="60" fill="url(#p) blue"/></svg>`); !near(img.RGBAAt(0, 0), color.RGBA{255, 0, 0, 255}, 1) {
+		t.Errorf("bare 1ex tile origin = %v, want red", img.RGBAAt(0, 0))
+	}
+}
+
 // CSS math in objectBoundingBox pattern geometry uses the normalized box
 // (percentages are fractions of 1), not the viewport.
 func TestSVGPatternGeometryCalcObjectBoundingBox(t *testing.T) {

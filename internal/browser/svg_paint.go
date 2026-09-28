@@ -706,18 +706,25 @@ func (s *svgExpansion) svgPaintLength(v string, source *svgNode, basis float64, 
 		}
 		v = strings.TrimSpace(resolved)
 	}
-	if strings.HasPrefix(strings.ToLower(v), "calc(") {
-		font := svgComputedFont{size: s.img.rootFontSize, ratios: ratiosFor(nil)}
-		if source != nil {
-			font = s.computedFont(source)
-		}
-		calcBasis := svgLengthBasis{horizontal: basis, vertical: basis, diagonal: basis,
-			fontSize: font.size, rootFontSize: s.img.rootFontSize,
-			ratios: font.ratios}
-		n, ok := svgCalc(v, calcBasis, axis)
-		return n, ok
+	if n, ok := svgGradientLength(v, basis, userSpace); ok {
+		return n, true
 	}
-	return svgGradientLength(v, basis, userSpace)
+	// CSS math and bare unit-bearing lengths (font-relative em/ex/ch/rem and
+	// absolute in/cm/mm/Q/pt/pc) share one basis: the computed font of the
+	// pattern supplying the value and the document root font for rem. In
+	// objectBoundingBox units the resolved user-unit value is then used as a
+	// fraction of the box, matching how calc() is treated.
+	font := svgComputedFont{size: s.img.rootFontSize, ratios: ratiosFor(nil)}
+	if source != nil {
+		font = s.computedFont(source)
+	}
+	lengthBasis := svgLengthBasis{horizontal: basis, vertical: basis, diagonal: basis,
+		fontSize: font.size, rootFontSize: s.img.rootFontSize,
+		ratios: font.ratios}
+	if strings.HasPrefix(strings.ToLower(v), "calc(") {
+		return svgCalc(v, lengthBasis, axis)
+	}
+	return lengthBasis.coordinate(v, axis)
 }
 
 // svgGradientLength resolves a simple gradient coordinate. In
