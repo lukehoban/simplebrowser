@@ -1,0 +1,66 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Flex image transferred-size suggestions</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 12px;
+      background: white;
+      color: #222;
+      font: 14px sans-serif;
+    }
+    .label {
+      margin: 0 0 4px;
+    }
+    .row {
+      display: flex;
+      align-items: flex-start;
+      background: #eeeeee;
+    }
+    .next {
+      flex: none;
+      background: #2864dc;
+    }
+    .maximum {
+      width: 240px;
+      height: 40px;
+      margin-bottom: 12px;
+    }
+    .maximum img {
+      height: 80px;
+      max-height: 40px;
+    }
+    .maximum .next {
+      width: 80px;
+      height: 40px;
+    }
+    .minimum {
+      width: 320px;
+      height: 120px;
+    }
+    .minimum img {
+      width: 480px;
+      height: 80px;
+      min-height: 120px;
+    }
+    .minimum .next {
+      width: 80px;
+      height: 40px;
+    }
+  </style>
+</head>
+<body>
+  <p class="label">max-height clamps a 2:1 image's transferred width</p>
+  <div id="max-row" class="row maximum">
+    <img id="max-image" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxMjAnIGhlaWdodD0nNjAnPjxyZWN0IHdpZHRoPScxMjAnIGhlaWdodD0nNjAnIGZpbGw9JyNlMjRhM2InLz48L3N2Zz4=">
+    <div id="max-next" class="next"></div>
+  </div>
+  <p class="label">min-height raises the transferred width suggestion</p>
+  <div id="min-row" class="row minimum">
+    <img id="min-image" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHdpZHRoPScxMjAnIGhlaWdodD0nNjAnPjxyZWN0IHdpZHRoPScxMjAnIGhlaWdodD0nNjAnIGZpbGw9JyNlMjRhM2InLz48L3N2Zz4=">
+    <div id="min-next" class="next"></div>
+  </div>
+</body>
+</html>
