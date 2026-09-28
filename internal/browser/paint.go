@@ -271,10 +271,14 @@ func drawBorders(dst *image.RGBA, rect image.Rectangle, style ComputedStyle) {
 }
 
 func drawBordersWithWidths(dst *image.RGBA, rect image.Rectangle, style ComputedStyle, widths [4]int) {
-	drawBordersWithColors(dst, rect, style, widths, nil)
+	drawBordersWithOverrides(dst, rect, style, widths, nil, nil)
 }
 
 func drawBordersWithColors(dst *image.RGBA, rect image.Rectangle, style ComputedStyle, widths [4]int, colors *[4]color.RGBA) {
+	drawBordersWithOverrides(dst, rect, style, widths, colors, nil)
+}
+
+func drawBordersWithOverrides(dst *image.RGBA, rect image.Rectangle, style ComputedStyle, widths [4]int, colors *[4]color.RGBA, styles *[4]string) {
 	if rect.Empty() {
 		return
 	}
@@ -289,10 +293,36 @@ func drawBordersWithColors(dst *image.RGBA, rect image.Rectangle, style Computed
 	if colors != nil {
 		borderColors = *colors
 	}
-	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+top), borderColors[0])
-	fill(dst, image.Rect(rect.Min.X, rect.Max.Y-bottom, rect.Max.X, rect.Max.Y), borderColors[2])
-	fill(dst, image.Rect(rect.Min.X, rect.Min.Y+top, rect.Min.X+left, rect.Max.Y-bottom), borderColors[3])
-	fill(dst, image.Rect(rect.Max.X-right, rect.Min.Y+top, rect.Max.X, rect.Max.Y-bottom), borderColors[1])
+	borderStyles := [4]string{"solid", "solid", "solid", "solid"}
+	if styles != nil {
+		borderStyles = *styles
+	}
+	paintBorderBand(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+top), borderColors[0], borderStyles[0], false)
+	paintBorderBand(dst, image.Rect(rect.Min.X, rect.Max.Y-bottom, rect.Max.X, rect.Max.Y), borderColors[2], borderStyles[2], false)
+	paintBorderBand(dst, image.Rect(rect.Min.X, rect.Min.Y+top, rect.Min.X+left, rect.Max.Y-bottom), borderColors[3], borderStyles[3], true)
+	paintBorderBand(dst, image.Rect(rect.Max.X-right, rect.Min.Y+top, rect.Max.X, rect.Max.Y-bottom), borderColors[1], borderStyles[1], true)
+}
+
+func paintBorderBand(dst *image.RGBA, rect image.Rectangle, c color.RGBA, style string, vertical bool) {
+	if style == "none" || style == "hidden" || rect.Empty() {
+		return
+	}
+	if style != "double" {
+		fill(dst, rect, c)
+		return
+	}
+	thickness := rect.Dy()
+	if vertical {
+		thickness = rect.Dx()
+	}
+	third := max(1, thickness/3)
+	if vertical {
+		fill(dst, image.Rect(rect.Min.X, rect.Min.Y, min(rect.Max.X, rect.Min.X+third), rect.Max.Y), c)
+		fill(dst, image.Rect(max(rect.Min.X, rect.Max.X-third), rect.Min.Y, rect.Max.X, rect.Max.Y), c)
+		return
+	}
+	fill(dst, image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, min(rect.Max.Y, rect.Min.Y+third)), c)
+	fill(dst, image.Rect(rect.Min.X, max(rect.Min.Y, rect.Max.Y-third), rect.Max.X, rect.Max.Y), c)
 }
 
 func decorated(run TextRun, styles map[*Node]ComputedStyle, keyword string) bool {
@@ -660,7 +690,7 @@ func (p *painter) paintBackground(box *Box) {
 			if box.BorderWidths != nil {
 				r := usedRadii(style, box.Rect)
 				if box.BorderColors != nil {
-					drawBordersWithColors(p.canvas, box.Rect, style, *box.BorderWidths, box.BorderColors)
+					drawBordersWithOverrides(p.canvas, box.Rect, style, *box.BorderWidths, box.BorderColors, box.BorderStyles)
 				} else if hasRadius(r) {
 					paintRoundedBox(p.canvas, box.Rect, style, *box.BorderWidths, r, func(*image.RGBA) {})
 				} else {
@@ -718,7 +748,7 @@ func (p *painter) paintBackground(box *Box) {
 			})
 		} else {
 			if box.BorderColors != nil {
-				drawBordersWithColors(p.canvas, box.Rect, style, widths, box.BorderColors)
+				drawBordersWithOverrides(p.canvas, box.Rect, style, widths, box.BorderColors, box.BorderStyles)
 			} else {
 				drawBordersWithWidths(p.canvas, box.Rect, style, widths)
 			}
