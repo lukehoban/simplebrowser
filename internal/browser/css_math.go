@@ -34,7 +34,8 @@ func calcLengthProperty(property string) bool {
 		"margin-bottom", "margin-left", "padding", "padding-top", "padding-right",
 		"padding-bottom", "padding-left", "flex-basis", "gap", "row-gap", "column-gap",
 		"border-width", "border-top-width", "border-right-width", "border-bottom-width",
-		"border-left-width":
+		"border-left-width", "border-radius", "border-top-left-radius",
+		"border-top-right-radius", "border-bottom-right-radius", "border-bottom-left-radius":
 		return true
 	}
 	return false
@@ -43,7 +44,8 @@ func calcLengthProperty(property string) bool {
 // calcPercentAllowed reports whether the property's length grammar accepts
 // percentages; border widths do not, so calc() there must not either.
 func calcPercentAllowed(property string) bool {
-	return !strings.HasPrefix(property, "border-")
+	return strings.HasSuffix(property, "-radius") || property == "border-radius" ||
+		!strings.HasPrefix(property, "border-")
 }
 
 // calcNonNegativeProperty reports properties whose length values are
@@ -56,7 +58,9 @@ func calcNonNegativeProperty(property string) bool {
 		"inline-size", "block-size", "padding", "padding-top", "padding-right",
 		"padding-bottom", "padding-left", "flex-basis", "gap", "row-gap",
 		"column-gap", "border-width", "border-top-width", "border-right-width",
-		"border-bottom-width", "border-left-width":
+		"border-bottom-width", "border-left-width", "border-radius",
+		"border-top-left-radius", "border-top-right-radius",
+		"border-bottom-right-radius", "border-bottom-left-radius":
 		return true
 	}
 	return false
@@ -754,6 +758,21 @@ func validCalcDeclaration(property, value string) bool {
 	}
 	if !containsMathFunction(value) {
 		return true
+	}
+	if property == "border-radius" {
+		halves, ok := splitRadiusHalves(value)
+		if !ok {
+			return false
+		}
+		for _, half := range halves {
+			if _, ok := radiusParts(half); !ok {
+				return false
+			}
+		}
+		return true
+	}
+	if strings.HasPrefix(property, "border-") && strings.HasSuffix(property, "-radius") {
+		return validCornerRadius(value)
 	}
 	// The box shorthands accept one to four whitespace-separated components.
 	// Split only at top level so spaces inside calc() remain part of its

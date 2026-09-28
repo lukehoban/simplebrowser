@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!-- Border-radius math-function fixture (#345). Each card uses the same
+     horizontal and vertical radii expressed through calc(), min(), max(), or
+     clamp(). All four cards should have visibly rounded elliptical corners. -->
+<style>
+  body { margin: 20px; background: #f2f4f8; font: 16px sans-serif; color: #17233c; }
+  h1 { margin: 0 0 16px; font-size: 22px; }
+  .grid { display: flex; flex-wrap: wrap; width: 460px; gap: 16px; }
+  .card {
+    width: 180px; height: 84px; padding: 18px;
+    background: #3157d5; color: white;
+  }
+  .calc { border-radius: calc(10px + 14px) / calc(10% + 8px); }
+  .min { border-radius: min(18%, 30px) / min(35%, 24px); background: #00856f; }
+  .max { border-radius: max(10%, 24px) / max(12%, 18px); background: #9b3f76; }
+  .clamp {
+    border-radius: clamp(18px, 16%, 34px) / clamp(14px, 25%, 28px);
+    background: #c65319;
+  }
+  strong { display: block; margin-bottom: 8px; font-size: 18px; }
+</style>
+<body>
+  <h1>CSS math in border-radius</h1>
+  <div class="grid">
+    <div class="card calc"><strong>calc()</strong>length + percentage</div>
+    <div class="card min"><strong>min()</strong>bounded corners</div>
+    <div class="card max"><strong>max()</strong>minimum curve</div>
+    <div class="card clamp"><strong>clamp()</strong>fluid ellipse</div>
+  </div>
+</body>
